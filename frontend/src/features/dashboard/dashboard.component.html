@@ -1,0 +1,240 @@
+<div class="dashboard-page">
+  <!-- HEADER -->
+  <div class="page-header">
+    <div>
+      <h1>Dashboard</h1>
+      <p>Overview of your personal wealth and investments.</p>
+    </div>
+
+    <button class="refresh-button" type="button" (click)="loadDashboard()">Refresh</button>
+  </div>
+
+  <!-- LOADING -->
+  <div class="loading-card" *ngIf="loading">
+    <div class="loading-spinner"></div>
+
+    <span> Loading your wealth data... </span>
+  </div>
+
+  <!-- ERROR -->
+  <div class="error-card" *ngIf="error">
+    {{ error }}
+  </div>
+
+  <!-- DASHBOARD -->
+  <ng-container *ngIf="!loading">
+    <!-- KPI CARDS -->
+    <div class="kpi-grid">
+      <!-- TOTAL WEALTH -->
+      <div class="kpi-card">
+        <span class="kpi-label"> Total Wealth </span>
+
+        <strong>
+          {{ summary?.total_current_value ?? summary?.total_wealth ?? 0 | number: '1.0-0' }}
+        </strong>
+
+        <span class="kpi-subtitle"> Current portfolio value </span>
+      </div>
+
+      <!-- INVESTED VALUE -->
+      <div class="kpi-card">
+        <span class="kpi-label"> Invested Value </span>
+
+        <strong>
+          {{ summary?.total_invested ?? summary?.invested_value ?? 0 | number: '1.0-0' }}
+        </strong>
+
+        <span class="kpi-subtitle"> Total invested </span>
+      </div>
+
+      <!-- PROFIT / LOSS -->
+      <div class="kpi-card">
+        <span class="kpi-label"> Profit / Loss </span>
+
+        <strong
+          [class.positive]="(summary?.total_pnl ?? summary?.pnl ?? 0) >= 0"
+          [class.negative]="(summary?.total_pnl ?? summary?.pnl ?? 0) < 0"
+        >
+          {{ summary?.total_pnl ?? summary?.pnl ?? 0 | number: '1.0-0' }}
+        </strong>
+
+        <span class="kpi-subtitle"> Overall P&L </span>
+      </div>
+
+      <!-- XIRR -->
+      <div class="kpi-card">
+        <span class="kpi-label"> XIRR </span>
+
+        <strong>
+          {{ xirr?.xirr_percentage ?? xirr?.xirr ?? summary?.xirr_percentage ?? 0 }}%
+        </strong>
+
+        <span class="kpi-subtitle"> Annualized return </span>
+      </div>
+    </div>
+
+    <!-- WEALTH + ALLOCATION -->
+    <div class="section-grid">
+      <!-- WEALTH HISTORY -->
+      <div class="dashboard-card large-card">
+        <div class="card-header">
+          <div>
+            <h2>Wealth Overview</h2>
+
+            <p>Portfolio value vs invested value</p>
+          </div>
+
+          <span class="period-badge"> Last 30 days </span>
+        </div>
+
+        <div class="chart-container">
+          <canvas #wealthChart></canvas>
+        </div>
+      </div>
+
+      <!-- ALLOCATION -->
+      <div class="dashboard-card">
+        <div class="card-header">
+          <div>
+            <h2>Allocation</h2>
+
+            <p>Portfolio distribution</p>
+          </div>
+        </div>
+
+        <div class="allocation-chart-container">
+          <canvas #allocationChart></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- PERFORMANCE -->
+    <div class="dashboard-card performance-card">
+      <div class="card-header">
+        <div>
+          <h2>Investment Performance</h2>
+
+          <p>Return percentage by holding</p>
+        </div>
+      </div>
+
+      <div
+        class="performance-chart-container"
+        *ngIf="performance && performance.results && performance.results.length > 0"
+      >
+        <canvas #performanceChart></canvas>
+      </div>
+
+      <div
+        class="empty-state"
+        *ngIf="!performance || !performance.results || performance.results.length === 0"
+      >
+        No performance data available.
+      </div>
+    </div>
+
+    <!-- P&L -->
+    <div class="dashboard-card">
+      <div class="card-header">
+        <div>
+          <h2>Profit &amp; Loss Trend</h2>
+
+          <p>Historical portfolio P&amp;L</p>
+        </div>
+      </div>
+
+      <div class="chart-container pnl-container">
+        <canvas #pnlChart></canvas>
+      </div>
+    </div>
+
+    <!-- BOTTOM SUMMARY -->
+    <div class="bottom-grid">
+      <!-- PORTFOLIO SUMMARY -->
+      <div class="dashboard-card">
+        <div class="card-header">
+          <div>
+            <h2>Portfolio Summary</h2>
+
+            <p>Current portfolio statistics</p>
+          </div>
+        </div>
+
+        <div class="summary-list">
+          <div class="summary-row">
+            <span> Number of holdings </span>
+
+            <strong>
+              {{ summary?.number_of_holdings ?? 0 }}
+            </strong>
+          </div>
+
+          <div class="summary-row">
+            <span> Realized P&amp;L </span>
+
+            <strong>
+              {{ summary?.realized_pnl ?? 0 | currency: 'INR' : 'symbol' : '1.0-0' }}
+            </strong>
+          </div>
+
+          <div class="summary-row">
+            <span> Unrealized P&amp;L </span>
+
+            <strong>
+              {{ summary?.unrealized_pnl ?? 0 | currency: 'INR' : 'symbol' : '1.0-0' }}
+            </strong>
+          </div>
+
+          <div class="summary-row">
+            <span> Total return </span>
+
+            <strong> {{ summary?.return_percentage ?? 0 }}% </strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- HISTORICAL PERIOD -->
+      <div class="dashboard-card">
+        <div class="card-header">
+          <div>
+            <h2>Historical Period</h2>
+
+            <p>Data currently displayed</p>
+          </div>
+        </div>
+
+        <div class="summary-list">
+          <div class="summary-row">
+            <span> Period </span>
+
+            <strong> {{ historical?.days ?? 30 }} days </strong>
+          </div>
+
+          <div class="summary-row">
+            <span> Start date </span>
+
+            <strong>
+              {{ historical?.start_date ?? '-' }}
+            </strong>
+          </div>
+
+          <div class="summary-row">
+            <span> End date </span>
+
+            <strong>
+              {{ historical?.end_date ?? '-' }}
+            </strong>
+          </div>
+
+          <div class="summary-row">
+            <span> Data points </span>
+
+            <strong>
+              {{ historical?.results?.length ?? 0 }}
+            </strong>
+          </div>
+        </div>
+      </div>
+    </div>
+  </ng-container>
+</div>

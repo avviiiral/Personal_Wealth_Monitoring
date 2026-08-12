@@ -1,0 +1,76 @@
+<aside class="sidebar">
+  <div class="brand">
+    <div class="brand-mark">W</div>
+
+    <div class="brand-text">
+      <span class="brand-name">PWMS</span>
+      <span class="brand-subtitle">Wealth Monitor</span>
+    </div>
+  </div>
+
+  <nav class="navigation">
+    <!-- OVERVIEW -->
+
+    <div class="nav-section">
+      <span class="section-title"> Overview </span>
+
+      <a routerLink="/dashboard" routerLinkActive="active" class="nav-item">
+        <svg lucideLayoutDashboard [size]="19"></svg>
+
+        <span>Dashboard</span>
+      </a>
+    </div>
+
+    <!-- PORTFOLIO -->
+
+    <div class="nav-section">
+      <span class="section-title"> Portfolio </span>
+
+      <a routerLink="/portfolio" routerLinkActive="active" class="nav-item">
+        <svg lucideWallet [size]="19"></svg>
+
+        <span>Portfolio</span>
+      </a>
+
+      <a routerLink="/holdings" routerLinkActive="active" class="nav-item">
+        <svg lucideTrendingUp [size]="19"></svg>
+
+        <span>Holdings</span>
+      </a>
+
+      <a routerLink="/mutual-funds" routerLinkActive="active" class="nav-item">
+        <svg lucideCircleDollarSign [size]="19"></svg>
+
+        <span>Mutual Funds</span>
+      </a>
+    </div>
+
+    <!-- PLANNING -->
+
+    <div class="nav-section">
+      <span class="section-title"> Planning </span>
+
+      <a routerLink="/sips" routerLinkActive="active" class="nav-item">
+        <svg lucideTrendingUp [size]="19"></svg>
+
+        <span>SIPs</span>
+      </a>
+
+      <a routerLink="/analytics" routerLinkActive="active" class="nav-item">
+        <svg lucideChartPie [size]="19"></svg>
+
+        <span>Analytics</span>
+      </a>
+    </div>
+
+    <!-- SETTINGS -->
+
+    <div class="nav-section bottom-section">
+      <a routerLink="/settings" routerLinkActive="active" class="nav-item">
+        <svg lucideSettings [size]="19"></svg>
+
+        <span>Settings</span>
+      </a>
+    </div>
+  </nav>
+</aside>
