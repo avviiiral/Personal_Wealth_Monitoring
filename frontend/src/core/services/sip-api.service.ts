@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { Observable, switchMap } from 'rxjs';
 
 export interface SIPSummary {
   total_sips: number;
@@ -46,34 +46,22 @@ export interface SIP {
 
 export interface DueSIP {
   id: number;
+  sip_id: number;
   scheme: string;
   amount: number;
   frequency: string;
-  next_installment_date: string | null;
-  due_count: number;
-  status: string;
-}
-
-export interface SIPInstallment {
-  id: number;
-  sip_id: number;
-  scheme_name: string;
-  frequency: string;
-  frequency_display: string;
   scheduled_date: string;
-  amount: number;
+  next_installment_date: string | null;
   status: string;
-  status_display: string;
-  transaction_id: number | null;
-  executed_at: string | null;
-  notes: string | null;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface ApiListResponse<T> {
   count: number;
   results: T[];
+}
+
+interface CsrfResponse {
+  detail: string;
 }
 
 @Injectable({
@@ -88,6 +76,37 @@ export class SipApiService {
     withCredentials: true,
   };
 
+  /**
+   * Get the Django CSRF cookie.
+   *
+   * This endpoint causes Django to set:
+   *
+   * csrftoken=<token>
+   *
+   * The token is then read from document.cookie
+   * and sent as X-CSRFToken on POST requests.
+   */
+  private getCsrfToken(): Observable<CsrfResponse> {
+    return this.http.get<CsrfResponse>(`${this.baseUrl}/csrf/`, this.requestOptions);
+  }
+
+  /**
+   * Read Django's csrftoken cookie.
+   */
+  private readCsrfToken(): string | null {
+    const cookies = document.cookie.split(';');
+
+    for (const cookie of cookies) {
+      const [name, ...valueParts] = cookie.trim().split('=');
+
+      if (name === 'csrftoken') {
+        return decodeURIComponent(valueParts.join('='));
+      }
+    }
+
+    return null;
+  }
+
   getSummary(): Observable<SIPSummary> {
     return this.http.get<SIPSummary>(`${this.baseUrl}/sips/summary/`, this.requestOptions);
   }
@@ -100,32 +119,40 @@ export class SipApiService {
     return this.http.get<ApiListResponse<DueSIP>>(`${this.baseUrl}/sips/due/`, this.requestOptions);
   }
 
-  getInstallments(): Observable<ApiListResponse<SIPInstallment>> {
-    return this.http.get<ApiListResponse<SIPInstallment>>(
-      `${this.baseUrl}/sip-installments/`,
-      this.requestOptions,
-    );
-  }
-
-  getDueInstallments(): Observable<ApiListResponse<SIPInstallment>> {
-    return this.http.get<ApiListResponse<SIPInstallment>>(
-      `${this.baseUrl}/sip-installments/?status=DUE`,
-      this.requestOptions,
-    );
-  }
-
-  getInstallmentsForSIP(sipId: number): Observable<ApiListResponse<SIPInstallment>> {
-    return this.http.get<ApiListResponse<SIPInstallment>>(
-      `${this.baseUrl}/sip-installments/?sip_id=${sipId}`,
-      this.requestOptions,
-    );
-  }
-
+  /**
+   * Execute one specific SIP installment.
+   *
+   * Flow:
+   *
+   * 1. GET /csrf/
+   * 2. Django sets csrftoken cookie
+   * 3. Read csrftoken from document.cookie
+   * 4. Send X-CSRFToken header
+   * 5. POST installment execution endpoint
+   */
   executeInstallment(installmentId: number): Observable<any> {
-    return this.http.post(
-      `${this.baseUrl}/sip-installments/${installmentId}/execute/`,
-      {},
-      this.requestOptions,
+    return this.getCsrfToken().pipe(
+      switchMap(() => {
+        const csrfToken = this.readCsrfToken();
+
+        if (!csrfToken) {
+          throw new Error('CSRF token was not found. Please refresh the page and try again.');
+        }
+
+        const headers = new HttpHeaders({
+          'X-CSRFToken': csrfToken,
+          'Content-Type': 'application/json',
+        });
+
+        return this.http.post(
+          `${this.baseUrl}/sip-installments/${installmentId}/execute/`,
+          {},
+          {
+            ...this.requestOptions,
+            headers,
+          },
+        );
+      }),
     );
   }
 }

@@ -9,6 +9,7 @@ import { HoldingsComponent } from '../features/holdings/holdings.component';
 import { MutualFundsComponent } from '../features/mutual-funds/mutual-funds.component';
 import { SipsComponent } from '../features/sips/sips.component';
 import { AnalyticsComponent } from '../features/analytics/analytics.component';
+import { SettingsComponent } from '../features/settings/settings.component';
 
 import { PagePlaceholderComponent } from '../shared/components/page-placeholder.component';
 
@@ -73,11 +74,7 @@ export const routes: Routes = [
 
       {
         path: 'settings',
-        component: PagePlaceholderComponent,
-        data: {
-          title: 'Settings',
-          description: 'Configure your PWMS preferences and account settings.',
-        },
+        component: SettingsComponent,
       },
     ],
   },

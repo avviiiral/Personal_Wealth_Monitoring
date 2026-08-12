@@ -20,6 +20,9 @@ export class SipsComponent implements OnInit {
 
   loading = true;
   error = '';
+  executingInstallmentId: number | null = null;
+  executionError = '';
+  executionSuccess = '';
 
   ngOnInit(): void {
     this.loadData();
@@ -88,6 +91,47 @@ export class SipsComponent implements OnInit {
         }
 
         completeRequest();
+      },
+    });
+  }
+
+  executeInstallment(installment: DueSIP): void {
+    if (this.executingInstallmentId !== null) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Execute SIP installment of ${this.formatCurrency(
+        installment.amount,
+      )} for ${installment.scheme} scheduled on ${this.formatDate(installment.scheduled_date)}?`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    this.executingInstallmentId = installment.id;
+    this.executionError = '';
+    this.executionSuccess = '';
+
+    this.sipApi.executeInstallment(installment.id).subscribe({
+      next: (response) => {
+        console.log('SIP installment executed:', response);
+
+        this.executionSuccess = 'SIP installment executed successfully.';
+
+        this.executingInstallmentId = null;
+
+        this.loadData();
+      },
+
+      error: (error) => {
+        console.error('SIP installment execution error:', error);
+
+        this.executingInstallmentId = null;
+
+        this.executionError =
+          error?.error?.error || 'Unable to execute SIP installment. Please try again.';
       },
     });
   }

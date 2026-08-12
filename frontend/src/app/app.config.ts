@@ -1,8 +1,8 @@
 import { ApplicationConfig, provideBrowserGlobalErrorListeners } from '@angular/core';
 
-import { provideRouter } from '@angular/router';
+import { provideHttpClient, withFetch, withXsrfConfiguration } from '@angular/common/http';
 
-import { provideHttpClient, withFetch } from '@angular/common/http';
+import { provideRouter } from '@angular/router';
 
 import { routes } from './app.routes';
 
@@ -12,6 +12,13 @@ export const appConfig: ApplicationConfig = {
 
     provideRouter(routes),
 
-    provideHttpClient(withFetch()),
+    provideHttpClient(
+      withFetch(),
+
+      withXsrfConfiguration({
+        cookieName: 'csrftoken',
+        headerName: 'X-CSRFToken',
+      }),
+    ),
   ],
 };

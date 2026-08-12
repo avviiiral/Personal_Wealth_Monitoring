@@ -24,6 +24,15 @@
         {{ error }}
       </div>
     </div>
+    <div class="execution-success" *ngIf="executionSuccess">
+      <span class="message-icon">✓</span>
+      <span>{{ executionSuccess }}</span>
+    </div>
+
+    <div class="execution-error" *ngIf="executionError">
+      <span class="message-icon">!</span>
+      <span>{{ executionError }}</span>
+    </div>
 
     <button type="button" class="retry-button" (click)="refresh()">Try Again</button>
   </div>
@@ -199,14 +208,13 @@
 
               <div class="due-meta">
                 {{ due.frequency }}
-                ·
-                {{ getDueLabel(due.due_count) }}
+                · Scheduled {{ formatDate(due.scheduled_date) }}
               </div>
             </div>
           </div>
 
           <div class="due-amount">
-            <span> Amount </span>
+            <span>Amount</span>
 
             <strong>
               {{ formatCurrency(due.amount) }}
@@ -214,16 +222,29 @@
           </div>
 
           <div class="due-date">
-            <span> Next installment </span>
+            <span>Scheduled Date</span>
 
             <strong>
-              {{ formatDate(due.next_installment_date) }}
+              {{ formatDate(due.scheduled_date) }}
             </strong>
           </div>
 
           <span class="status-badge" [ngClass]="getStatusClass(due.status)">
             {{ due.status }}
           </span>
+
+          <button
+            type="button"
+            class="execute-button"
+            [disabled]="executingInstallmentId !== null"
+            (click)="executeInstallment(due)"
+          >
+            <span *ngIf="executingInstallmentId === due.id" class="button-spinner"></span>
+
+            <span *ngIf="executingInstallmentId !== due.id"> Execute </span>
+
+            <span *ngIf="executingInstallmentId === due.id"> Executing... </span>
+          </button>
         </article>
       </div>
     </section>

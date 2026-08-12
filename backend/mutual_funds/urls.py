@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    csrf_token,
     mutual_fund_holdings,
     mutual_fund_summary,
     mutual_fund_transactions,
@@ -8,11 +9,17 @@ from .views import (
     sip_execute,
     sip_list,
     sip_summary,
-    sip_installment_list,
     sip_installment_execute,
+    
 )
 
+
 urlpatterns = [
+
+    # ------------------------------------------------------
+    # Mutual Funds
+    # ------------------------------------------------------
+
     path(
         "summary/",
         mutual_fund_summary,
@@ -30,6 +37,10 @@ urlpatterns = [
         mutual_fund_transactions,
         name="mutual-fund-transactions",
     ),
+
+    # ------------------------------------------------------
+    # SIP
+    # ------------------------------------------------------
 
     path(
         "sips/",
@@ -49,21 +60,23 @@ urlpatterns = [
         name="sip-summary",
     ),
 
+    # Deprecated SIP-level execution
     path(
         "sips/<int:sip_id>/execute/",
         sip_execute,
         name="sip-execute",
     ),
 
-    path(
-        "sip-installments/",
-        sip_installment_list,
-        name="sip-installment-list",
-    ),
-
+    # Individual installment execution
     path(
         "sip-installments/<int:installment_id>/execute/",
         sip_installment_execute,
         name="sip-installment-execute",
+    ),
+    
+    path(
+        "csrf/",
+        csrf_token,
+        name="csrf-token",
     ),
 ]

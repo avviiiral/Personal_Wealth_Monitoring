@@ -1,0 +1,268 @@
+<div class="settings-page">
+  <!-- ================================================== -->
+  <!-- HEADER -->
+  <!-- ================================================== -->
+
+  <header class="page-header">
+    <div>
+      <h1>Settings</h1>
+
+      <p>Manage your PWMS account and application preferences.</p>
+    </div>
+
+    <button type="button" class="refresh-button" (click)="refresh()" [disabled]="loading">
+      Refresh
+    </button>
+  </header>
+
+  <!-- ================================================== -->
+  <!-- LOADING -->
+  <!-- ================================================== -->
+
+  <div class="loading-card" *ngIf="loading">
+    <div class="loading-spinner"></div>
+
+    <span> Loading settings... </span>
+  </div>
+
+  <!-- ================================================== -->
+  <!-- ERROR -->
+  <!-- ================================================== -->
+
+  <div class="error-card" *ngIf="!loading && error">
+    {{ error }}
+  </div>
+
+  <ng-container *ngIf="!loading && profile">
+    <!-- ================================================== -->
+    <!-- PROFILE -->
+    <!-- ================================================== -->
+
+    <section class="settings-card">
+      <div class="card-header">
+        <div>
+          <h2>Profile</h2>
+
+          <p>Your PWMS account information.</p>
+        </div>
+
+        <span class="section-badge"> Account </span>
+      </div>
+
+      <div class="form-grid">
+        <div class="form-field">
+          <label> Username </label>
+
+          <input type="text" [value]="profile.username" disabled />
+
+          <span class="field-help"> Username cannot be changed from PWMS. </span>
+        </div>
+
+        <div class="form-field">
+          <label> Email </label>
+
+          <input type="email" [(ngModel)]="email" placeholder="Enter email address" />
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================== -->
+    <!-- PREFERENCES -->
+    <!-- ================================================== -->
+
+    <section class="settings-card">
+      <div class="card-header">
+        <div>
+          <h2>Preferences</h2>
+
+          <p>Configure how financial information is displayed.</p>
+        </div>
+
+        <span class="section-badge"> Preferences </span>
+      </div>
+
+      <div class="form-grid">
+        <div class="form-field">
+          <label> Currency </label>
+
+          <select [(ngModel)]="preferences.currency">
+            <option value="INR">Indian Rupee (₹)</option>
+
+            <option value="USD">US Dollar ($)</option>
+
+            <option value="EUR">Euro (€)</option>
+
+            <option value="GBP">British Pound (£)</option>
+          </select>
+        </div>
+
+        <div class="form-field">
+          <label> Date Format </label>
+
+          <select [(ngModel)]="preferences.date_format">
+            <option value="DD MMM YYYY">12 Aug 2026</option>
+
+            <option value="DD/MM/YYYY">12/08/2026</option>
+
+            <option value="YYYY-MM-DD">2026-08-12</option>
+          </select>
+        </div>
+
+        <div class="form-field">
+          <label> Default Analytics Period </label>
+
+          <select [(ngModel)]="preferences.default_analytics_period">
+            <option [ngValue]="30">30 Days</option>
+
+            <option [ngValue]="90">90 Days</option>
+
+            <option [ngValue]="180">180 Days</option>
+
+            <option [ngValue]="365">1 Year</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="success-message" *ngIf="profileMessage">
+        {{ profileMessage }}
+      </div>
+
+      <div class="card-actions">
+        <button type="button" class="primary-button" (click)="saveSettings()" [disabled]="saving">
+          <span *ngIf="!saving"> Save Changes </span>
+
+          <span *ngIf="saving"> Saving... </span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ================================================== -->
+    <!-- SECURITY -->
+    <!-- ================================================== -->
+
+    <section class="settings-card">
+      <div class="card-header">
+        <div>
+          <h2>Security</h2>
+
+          <p>Manage your account password.</p>
+        </div>
+
+        <span class="section-badge"> Security </span>
+      </div>
+
+      <div class="password-grid">
+        <div class="form-field">
+          <label> Current Password </label>
+
+          <input type="password" [(ngModel)]="currentPassword" autocomplete="current-password" />
+        </div>
+
+        <div class="form-field">
+          <label> New Password </label>
+
+          <input type="password" [(ngModel)]="newPassword" autocomplete="new-password" />
+        </div>
+
+        <div class="form-field">
+          <label> Confirm New Password </label>
+
+          <input type="password" [(ngModel)]="confirmPassword" autocomplete="new-password" />
+        </div>
+      </div>
+
+      <div class="error-message" *ngIf="passwordError">
+        {{ passwordError }}
+      </div>
+
+      <div class="success-message" *ngIf="passwordMessage">
+        {{ passwordMessage }}
+      </div>
+
+      <div class="card-actions">
+        <button
+          type="button"
+          class="secondary-button"
+          (click)="changePassword()"
+          [disabled]="changingPassword"
+        >
+          <span *ngIf="!changingPassword"> Change Password </span>
+
+          <span *ngIf="changingPassword"> Updating... </span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ================================================== -->
+    <!-- APPLICATION -->
+    <!-- ================================================== -->
+
+    <section class="settings-card">
+      <div class="card-header">
+        <div>
+          <h2>Application</h2>
+
+          <p>PWMS application information.</p>
+        </div>
+
+        <span class="section-badge"> System </span>
+      </div>
+
+      <div class="system-list">
+        <div class="system-row">
+          <span> Application </span>
+
+          <strong> Personal Wealth Monitoring System </strong>
+        </div>
+
+        <div class="system-row">
+          <span> Backend </span>
+
+          <strong> Django </strong>
+        </div>
+
+        <div class="system-row">
+          <span> Authentication </span>
+
+          <strong> Django Session Authentication </strong>
+        </div>
+
+        <div class="system-row">
+          <span> Currency </span>
+
+          <strong>
+            {{ preferences.currency }}
+          </strong>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================== -->
+    <!-- DANGER ZONE -->
+    <!-- ================================================== -->
+
+    <section class="settings-card danger-card">
+      <div class="card-header">
+        <div>
+          <h2>Session</h2>
+
+          <p>End your current PWMS session.</p>
+        </div>
+      </div>
+
+      <div class="danger-content">
+        <div>
+          <strong> Sign out of PWMS </strong>
+
+          <p>You will need to log in again to access your wealth dashboard.</p>
+        </div>
+
+        <button type="button" class="danger-button" (click)="logout()" [disabled]="loggingOut">
+          <span *ngIf="!loggingOut"> Log Out </span>
+
+          <span *ngIf="loggingOut"> Logging Out... </span>
+        </button>
+      </div>
+    </section>
+  </ng-container>
+</div>

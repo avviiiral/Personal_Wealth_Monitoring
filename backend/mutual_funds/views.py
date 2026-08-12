@@ -1,3 +1,5 @@
+from django.views.decorators.csrf import ensure_csrf_cookie
+
 from decimal import Decimal
 
 from django.db.models import Sum
@@ -7,12 +9,7 @@ from rest_framework.decorators import (
     permission_classes,
 )
 
-from .services.sip_installment_execution import (
-    SIPInstallmentExecutionService,
-)
-
 from rest_framework.permissions import IsAuthenticated
-
 from rest_framework.response import Response
 
 from mutual_funds.models import (
@@ -20,13 +17,13 @@ from mutual_funds.models import (
     MutualFundTransaction,
     SIP,
     SIPInstallment,
+    SIPInstallmentStatus,
 )
 
 from .serializers import (
     MutualFundHoldingSerializer,
     MutualFundTransactionSerializer,
     SIPSerializer,
-    SIPInstallmentSerializer,
 )
 
 from .services.sip_engine import SIPEngine
@@ -39,6 +36,14 @@ from .services.sip_summary import (
     SIPSummaryService,
 )
 
+from .services.sip_installment_execution import (
+    SIPInstallmentExecutionService,
+)
+
+
+# ==========================================================
+# MUTUAL FUND SUMMARY
+# ==========================================================
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -91,6 +96,10 @@ def mutual_fund_summary(request):
     })
 
 
+# ==========================================================
+# MUTUAL FUND HOLDINGS
+# ==========================================================
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def mutual_fund_holdings(request):
@@ -115,6 +124,10 @@ def mutual_fund_holdings(request):
         "results": serializer.data,
     })
 
+
+# ==========================================================
+# MUTUAL FUND TRANSACTIONS
+# ==========================================================
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -143,6 +156,10 @@ def mutual_fund_transactions(request):
     })
 
 
+# ==========================================================
+# SIP LIST
+# ==========================================================
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def sip_list(request):
@@ -169,43 +186,90 @@ def sip_list(request):
     })
 
 
+# ==========================================================
+# DUE SIP INSTALLMENTS
+# ==========================================================
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def sip_due(request):
+    """
+    Return individual due SIP installments.
 
-    sips = (
-        SIP.objects
+    Each result represents one specific installment.
+
+    This is intentionally different from the SIP list:
+    one SIP can have multiple DUE installments.
+
+    Example:
+
+        SIP #1
+        2026-07-01 -> DUE
+        2026-08-01 -> DUE
+
+    The API therefore returns two records, each with
+    its own SIPInstallment ID.
+    """
+
+    installments = (
+        SIPInstallment.objects
         .filter(
-            owner=request.user,
-            is_active=True,
+            sip__owner=request.user,
+            sip__is_active=True,
+            status=SIPInstallmentStatus.DUE,
         )
-        .select_related("scheme")
+        .select_related(
+            "sip",
+            "sip__scheme",
+        )
+        .order_by(
+            "scheduled_date",
+            "sip__scheme__scheme_name",
+        )
     )
 
     results = []
 
-    for sip in sips:
-
-        status = (
-            SIPEngine
-            .get_sip_status(sip)
-        )
-
-        if status["due_count"] <= 0:
-            continue
+    for installment in installments:
 
         results.append({
-            "id": sip.id,
-            "scheme": sip.scheme.scheme_name,
-            "amount": sip.amount,
-            "frequency": sip.frequency,
+            "id": installment.id,
+
+            "sip_id": (
+                installment.sip.id
+            ),
+
+            "scheme": (
+                installment
+                .sip
+                .scheme
+                .scheme_name
+            ),
+
+            "amount": (
+                installment.amount
+            ),
+
+            "frequency": (
+                installment
+                .sip
+                .frequency
+            ),
+
+            "scheduled_date": (
+                installment
+                .scheduled_date
+            ),
+
             "next_installment_date": (
-                sip.next_installment_date
+                installment
+                .sip
+                .next_installment_date
             ),
-            "due_count": (
-                status["due_count"]
+
+            "status": (
+                installment.status
             ),
-            "status": status["status"],
         })
 
     return Response({
@@ -214,93 +278,34 @@ def sip_due(request):
     })
 
 
+# ==========================================================
+# SIP SUMMARY
+# ==========================================================
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def sip_summary(request):
 
-    summary = SIPSummaryService.get_summary(
-        request.user
+    summary = (
+        SIPSummaryService
+        .get_summary(
+            request.user
+        )
     )
 
     return Response(summary)
 
 
 # ==========================================================
-# SIP INSTALLMENTS
+# DEPRECATED SIP EXECUTION
 # ==========================================================
-
-@api_view(["GET"])
-@permission_classes([IsAuthenticated])
-def sip_installment_list(request):
-    """
-    Return SIP installments belonging to the
-    authenticated user.
-
-    Optional query parameters:
-
-        ?status=DUE
-        ?sip_id=1
-    """
-
-    installments = (
-        SIPInstallment.objects
-        .filter(
-            sip__owner=request.user,
-        )
-        .select_related(
-            "sip",
-            "sip__scheme",
-            "transaction",
-        )
-        .order_by(
-            "-scheduled_date",
-            "-created_at",
-        )
-    )
-
-    status_filter = request.GET.get("status")
-
-    if status_filter:
-        status_filter = status_filter.upper()
-
-        valid_statuses = {
-            "SCHEDULED",
-            "DUE",
-            "EXECUTED",
-            "SKIPPED",
-            "FAILED",
-        }
-
-        if status_filter in valid_statuses:
-            installments = installments.filter(
-                status=status_filter
-            )
-
-    sip_id = request.GET.get("sip_id")
-
-    if sip_id:
-        try:
-            sip_id = int(sip_id)
-            installments = installments.filter(
-                sip_id=sip_id
-            )
-        except (TypeError, ValueError):
-            pass
-
-    serializer = SIPInstallmentSerializer(
-        installments,
-        many=True,
-    )
-
-    return Response({
-        "count": installments.count(),
-        "results": serializer.data,
-    })
-
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
-def sip_execute(request, sip_id):
+def sip_execute(
+    request,
+    sip_id,
+):
 
     return Response(
         {
@@ -308,14 +313,20 @@ def sip_execute(request, sip_id):
                 "Direct SIP execution is deprecated. "
                 "Execute a specific SIP installment instead."
             ),
+
             "use_endpoint": (
                 "/api/mutual-funds/"
-                "sip-installments/<installment_id>/execute/"
+                "sip-installments/"
+                "<installment_id>/execute/"
             ),
         },
         status=410,
     )
 
+
+# ==========================================================
+# SIP INSTALLMENT EXECUTION
+# ==========================================================
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -323,6 +334,12 @@ def sip_installment_execute(
     request,
     installment_id,
 ):
+    """
+    Execute exactly one SIP installment.
+
+    The installment must belong to the authenticated user
+    and must currently be DUE.
+    """
 
     try:
 
@@ -379,17 +396,23 @@ def sip_installment_execute(
             ),
 
             "installment": {
-                "id": updated_installment.id,
+                "id": (
+                    updated_installment.id
+                ),
+
                 "scheduled_date": (
                     updated_installment
                     .scheduled_date
                 ),
+
                 "amount": (
                     updated_installment.amount
                 ),
+
                 "status": (
                     updated_installment.status
                 ),
+
                 "transaction_id": (
                     updated_installment
                     .transaction_id
@@ -397,30 +420,41 @@ def sip_installment_execute(
             },
 
             "transaction": {
-                "id": transaction_record.id,
+                "id": (
+                    transaction_record.id
+                ),
+
                 "transaction_date": (
                     transaction_record
                     .transaction_date
                 ),
+
                 "units": (
                     transaction_record.units
                 ),
+
                 "nav": (
                     transaction_record.nav
                 ),
+
                 "amount": (
                     transaction_record.amount
                 ),
             },
 
             "holding": {
-                "units": holding.units,
+                "units": (
+                    holding.units
+                ),
+
                 "invested_value": (
                     holding.invested_value
                 ),
+
                 "current_value": (
                     holding.current_value
                 ),
+
                 "unrealized_pnl": (
                     holding.unrealized_pnl
                 ),
@@ -428,3 +462,18 @@ def sip_installment_execute(
         },
         status=200,
     )
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+@ensure_csrf_cookie
+def csrf_token(request):
+    """
+    Ensure the browser receives Django's CSRF cookie.
+
+    Angular uses this cookie when making state-changing
+    requests such as SIP installment execution.
+    """
+
+    return Response({
+        "detail": "CSRF cookie set."
+    })
