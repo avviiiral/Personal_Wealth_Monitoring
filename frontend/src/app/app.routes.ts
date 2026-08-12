@@ -6,6 +6,7 @@ import { DashboardComponent } from '../features/dashboard/dashboard.component';
 import { LoginComponent } from '../features/login/login.component';
 import { PortfolioComponent } from '../features/portfolio/portfolio.component';
 import { HoldingsComponent } from '../features/holdings/holdings.component';
+import { MutualFundsComponent } from '../features/mutual-funds/mutual-funds.component';
 
 import { PagePlaceholderComponent } from '../shared/components/page-placeholder.component';
 
@@ -55,11 +56,7 @@ export const routes: Routes = [
 
       {
         path: 'mutual-funds',
-        component: PagePlaceholderComponent,
-        data: {
-          title: 'Mutual Funds',
-          description: 'Monitor your mutual fund investments and NAV history.',
-        },
+        component: MutualFundsComponent,
       },
 
       {
