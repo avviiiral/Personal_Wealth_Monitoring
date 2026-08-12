@@ -26,9 +26,11 @@ from .serializers import (
     MutualFundHoldingSerializer,
     MutualFundTransactionSerializer,
     SIPSerializer,
+    SIPInstallmentSerializer,
 )
 
 from .services.sip_engine import SIPEngine
+
 from .services.holding_engine import (
     MutualFundHoldingEngine,
 )
@@ -36,6 +38,7 @@ from .services.holding_engine import (
 from .services.sip_summary import (
     SIPSummaryService,
 )
+
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -222,7 +225,79 @@ def sip_summary(request):
     return Response(summary)
 
 
-    
+# ==========================================================
+# SIP INSTALLMENTS
+# ==========================================================
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def sip_installment_list(request):
+    """
+    Return SIP installments belonging to the
+    authenticated user.
+
+    Optional query parameters:
+
+        ?status=DUE
+        ?sip_id=1
+    """
+
+    installments = (
+        SIPInstallment.objects
+        .filter(
+            sip__owner=request.user,
+        )
+        .select_related(
+            "sip",
+            "sip__scheme",
+            "transaction",
+        )
+        .order_by(
+            "-scheduled_date",
+            "-created_at",
+        )
+    )
+
+    status_filter = request.GET.get("status")
+
+    if status_filter:
+        status_filter = status_filter.upper()
+
+        valid_statuses = {
+            "SCHEDULED",
+            "DUE",
+            "EXECUTED",
+            "SKIPPED",
+            "FAILED",
+        }
+
+        if status_filter in valid_statuses:
+            installments = installments.filter(
+                status=status_filter
+            )
+
+    sip_id = request.GET.get("sip_id")
+
+    if sip_id:
+        try:
+            sip_id = int(sip_id)
+            installments = installments.filter(
+                sip_id=sip_id
+            )
+        except (TypeError, ValueError):
+            pass
+
+    serializer = SIPInstallmentSerializer(
+        installments,
+        many=True,
+    )
+
+    return Response({
+        "count": installments.count(),
+        "results": serializer.data,
+    })
+
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def sip_execute(request, sip_id):
@@ -240,8 +315,8 @@ def sip_execute(request, sip_id):
         },
         status=410,
     )
-    
-        
+
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def sip_installment_execute(

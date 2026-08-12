@@ -8,9 +8,9 @@ from .views import (
     sip_execute,
     sip_list,
     sip_summary,
+    sip_installment_list,
     sip_installment_execute,
 )
-
 
 urlpatterns = [
     path(
@@ -48,13 +48,19 @@ urlpatterns = [
         sip_summary,
         name="sip-summary",
     ),
-    
+
     path(
         "sips/<int:sip_id>/execute/",
         sip_execute,
         name="sip-execute",
     ),
-    
+
+    path(
+        "sip-installments/",
+        sip_installment_list,
+        name="sip-installment-list",
+    ),
+
     path(
         "sip-installments/<int:installment_id>/execute/",
         sip_installment_execute,

@@ -54,6 +54,23 @@ export interface DueSIP {
   status: string;
 }
 
+export interface SIPInstallment {
+  id: number;
+  sip_id: number;
+  scheme_name: string;
+  frequency: string;
+  frequency_display: string;
+  scheduled_date: string;
+  amount: number;
+  status: string;
+  status_display: string;
+  transaction_id: number | null;
+  executed_at: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ApiListResponse<T> {
   count: number;
   results: T[];
@@ -81,6 +98,27 @@ export class SipApiService {
 
   getDueSips(): Observable<ApiListResponse<DueSIP>> {
     return this.http.get<ApiListResponse<DueSIP>>(`${this.baseUrl}/sips/due/`, this.requestOptions);
+  }
+
+  getInstallments(): Observable<ApiListResponse<SIPInstallment>> {
+    return this.http.get<ApiListResponse<SIPInstallment>>(
+      `${this.baseUrl}/sip-installments/`,
+      this.requestOptions,
+    );
+  }
+
+  getDueInstallments(): Observable<ApiListResponse<SIPInstallment>> {
+    return this.http.get<ApiListResponse<SIPInstallment>>(
+      `${this.baseUrl}/sip-installments/?status=DUE`,
+      this.requestOptions,
+    );
+  }
+
+  getInstallmentsForSIP(sipId: number): Observable<ApiListResponse<SIPInstallment>> {
+    return this.http.get<ApiListResponse<SIPInstallment>>(
+      `${this.baseUrl}/sip-installments/?sip_id=${sipId}`,
+      this.requestOptions,
+    );
   }
 
   executeInstallment(installmentId: number): Observable<any> {

@@ -1,12 +1,11 @@
+import { AfterViewInit, ChangeDetectorRef, Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ChangeDetectorRef, Component, OnInit, inject } from '@angular/core';
-import { finalize, forkJoin } from 'rxjs';
 
 import {
-  MutualFundHolding,
-  MutualFundSummary,
-  MutualFundTransaction,
   MutualFundsApiService,
+  MutualFundSummary,
+  MutualFundHolding,
+  MutualFundTransaction,
 } from '../../core/services/mutual-funds-api.service';
 
 @Component({
@@ -16,18 +15,11 @@ import {
   templateUrl: './mutual-funds.component.html',
   styleUrl: './mutual-funds.component.scss',
 })
-export class MutualFundsComponent implements OnInit {
+export class MutualFundsComponent implements OnInit, AfterViewInit {
   private readonly mutualFundsApi = inject(MutualFundsApiService);
   private readonly cdr = inject(ChangeDetectorRef);
 
-  summary: MutualFundSummary = {
-    total_invested: 0,
-    total_current_value: 0,
-    total_unrealized_pnl: 0,
-    pnl_percentage: 0,
-    number_of_holdings: 0,
-  };
-
+  summary: MutualFundSummary | null = null;
   holdings: MutualFundHolding[] = [];
   transactions: MutualFundTransaction[] = [];
 
@@ -35,61 +27,128 @@ export class MutualFundsComponent implements OnInit {
   error = '';
 
   ngOnInit(): void {
-    this.loadMutualFunds();
+    this.loadData();
   }
 
-  loadMutualFunds(): void {
+  ngAfterViewInit(): void {
+    this.cdr.detectChanges();
+  }
+
+  loadData(): void {
     this.loading = true;
     this.error = '';
 
-    forkJoin({
-      summary: this.mutualFundsApi.getSummary(),
-      holdings: this.mutualFundsApi.getHoldings(),
-      transactions: this.mutualFundsApi.getTransactions(),
-    })
-      .pipe(
-        finalize(() => {
-          console.log('Mutual Funds loading finished');
+    let completed = 0;
+    let failed = false;
 
-          this.loading = false;
+    const completeRequest = (): void => {
+      completed++;
 
-          this.cdr.detectChanges();
-        }),
-      )
-      .subscribe({
-        next: (data) => {
-          console.log('Mutual Funds API response:', data);
+      if (completed === 3) {
+        this.loading = false;
+        this.cdr.detectChanges();
+      }
+    };
 
-          this.summary = data.summary;
+    this.mutualFundsApi.getSummary().subscribe({
+      next: (data) => {
+        this.summary = data;
+        completeRequest();
+      },
+      error: (error) => {
+        console.error('Mutual fund summary error:', error);
+        failed = true;
+        this.error = 'Unable to load mutual fund summary.';
+        completeRequest();
+      },
+    });
 
-          this.holdings = data.holdings.results ?? [];
+    this.mutualFundsApi.getHoldings().subscribe({
+      next: (data) => {
+        this.holdings = data.results ?? [];
+        completeRequest();
+      },
+      error: (error) => {
+        console.error('Mutual fund holdings error:', error);
+        failed = true;
 
-          this.transactions = data.transactions.results ?? [];
+        if (!this.error) {
+          this.error = 'Unable to load mutual fund holdings.';
+        }
 
-          console.log('Mutual Fund summary:', this.summary);
-          console.log('Mutual Fund holdings:', this.holdings);
-          console.log('Mutual Fund transactions:', this.transactions);
-        },
+        completeRequest();
+      },
+    });
 
-        error: (error) => {
-          console.error('Mutual Funds API error:', error);
+    this.mutualFundsApi.getTransactions().subscribe({
+      next: (data) => {
+        this.transactions = data.results ?? [];
+        completeRequest();
+      },
+      error: (error) => {
+        console.error('Mutual fund transactions error:', error);
+        failed = true;
 
-          if (error?.status === 401 || error?.status === 403) {
-            this.error = 'Authentication failed. Please log out and log in again.';
-          } else if (error?.status === 0) {
-            this.error =
-              'Cannot connect to the Django backend. Make sure the backend is running on http://localhost:8000.';
-          } else {
-            this.error = `Unable to load mutual funds. Server returned ${
-              error?.status ?? 'an unknown error'
-            }.`;
-          }
-        },
-      });
+        if (!this.error) {
+          this.error = 'Unable to load mutual fund transactions.';
+        }
+
+        completeRequest();
+      },
+    });
   }
 
   refresh(): void {
-    this.loadMutualFunds();
+    this.loadData();
+  }
+
+  formatCurrency(value: number | null | undefined): string {
+    const amount = Number(value ?? 0);
+
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 2,
+    }).format(amount);
+  }
+
+  formatNumber(value: number | null | undefined, maximumFractionDigits = 4): string {
+    return new Intl.NumberFormat('en-IN', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits,
+    }).format(Number(value ?? 0));
+  }
+
+  formatPercentage(value: number | null | undefined): string {
+    return `${Number(value ?? 0).toFixed(2)}%`;
+  }
+
+  getPnlClass(value: number | null | undefined): string {
+    const amount = Number(value ?? 0);
+
+    if (amount > 0) {
+      return 'positive';
+    }
+
+    if (amount < 0) {
+      return 'negative';
+    }
+
+    return 'neutral';
+  }
+
+  getPnlIcon(value: number | null | undefined): string {
+    const amount = Number(value ?? 0);
+
+    if (amount > 0) {
+      return '▲';
+    }
+
+    if (amount < 0) {
+      return '▼';
+    }
+
+    return '—';
   }
 
   trackByHolding(_index: number, holding: MutualFundHolding): number {

@@ -6,6 +6,7 @@ from mutual_funds.models import (
     MutualFundHolding,
     MutualFundTransaction,
     SIP,
+    SIPInstallment,
 )
 
 
@@ -31,7 +32,6 @@ class MutualFundHoldingSerializer(
     pnl_percentage = serializers.SerializerMethodField()
 
     class Meta:
-
         model = MutualFundHolding
 
         fields = [
@@ -81,7 +81,6 @@ class MutualFundTransactionSerializer(
     )
 
     class Meta:
-
         model = MutualFundTransaction
 
         fields = [
@@ -121,7 +120,6 @@ class SIPSerializer(
     monthly_commitment = serializers.SerializerMethodField()
 
     class Meta:
-
         model = SIP
 
         fields = [
@@ -183,3 +181,74 @@ class SIPSerializer(
             )
 
         return obj.amount
+
+
+class SIPInstallmentSerializer(
+    serializers.ModelSerializer
+):
+
+    sip_id = serializers.IntegerField(
+        source="sip.id",
+        read_only=True,
+    )
+
+    scheme_name = serializers.CharField(
+        source="sip.scheme.scheme_name",
+        read_only=True,
+    )
+
+    frequency = serializers.CharField(
+        source="sip.frequency",
+        read_only=True,
+    )
+
+    frequency_display = serializers.CharField(
+        source="sip.get_frequency_display",
+        read_only=True,
+    )
+
+    status_display = serializers.CharField(
+        source="get_status_display",
+        read_only=True,
+    )
+
+    transaction_id = serializers.IntegerField(
+        source="transaction.id",
+        read_only=True,
+        allow_null=True,
+    )
+
+    class Meta:
+        model = SIPInstallment
+
+        fields = [
+            "id",
+            "sip_id",
+            "scheme_name",
+            "frequency",
+            "frequency_display",
+            "scheduled_date",
+            "amount",
+            "status",
+            "status_display",
+            "transaction_id",
+            "executed_at",
+            "notes",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "sip_id",
+            "scheme_name",
+            "frequency",
+            "frequency_display",
+            "status",
+            "status_display",
+            "transaction_id",
+            "executed_at",
+            "notes",
+            "created_at",
+            "updated_at",
+        ]
