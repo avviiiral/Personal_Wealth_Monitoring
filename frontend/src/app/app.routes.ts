@@ -4,6 +4,7 @@ import { ShellComponent } from './layout/shell/shell.component';
 
 import { DashboardComponent } from '../features/dashboard/dashboard.component';
 import { LoginComponent } from '../features/login/login.component';
+import { PortfolioComponent } from '../features/portfolio/portfolio.component';
 
 import { PagePlaceholderComponent } from '../shared/components/page-placeholder.component';
 
@@ -43,11 +44,7 @@ export const routes: Routes = [
 
       {
         path: 'portfolio',
-        component: PagePlaceholderComponent,
-        data: {
-          title: 'Portfolio',
-          description: 'Manage and monitor your investment portfolio.',
-        },
+        component: PortfolioComponent,
       },
 
       {
