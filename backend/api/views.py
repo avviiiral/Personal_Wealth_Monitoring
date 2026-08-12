@@ -2,29 +2,30 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.http import JsonResponse
-from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie
 
 from rest_framework.decorators import (
     api_view,
+    authentication_classes,
     permission_classes,
 )
-
-from rest_framework.permissions import (
-    AllowAny,
-    IsAuthenticated,
-)
-
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from users.models import UserPreference
 
 
+# ==========================================================
+# HEALTH / CSRF
+# ==========================================================
+
 @ensure_csrf_cookie
 def health_check(request):
     """
     Basic PWMS backend health-check endpoint.
-    """
 
+    Also ensures that Django sends the CSRF cookie.
+    """
     return JsonResponse({
         "status": "success",
         "service": "Personal Wealth Monitoring System",
@@ -43,11 +44,17 @@ def health_check(request):
 # AUTHENTICATION
 # ==========================================================
 
+@csrf_exempt
 @api_view(["POST"])
+@authentication_classes([])
 @permission_classes([AllowAny])
 def login_view(request):
     """
     Authenticate a PWMS user using Django session authentication.
+
+    Login does not depend on an existing authenticated session.
+    This prevents a stale/previous session from causing DRF
+    SessionAuthentication to reject the login request with 403.
     """
 
     username = request.data.get("username")
@@ -268,6 +275,7 @@ def update_settings(request):
                     "default_analytics_period"
                 )
             )
+
         except (
             TypeError,
             ValueError,
@@ -326,6 +334,10 @@ def update_settings(request):
         },
     })
 
+
+# ==========================================================
+# CHANGE PASSWORD
+# ==========================================================
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])

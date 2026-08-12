@@ -238,6 +238,7 @@ export class SettingsComponent implements OnInit {
     }
 
     this.loggingOut = true;
+    this.error = '';
 
     this.authService.logout().subscribe({
       next: () => {
@@ -247,13 +248,17 @@ export class SettingsComponent implements OnInit {
       },
 
       error: (error) => {
-        console.error('Logout error:', error);
+        console.error('Settings logout error:', error);
 
+        /*
+         * The AuthService clears the local authentication
+         * state even when the backend logout request fails.
+         *
+         * Therefore we still redirect to login here.
+         */
         this.loggingOut = false;
 
-        this.error = 'Unable to log out.';
-
-        this.cdr.detectChanges();
+        this.router.navigate(['/login']);
       },
     });
   }

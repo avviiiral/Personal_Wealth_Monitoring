@@ -1,541 +1,630 @@
 # PWMS Project Memory
 
-## Purpose
+## Last Updated
 
-PWMS (Personal Wealth Monitoring System) is being developed as a centralized personal wealth and investment monitoring platform.
+2026-08-12
 
-The target is a wealth-management style dashboard that can eventually combine investments, transactions, market data, portfolio analytics, historical performance, risk analysis, and AI-powered insights.
+## Source
 
----
-
-## Current Development State
-
-As of the latest completed work:
-
-- Django backend is working.
-- Django REST Framework APIs are working.
-- Wealth analytics APIs are working.
-- Authentication/login is implemented.
-- Historical wealth analytics are implemented.
-- Angular 21 frontend is working.
-- Dashboard is working.
-- Chart.js is integrated.
-- Backend test suite has 28 passing tests.
-- `python manage.py check` passes.
-- `ng build` passes.
-- The current dashboard displays API-backed wealth information.
-
----
-
-## Backend
-
-Location:
+This memory was refreshed from the uploaded full project archive:
 
 ```text
-D:\PWMS\backend
+Personal_Wealth_Monitoring-main (1).zip
 ```
 
-Technology:
+It should be treated as the current architectural reference for continuing development unless newer code is supplied.
 
-- Python 3.11
-- Django 5.2.17
-- Django REST Framework
-- Session Authentication
+---
 
-Important backend areas:
+# 1. Project Purpose
+
+PWMS (Personal Wealth Monitoring System) is a personal wealth and investment monitoring platform.
+
+The intended system combines:
+
+- investments
+- holdings
+- transactions
+- mutual funds
+- SIPs
+- market data
+- portfolio analytics
+- historical wealth
+- P&L
+- XIRR
+- user preferences
+- future AI-assisted insights
+
+The backend is the source of truth for financial calculations.
+
+---
+
+# 2. Current Functional State
+
+The project currently contains implemented functionality for:
+
+- authentication
+- protected Angular routes
+- portfolio assets
+- portfolio transactions
+- calculated investment holdings
+- mutual-fund schemes
+- mutual-fund NAV
+- mutual-fund transactions
+- mutual-fund holdings
+- SIPs
+- SIP installments
+- SIP synchronization
+- due SIP tracking
+- SIP installment execution
+- unified wealth analytics
+- historical wealth analytics
+- XIRR
+- Yahoo Finance historical prices
+- settings/preferences
+- password change
+- Angular dashboard
+- Angular analytics
+- Angular mutual-fund page
+- Angular SIP page
+- Angular settings page
+
+---
+
+# 3. Important Recent Milestones
+
+## Analytics
+
+Unified analytics endpoints are working in the current development flow:
+
+```text
+/api/analytics/wealth/summary/
+/api/analytics/wealth/allocation/
+/api/analytics/wealth/performance/
+/api/analytics/wealth/xirr/
+/api/analytics/wealth/historical/
+```
+
+The analytics frontend loads all five datasets.
+
+## SIP
+
+SIP installment execution was completed and manually verified.
+
+The development database showed:
+
+```text
+2026-07-01 -> EXECUTED
+2026-08-01 -> EXECUTED
+```
+
+with linked transaction records.
+
+The SIP's next installment advanced to:
+
+```text
+2026-09-01
+```
+
+The SIP remained active.
+
+The mutual-fund holding was rebuilt after execution.
+
+Observed holding after the two executions included approximately:
+
+```text
+Units:          3782.976229
+Invested value: 50000.00
+Average NAV:    13.217107
+Current NAV:    13.936100
+Current value:  52719.94
+Unrealized P&L: 2719.94
+```
+
+These values describe the supplied development database state, not a general expected result.
+
+## Settings
+
+The Settings page was completed and reported working.
+
+Settings currently support:
+
+```text
+Currency:
+INR / USD / EUR / GBP
+
+Date format:
+DD MMM YYYY
+DD/MM/YYYY
+YYYY-MM-DD
+
+Default analytics period:
+30 / 90 / 180 / 365 days
+```
+
+Password changes are implemented with Django password validation and session preservation.
+
+---
+
+# 4. Backend Structure
 
 ```text
 backend/
+├── ai/
 ├── analytics/
 ├── api/
 ├── config/
 ├── investments/
+├── market_data/
+├── mutual_funds/
+├── portfolio/
+├── users/
 ├── manage.py
 └── requirements.txt
 ```
 
-### Backend verification
+Important distinction:
 
-Use:
+`investments/` contains the current Asset, Transaction, and Holding models.
 
-```powershell
-cd D:\PWMS\backend
-.\venv\Scripts\Activate.ps1
-python manage.py check
-python manage.py test
-```
+`portfolio/` contains the portfolio API and holding-calculation service that operates on the investment models.
 
-Current result:
-
-```text
-28 tests
-OK
-```
+Do not assume `portfolio/models.py` is the source of the investment data model; the current file is effectively empty.
 
 ---
 
-## Analytics
+# 5. Authentication
 
-The main wealth analytics API namespace is:
+Authentication uses Django session authentication.
 
-```text
-/api/analytics/wealth/
-```
-
-Implemented endpoints:
-
-```text
-GET /api/analytics/wealth/summary/
-GET /api/analytics/wealth/allocation/
-GET /api/analytics/wealth/performance/
-GET /api/analytics/wealth/xirr/
-GET /api/analytics/wealth/historical/?days=30
-```
-
-The analytics layer currently supports:
-
-- Portfolio summary
-- Current wealth
-- Invested value
-- Total P&L
-- Realized P&L
-- Unrealized P&L
-- Return percentage
-- Number of holdings
-- Allocation
-- Holding performance
-- XIRR
-- Historical wealth
-- Historical P&L
-
----
-
-## Historical Wealth
-
-Historical wealth API was implemented and tested separately before being integrated into the complete analytics test suite.
-
-Historical endpoint:
-
-```text
-/api/analytics/wealth/historical/?days=30
-```
-
-Supported examples:
-
-```text
-days=3
-days=7
-days=30
-```
-
-Historical response includes:
-
-```text
-days
-start_date
-end_date
-results
-```
-
-The historical API was verified through Django REST API requests and returned HTTP 200.
-
----
-
-## Authentication
-
-Authentication currently uses Django session authentication.
-
-Login endpoint:
+Endpoints:
 
 ```text
 POST /api/auth/login/
+POST /api/auth/logout/
+GET  /api/auth/me/
 ```
 
-Angular requests use:
+Frontend requests use:
 
 ```typescript
 withCredentials: true
 ```
 
-### Important authentication issue encountered
+CSRF is handled through the Django CSRF cookie and `X-CSRFToken` header for state-changing requests.
 
-A browser normal tab previously returned:
+Before production, review:
 
-```text
-POST /api/auth/login/ 403
-```
-
-while incognito could log in successfully.
-
-This was associated with the Django session/CSRF flow and existing browser session state.
-
-Successful login produced:
-
-```text
-POST /api/auth/login/ 200
-```
-
-After successful authentication, the analytics endpoints returned HTTP 200.
-
-This authentication/CSRF architecture should be reviewed and hardened before production deployment. Do not assume the current local development behavior is production-ready.
+- CSRF trusted origins
+- secure cookies
+- HTTPS
+- CORS
+- session configuration
+- production domain configuration
 
 ---
 
-## Frontend
+# 6. Settings Architecture
 
-Location:
-
-```text
-D:\PWMS\frontend
-```
-
-Technology:
-
-- Angular 21
-- TypeScript
-- SCSS
-- Chart.js
-- ng2-charts
-- Angular CDK
-- @lucide/angular
-
-Frontend feature structure includes:
+Backend model:
 
 ```text
-frontend/src/
-├── app/
-├── core/
-└── features/
-    └── dashboard/
+backend/users/models.py
 ```
 
-Dashboard location:
+Model:
 
 ```text
-D:\PWMS\frontend\src\features\dashboard\
+UserPreference
 ```
 
-Important files:
+One preference record belongs to one Django user.
+
+Backend API:
 
 ```text
-dashboard.component.ts
-dashboard.component.html
-dashboard.component.scss
+backend/api/views.py
+backend/api/urls.py
 ```
 
----
-
-## Dashboard
-
-The dashboard is currently working.
-
-Current sections:
-
-### KPI
-
-- Total Wealth
-- Invested Value
-- Profit/Loss
-- XIRR
-
-### Charts
-
-- Wealth Overview
-- Allocation
-- Investment Performance
-- P&L Trend
-
-### Summary
-
-- Number of holdings
-- Realized P&L
-- Unrealized P&L
-- Total return
-
-### Historical
-
-- Period
-- Start date
-- End date
-- Data points
-
----
-
-## Dashboard Debugging History
-
-A major dashboard issue occurred where the page stayed on:
+Endpoints:
 
 ```text
-Loading your wealth data...
-```
-
-even though the browser Network tab showed successful API responses.
-
-The API requests were returning:
-
-```text
-summary       200
-allocation    200
-performance   200
-xirr          200
-historical    200
-```
-
-The issue was ultimately resolved on the Angular side and the dashboard is now working.
-
-During debugging, `dashboard.component.ts` temporarily accumulated duplicate `ngOnInit()` implementations. This was corrected.
-
-### Rule
-
-`dashboard.component.ts` must contain exactly one:
-
-```typescript
-ngOnInit(): void {
-  this.loadDashboard();
-}
-```
-
-Do not add another `ngOnInit()` when modifying the component.
-
----
-
-## Wealth API Service
-
-Location:
-
-```text
-D:\PWMS\frontend\src\core\services\wealth-api.service.ts
-```
-
-It provides methods for:
-
-```text
-getSummary()
-getAllocation()
-getPerformance()
-getXirr()
-getHistorical(days)
-```
-
-The service uses:
-
-```typescript
-withCredentials: true
-```
-
-for Django session authentication.
-
----
-
-## Frontend Build
-
-Run:
-
-```powershell
-cd D:\PWMS\frontend
-ng build
-```
-
-Current build status:
-
-```text
-PASS
-```
-
-Development server:
-
-```powershell
-ng serve
+GET   /api/settings/
+PATCH /api/settings/update/
+POST  /api/settings/change-password/
 ```
 
 Frontend:
 
 ```text
-http://localhost:4200/
+frontend/src/core/services/settings-api.service.ts
+frontend/src/features/settings/
+```
+
+The Settings UI currently supports:
+
+- email
+- currency
+- date format
+- analytics default period
+- password change
+- logout
+
+Important future task:
+
+The saved preferences should eventually be consumed consistently by all relevant frontend pages. Saving a preference is not sufficient if another feature continues to use hard-coded INR/date/period values.
+
+---
+
+# 7. Mutual Fund Architecture
+
+Core models:
+
+```text
+MutualFundScheme
+MutualFundNAV
+MutualFundTransaction
+MutualFundHolding
+SIP
+SIPInstallment
+```
+
+Core services:
+
+```text
+holding_engine.py
+nav_service.py
+sip_engine.py
+sip_installments.py
+sip_installment_execution.py
+sip_reconciliation.py
+sip_summary.py
+amfi.py
 ```
 
 ---
 
-## Dependencies
+# 8. SIP Execution Rules
 
-The following dependency conflict was encountered while installing charting libraries.
-
-Initial `ng2-charts` installation attempted to pull an Angular CDK version incompatible with Angular 21.
-
-The working dependency setup was established using:
+The preferred execution flow is:
 
 ```text
-@angular/cdk@21
-chart.js
-ng2-charts@10
-@lucide/angular
+DUE installment
+      |
+      v
+lock installment
+      |
+      v
+resolve historical NAV
+      |
+      v
+calculate units
+      |
+      v
+create MF transaction
+      |
+      v
+mark installment EXECUTED
+      |
+      v
+advance SIP schedule
+      |
+      v
+rebuild MF holding
 ```
 
-Current verified versions included:
+The execution is atomic.
+
+The installment-specific endpoint is:
 
 ```text
-@angular/core 21.2.19
-@angular/cdk 21.2.14
-chart.js 4.5.1
-ng2-charts 10.0.0
-@lucide/angular 1.31.0
+POST /api/mutual-funds/sip-installments/<installment_id>/execute/
 ```
 
-Do not upgrade these blindly without checking Angular compatibility.
+The older SIP-level execution endpoint is intentionally deprecated and returns HTTP 410.
 
 ---
 
-## Current API Data Flow
+# 9. SIP Synchronization
 
-```text
-Angular Dashboard
-       |
-       v
-WealthApiService
-       |
-       +---- summary
-       |
-       +---- allocation
-       |
-       +---- performance
-       |
-       +---- xirr
-       |
-       +---- historical
-       |
-       v
-Django REST API
-       |
-       v
-Analytics Services
-       |
-       v
-Investment / Portfolio Data
-```
-
----
-
-## Current Test Milestone
-
-Previously:
-
-```text
-analytics historical tests: 9 PASS
-analytics API tests: 11 PASS
-analytics full suite: 28 PASS
-complete Django test suite: 28 PASS
-```
-
-Current expected verification:
+Command:
 
 ```powershell
-python manage.py check
-python manage.py test
+python manage.py sync_sip_installments --user-id <USER_ID>
 ```
 
-Expected:
+Purpose:
+
+- create missing installments
+- mark overdue/scheduled installments appropriately
+- reconcile installment state
+
+The command should be run as part of future scheduled SIP processing once production scheduling is implemented.
+
+---
+
+# 10. Holding Calculation Rules
+
+## Equity/investment holdings
+
+The investment holding engine derives positions from transactions and market prices.
+
+## Mutual funds
+
+The mutual-fund holding engine derives:
 
 ```text
-System check identified no issues
-Ran 28 tests
+units
+invested_value
+average_nav
+current_nav
+current_value
+unrealized_pnl
+```
+
+PURCHASE/SIP increases units and invested value.
+
+REDEMPTION reduces units and invested value using average-cost methodology.
+
+DIVIDEND currently does not change units or invested value in the mutual-fund holding engine.
+
+---
+
+# 11. Unified Analytics
+
+Unified analytics combines equity/investment and mutual-fund data.
+
+Important files:
+
+```text
+backend/analytics/services/unified_wealth.py
+backend/analytics/services/historical_wealth.py
+backend/analytics/services/xirr.py
+backend/analytics/views.py
+```
+
+The frontend analytics page calls:
+
+```text
+summary
+allocation
+performance
+xirr
+historical
+```
+
+The current frontend has a loading-state implementation and explicitly renders charts after API processing.
+
+When modifying Angular analytics code, preserve the lifecycle pattern and avoid adding duplicate lifecycle methods.
+
+---
+
+# 12. Market Data
+
+Yahoo Finance integration:
+
+```text
+backend/market_data/services/yahoo_finance.py
+```
+
+Management command:
+
+```text
+backend/market_data/management/commands/fetch_market_data.py
+```
+
+Example:
+
+```powershell
+python manage.py fetch_market_data --symbol RELIANCE.NS --asset-id 1 --period 1y
+```
+
+The market data layer stores historical prices in:
+
+```text
+MarketPrice
+```
+
+The current implementation is historical-data oriented. It is not yet a complete production market-data scheduler.
+
+---
+
+# 13. Frontend Structure
+
+```text
+frontend/src/
+├── app/
+├── core/
+├── features/
+│   ├── analytics/
+│   ├── dashboard/
+│   ├── holdings/
+│   ├── login/
+│   ├── mutual-funds/
+│   ├── portfolio/
+│   ├── settings/
+│   └── sips/
+└── shared/
+```
+
+Core services:
+
+```text
+auth.service.ts
+mutual-funds-api.service.ts
+portfolio-api.service.ts
+settings-api.service.ts
+sip-api.service.ts
+wealth-api.service.ts
+```
+
+---
+
+# 14. Frontend Route State
+
+Protected routes currently include:
+
+```text
+/dashboard
+/portfolio
+/holdings
+/mutual-funds
+/sips
+/analytics
+/settings
+```
+
+Public:
+
+```text
+/login
+```
+
+---
+
+# 15. Current Testing Inventory
+
+The uploaded archive contains:
+
+```text
+analytics/test_api.py                 11 tests
+analytics/test_historical_wealth.py   10 tests
+analytics/tests.py                     8 tests
+mutual_funds/tests.py                 18 tests
+portfolio/tests.py                    25 tests
+-----------------------------------------
+Total test methods                    72
+```
+
+The latest explicitly supplied test execution was:
+
+```text
+python manage.py test mutual_funds
+Ran 18 tests
 OK
 ```
 
----
-
-## Git
-
-Git is being used to maintain stable project checkpoints.
-
-Recommended workflow:
-
-```powershell
-git status
-git diff
-git add .
-git commit -m "..."
-git push
-```
-
-Commit stable milestones before beginning major new phases.
+Do not document the stale `28 tests` number as the current total test inventory.
 
 ---
 
-## Files That Should Not Be Committed
+# 16. Development Commands
 
-```text
-backend/venv/
-frontend/node_modules/
-frontend/dist/
-__pycache__/
-.env
-*.sqlite3
-.angular/
-```
-
-The project-level `.gitignore` should handle generated/development files.
-
----
-
-## Important Development Rules
-
-1. Do not modify working backend analytics without a specific reason.
-2. Do not change database models unnecessarily.
-3. Run backend tests after backend changes.
-4. Run `ng build` after frontend changes.
-5. Do not create duplicate Angular lifecycle methods.
-6. Verify API responses before changing API models.
-7. Commit stable milestones to Git.
-8. Update this file after meaningful architectural changes.
-9. Update `structure.md` whenever the project structure changes.
-10. Read the current code before replacing an existing implementation.
-
----
-
-## Future Work
-
-Not yet completed:
-
-- Equity holding management
-- Mutual fund management
-- SIP tracking
-- Transaction management
-- Dividends
-- Corporate actions
-- Automated market data
-- Historical market price ingestion
-- Multiple portfolios
-- Family holdings
-- Advanced risk metrics
-- Benchmark comparison
-- Portfolio drawdown
-- CAGR enhancements
-- Advanced dashboard filtering
-- AI portfolio insights
-- Natural-language financial assistant
-
-These should be implemented incrementally and tested individually.
-
----
-
-## Next Phase Guidance
-
-Before starting the next feature:
+Backend:
 
 ```powershell
 cd D:\PWMS\backend
 .\venv\Scripts\Activate.ps1
+
 python manage.py check
 python manage.py test
+python manage.py test mutual_funds
+python manage.py runserver
 ```
 
-Then:
+Frontend:
 
 ```powershell
 cd D:\PWMS\frontend
+
+npm install
+ng serve
 ng build
 ```
 
-Confirm the dashboard still works.
+---
 
-Then implement the next feature, test it, update documentation, and commit.
+# 17. Important Development Rules
+
+1. Read the existing implementation before changing it.
+2. Do not replace working files with simplified versions unless explicitly intended.
+3. Preserve ownership filtering.
+4. Preserve transaction atomicity.
+5. Preserve historical NAV/price logic.
+6. Run targeted tests after backend changes.
+7. Run the full backend suite before milestones.
+8. Run `ng build` after frontend changes.
+9. Manually verify the affected UI.
+10. Update documentation after architecture changes.
+11. Commit stable milestones.
+12. Never use AI-generated values as the source of truth for financial calculations.
+
+---
+
+# 18. Next Recommended Development Direction
+
+The core investment/SIP/settings foundation is now substantially implemented.
+
+The next logical development sequence is:
+
+### Phase A — Preferences propagation
+
+Make Settings preferences actually affect:
+
+- currency formatting
+- date formatting
+- analytics default period
+- dashboard defaults
+- analytics defaults
+
+### Phase B — Portfolio completeness
+
+Improve:
+
+- asset creation/editing UI
+- transaction creation/editing UI
+- holding detail
+- transaction history
+- realized P&L
+- dividends/corporate actions
+
+### Phase C — Market data automation
+
+Add:
+
+- scheduled price refresh
+- scheduled MF NAV refresh
+- data freshness
+- retry handling
+- failure logging
+
+### Phase D — Advanced analytics
+
+Add:
+
+- CAGR
+- benchmark comparison
+- drawdown
+- volatility
+- risk metrics
+- attribution
+
+### Phase E — AI
+
+Add AI only after deterministic financial analytics are stable.
+
+---
+
+# 19. Source-of-Truth Principle
+
+The architecture should remain:
+
+```text
+Transactions + Market/NAV Data
+              |
+              v
+       Deterministic backend
+           calculations
+              |
+              v
+            REST API
+              |
+              v
+       Angular presentation
+              |
+              v
+      Optional AI explanation
+```
+
+AI should not silently replace the deterministic financial calculation layer.

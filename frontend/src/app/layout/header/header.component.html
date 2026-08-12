@@ -7,22 +7,81 @@
   </div>
 
   <div class="header-right">
-    <button type="button" class="icon-button" aria-label="Search">
-      <svg lucideSearch [size]="19"></svg>
+    <!-- SEARCH -->
+    <button type="button" class="header-icon-button" aria-label="Search">
+      <span class="search-icon">⌕</span>
     </button>
 
-    <button type="button" class="icon-button" aria-label="Notifications">
-      <svg lucideBell [size]="19"></svg>
-
+    <!-- NOTIFICATIONS -->
+    <button type="button" class="header-icon-button notification-button" aria-label="Notifications">
+      <span class="bell-icon">♧</span>
       <span class="notification-dot"></span>
     </button>
 
-    <div class="user-profile">
-      <div class="avatar">A</div>
+    <!-- USER -->
+    <div class="user-profile-wrapper" (click)="$event.stopPropagation()">
+      <button
+        type="button"
+        class="user-profile"
+        [class.active]="profileMenuOpen"
+        (click)="toggleProfileMenu($event)"
+      >
+        <div class="avatar">
+          {{ (currentUser?.username || 'A').charAt(0).toUpperCase() }}
+        </div>
 
-      <div class="user-details">
-        <span class="user-name">Aviral</span>
-        <span class="user-role">Investor</span>
+        <div class="user-details">
+          <span class="user-name">
+            {{ currentUser?.username || 'Aviral' }}
+          </span>
+
+          <span class="user-role"> Investor </span>
+        </div>
+
+        <span class="dropdown-arrow">
+          {{ profileMenuOpen ? '▲' : '▼' }}
+        </span>
+      </button>
+
+      <!-- ACCOUNT MENU -->
+      <div class="profile-menu" *ngIf="profileMenuOpen">
+        <div class="profile-menu-user">
+          <div class="menu-avatar">
+            {{ (currentUser?.username || 'A').charAt(0).toUpperCase() }}
+          </div>
+
+          <div class="menu-user-info">
+            <strong>
+              {{ currentUser?.username || 'Aviral' }}
+            </strong>
+
+            <span>
+              {{ currentUser?.email || '' }}
+            </span>
+          </div>
+        </div>
+
+        <div class="menu-divider"></div>
+
+        <!-- SETTINGS -->
+        <button type="button" class="profile-menu-item" (click)="openSettings()">
+          <span class="menu-item-icon">⚙</span>
+          <span>Settings</span>
+        </button>
+
+        <!-- LOGOUT -->
+        <button
+          type="button"
+          class="profile-menu-item logout-item"
+          [disabled]="loggingOut"
+          (click)="logout()"
+        >
+          <span class="menu-item-icon">↪</span>
+
+          <span>
+            {{ loggingOut ? 'Logging out...' : 'Logout' }}
+          </span>
+        </button>
       </div>
     </div>
   </div>
