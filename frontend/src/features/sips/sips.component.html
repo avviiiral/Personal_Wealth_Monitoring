@@ -1,0 +1,284 @@
+<div class="sips-page">
+  <!-- HEADER -->
+
+  <div class="page-header">
+    <div>
+      <h1>SIPs</h1>
+      <p>Manage and monitor your systematic investment plans.</p>
+    </div>
+
+    <button type="button" class="refresh-button" (click)="refresh()" [disabled]="loading">
+      Refresh
+    </button>
+  </div>
+
+  <!-- LOADING -->
+
+  <div *ngIf="loading" class="loading-card">
+    <div class="loading-spinner"></div>
+
+    <span>Loading SIP data...</span>
+  </div>
+
+  <!-- ERROR -->
+
+  <div *ngIf="!loading && error" class="error-card">
+    {{ error }}
+  </div>
+
+  <!-- CONTENT -->
+
+  <ng-container *ngIf="!loading && !error">
+    <!-- SUMMARY -->
+
+    <div class="summary-grid">
+      <div class="summary-card">
+        <span class="label">Total SIPs</span>
+
+        <strong>
+          {{ summary.total_sips }}
+        </strong>
+      </div>
+
+      <div class="summary-card">
+        <span class="label">Active SIPs</span>
+
+        <strong>
+          {{ summary.active_sips }}
+        </strong>
+      </div>
+
+      <div class="summary-card">
+        <span class="label">Monthly Commitment</span>
+
+        <strong>
+          {{ summary.total_monthly_commitment | currency: 'INR' : 'symbol' : '1.0-0' }}
+        </strong>
+      </div>
+
+      <div class="summary-card">
+        <span class="label">Actual Invested</span>
+
+        <strong>
+          {{ summary.actual_sip_invested | currency: 'INR' : 'symbol' : '1.0-0' }}
+        </strong>
+      </div>
+    </div>
+
+    <!-- INSTALLMENT STATUS -->
+
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <h2>Installment Status</h2>
+          <p>Current status of your SIP installments.</p>
+        </div>
+      </div>
+
+      <div class="status-grid">
+        <div class="status-item">
+          <span>Scheduled</span>
+          <strong>{{ summary.installments.scheduled }}</strong>
+        </div>
+
+        <div class="status-item">
+          <span>Executed</span>
+          <strong>{{ summary.installments.executed }}</strong>
+        </div>
+
+        <div class="status-item due">
+          <span>Due</span>
+          <strong>{{ summary.installments.due }}</strong>
+        </div>
+
+        <div class="status-item">
+          <span>Skipped</span>
+          <strong>{{ summary.installments.skipped }}</strong>
+        </div>
+
+        <div class="status-item failed">
+          <span>Failed</span>
+          <strong>{{ summary.installments.failed }}</strong>
+        </div>
+      </div>
+    </section>
+
+    <!-- NEXT INSTALLMENT -->
+
+    <section *ngIf="summary.next_installment" class="next-installment-card">
+      <div>
+        <span class="eyebrow">NEXT INSTALLMENT</span>
+
+        <h2>Upcoming SIP investment</h2>
+
+        <p>
+          Scheduled for
+          <strong>
+            {{ summary.next_installment.date | date: 'dd MMM yyyy' }}
+          </strong>
+        </p>
+      </div>
+
+      <strong class="next-amount">
+        {{ summary.next_installment.amount | currency: 'INR' : 'symbol' : '1.0-0' }}
+      </strong>
+    </section>
+
+    <!-- DUE SIPS -->
+
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <h2>Due SIPs</h2>
+          <p>SIP installments that require attention.</p>
+        </div>
+
+        <span class="count-badge">
+          {{ dueSips.length }}
+        </span>
+      </div>
+
+      <div *ngIf="dueSips.length === 0" class="empty-state">
+        <strong>No SIP installments are currently due.</strong>
+
+        <span> You're up to date with your scheduled SIPs. </span>
+      </div>
+
+      <div *ngIf="dueSips.length > 0" class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Fund</th>
+              <th>Amount</th>
+              <th>Frequency</th>
+              <th>Next Installment</th>
+              <th>Due Count</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <tr *ngFor="let sip of dueSips; trackBy: trackByDueSip">
+              <td>
+                <div class="fund-name">
+                  {{ sip.scheme }}
+                </div>
+              </td>
+
+              <td>
+                {{ sip.amount | currency: 'INR' : 'symbol' : '1.0-0' }}
+              </td>
+
+              <td>
+                {{ sip.frequency }}
+              </td>
+
+              <td>
+                {{ sip.next_installment_date | date: 'dd MMM yyyy' }}
+              </td>
+
+              <td>
+                {{ sip.due_count }}
+              </td>
+
+              <td>
+                <span class="status-badge" [ngClass]="getStatusClass(sip.status)">
+                  {{ sip.status }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ALL SIPS -->
+
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <h2>All SIPs</h2>
+          <p>Your complete SIP portfolio.</p>
+        </div>
+
+        <span class="count-badge">
+          {{ sips.length }}
+        </span>
+      </div>
+
+      <div *ngIf="sips.length === 0" class="empty-state">
+        <strong>No SIPs configured.</strong>
+
+        <span> Your SIP plans will appear here once created. </span>
+      </div>
+
+      <div *ngIf="sips.length > 0" class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Fund</th>
+              <th>Amount</th>
+              <th>Frequency</th>
+              <th>Monthly Commitment</th>
+              <th>Start Date</th>
+              <th>Next Installment</th>
+              <th>Due</th>
+              <th>Status</th>
+              <th>Active</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <tr *ngFor="let sip of sips; trackBy: trackBySip">
+              <td>
+                <div class="fund-name">
+                  {{ sip.scheme_name }}
+                </div>
+              </td>
+
+              <td>
+                {{ sip.amount | currency: 'INR' : 'symbol' : '1.0-0' }}
+              </td>
+
+              <td>
+                {{ sip.frequency_display }}
+              </td>
+
+              <td>
+                {{ sip.monthly_commitment | currency: 'INR' : 'symbol' : '1.0-0' }}
+              </td>
+
+              <td>
+                {{ sip.start_date | date: 'dd MMM yyyy' }}
+              </td>
+
+              <td>
+                {{
+                  sip.next_installment_date
+                    ? (sip.next_installment_date | date: 'dd MMM yyyy')
+                    : '—'
+                }}
+              </td>
+
+              <td>
+                {{ sip.due_count }}
+              </td>
+
+              <td>
+                <span class="status-badge" [ngClass]="getStatusClass(sip.status)">
+                  {{ sip.status }}
+                </span>
+              </td>
+
+              <td>
+                <span class="active-badge" [class.active]="sip.is_active">
+                  {{ sip.is_active ? 'Active' : 'Inactive' }}
+                </span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </ng-container>
+</div>

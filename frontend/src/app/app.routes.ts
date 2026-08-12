@@ -7,6 +7,8 @@ import { LoginComponent } from '../features/login/login.component';
 import { PortfolioComponent } from '../features/portfolio/portfolio.component';
 import { HoldingsComponent } from '../features/holdings/holdings.component';
 import { MutualFundsComponent } from '../features/mutual-funds/mutual-funds.component';
+import { SipsComponent } from '../features/sips/sips.component';
+import { AnalyticsComponent } from '../features/analytics/analytics.component';
 
 import { PagePlaceholderComponent } from '../shared/components/page-placeholder.component';
 
@@ -61,20 +63,12 @@ export const routes: Routes = [
 
       {
         path: 'sips',
-        component: PagePlaceholderComponent,
-        data: {
-          title: 'SIPs',
-          description: 'Manage your systematic investment plans.',
-        },
+        component: SipsComponent,
       },
 
       {
         path: 'analytics',
-        component: PagePlaceholderComponent,
-        data: {
-          title: 'Analytics',
-          description: 'Analyze your wealth, returns, allocation, and performance.',
-        },
+        component: AnalyticsComponent,
       },
 
       {
