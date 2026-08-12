@@ -61,6 +61,26 @@ export interface ApiListResponse<T> {
   results: T[];
 }
 
+export interface CreateAssetRequest {
+  name: string;
+  category: string;
+  symbol?: string | null;
+  isin?: string | null;
+  institution?: string | null;
+  currency?: string;
+}
+
+export interface CreateTransactionRequest {
+  asset: number;
+  transaction_type: string;
+  transaction_date: string;
+  quantity: number;
+  price_per_unit: number;
+  amount: number;
+  fees?: number;
+  notes?: string | null;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -73,9 +93,17 @@ export class PortfolioApiService {
     withCredentials: true,
   };
 
+  // ==========================================================
+  // SUMMARY
+  // ==========================================================
+
   getSummary(): Observable<PortfolioSummary> {
     return this.http.get<PortfolioSummary>(`${this.baseUrl}/summary/`, this.requestOptions);
   }
+
+  // ==========================================================
+  // HOLDINGS
+  // ==========================================================
 
   getHoldings(): Observable<ApiListResponse<Holding>> {
     return this.http.get<ApiListResponse<Holding>>(
@@ -84,6 +112,10 @@ export class PortfolioApiService {
     );
   }
 
+  // ==========================================================
+  // TRANSACTIONS
+  // ==========================================================
+
   getTransactions(): Observable<ApiListResponse<Transaction>> {
     return this.http.get<ApiListResponse<Transaction>>(
       `${this.baseUrl}/transactions/`,
@@ -91,9 +123,33 @@ export class PortfolioApiService {
     );
   }
 
+  // ==========================================================
+  // ASSETS
+  // ==========================================================
+
   getAssets(): Observable<ApiListResponse<PortfolioAsset>> {
     return this.http.get<ApiListResponse<PortfolioAsset>>(
       `${this.baseUrl}/assets/`,
+      this.requestOptions,
+    );
+  }
+
+  // ==========================================================
+  // CREATE ASSET
+  // ==========================================================
+
+  createAsset(payload: CreateAssetRequest): Observable<PortfolioAsset> {
+    return this.http.post<PortfolioAsset>(`${this.baseUrl}/assets/`, payload, this.requestOptions);
+  }
+
+  // ==========================================================
+  // CREATE TRANSACTION
+  // ==========================================================
+
+  createTransaction(payload: CreateTransactionRequest): Observable<Transaction> {
+    return this.http.post<Transaction>(
+      `${this.baseUrl}/transactions/`,
+      payload,
       this.requestOptions,
     );
   }

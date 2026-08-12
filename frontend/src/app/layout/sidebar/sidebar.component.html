@@ -1,4 +1,6 @@
 <aside class="sidebar">
+  <!-- BRAND -->
+
   <div class="brand">
     <div class="brand-mark">W</div>
 
@@ -7,6 +9,8 @@
       <span class="brand-subtitle">Wealth Monitor</span>
     </div>
   </div>
+
+  <!-- NAVIGATION -->
 
   <nav class="navigation">
     <!-- OVERVIEW -->
@@ -42,6 +46,18 @@
         <svg lucideCircleDollarSign [size]="19"></svg>
 
         <span>Mutual Funds</span>
+      </a>
+
+      <!-- ADD INVESTMENT -->
+
+      <a
+        routerLink="/add-investment"
+        routerLinkActive="active"
+        class="nav-item add-investment-item"
+      >
+        <svg lucidePlus [size]="19"></svg>
+
+        <span>Add Investment</span>
       </a>
     </div>
 
