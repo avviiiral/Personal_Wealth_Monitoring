@@ -4,7 +4,6 @@ from investments.models import Asset, Holding, Transaction
 
 
 class AssetSerializer(serializers.ModelSerializer):
-
     category_display = serializers.CharField(
         source="get_category_display",
         read_only=True,
@@ -23,11 +22,39 @@ class AssetSerializer(serializers.ModelSerializer):
             "institution",
             "currency",
             "is_active",
+            "created_at",
+            "updated_at",
         ]
+
+        read_only_fields = [
+            "id",
+            "category_display",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_name(self, value):
+        value = value.strip()
+
+        if not value:
+            raise serializers.ValidationError(
+                "Asset name cannot be empty."
+            )
+
+        return value
+
+    def validate_currency(self, value):
+        value = value.strip().upper()
+
+        if not value:
+            raise serializers.ValidationError(
+                "Currency cannot be empty."
+            )
+
+        return value
 
 
 class HoldingSerializer(serializers.ModelSerializer):
-
     asset_name = serializers.CharField(
         source="asset.name",
         read_only=True,
@@ -71,7 +98,6 @@ class HoldingSerializer(serializers.ModelSerializer):
         ]
 
     def get_pnl_percentage(self, obj):
-
         if not obj.invested_value:
             return 0
 
@@ -87,7 +113,6 @@ class HoldingSerializer(serializers.ModelSerializer):
 
 
 class TransactionSerializer(serializers.ModelSerializer):
-
     asset_name = serializers.CharField(
         source="asset.name",
         read_only=True,

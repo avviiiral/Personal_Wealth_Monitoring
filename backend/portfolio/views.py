@@ -5,12 +5,141 @@ from django.db.models import Sum
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework import status
 
-from investments.models import Holding, Transaction
+from investments.models import Asset, Holding, Transaction
+
 from .serializers import (
+    AssetSerializer,
     HoldingSerializer,
     TransactionSerializer,
 )
+
+
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def portfolio_assets(request):
+    """
+    List or create assets belonging to the logged-in user.
+    """
+
+    if request.method == "GET":
+        assets = (
+            Asset.objects
+            .filter(owner=request.user)
+            .order_by("name")
+        )
+
+        serializer = AssetSerializer(
+            assets,
+            many=True,
+        )
+
+        return Response({
+            "count": assets.count(),
+            "results": serializer.data,
+        })
+
+    serializer = AssetSerializer(
+        data=request.data,
+    )
+
+    if not serializer.is_valid():
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    asset = serializer.save(
+        owner=request.user,
+    )
+
+    return Response(
+        AssetSerializer(asset).data,
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(["GET", "PUT", "PATCH", "DELETE"])
+@permission_classes([IsAuthenticated])
+def portfolio_asset_detail(request, asset_id):
+    """
+    Retrieve, update, partially update, or deactivate
+    an asset belonging to the logged-in user.
+    """
+
+    try:
+        asset = Asset.objects.get(
+            id=asset_id,
+            owner=request.user,
+        )
+    except Asset.DoesNotExist:
+        return Response(
+            {
+                "detail": "Asset not found."
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if request.method == "GET":
+        serializer = AssetSerializer(asset)
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
+
+    if request.method == "PUT":
+        serializer = AssetSerializer(
+            asset,
+            data=request.data,
+        )
+
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        asset = serializer.save()
+
+        return Response(
+            AssetSerializer(asset).data,
+            status=status.HTTP_200_OK,
+        )
+
+    if request.method == "PATCH":
+        serializer = AssetSerializer(
+            asset,
+            data=request.data,
+            partial=True,
+        )
+
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        asset = serializer.save()
+
+        return Response(
+            AssetSerializer(asset).data,
+            status=status.HTTP_200_OK,
+        )
+
+    # DELETE is intentionally a soft delete.
+    #
+    # We do NOT physically delete the Asset because an Asset
+    # may have transactions and a calculated Holding associated
+    # with it. A hard delete could destroy financial history.
+
+    asset.is_active = False
+    asset.save(update_fields=["is_active", "updated_at"])
+
+    return Response(
+        status=status.HTTP_204_NO_CONTENT,
+    )
 
 
 @api_view(["GET"])
