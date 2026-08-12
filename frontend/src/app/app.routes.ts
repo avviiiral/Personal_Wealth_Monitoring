@@ -5,6 +5,7 @@ import { ShellComponent } from './layout/shell/shell.component';
 import { DashboardComponent } from '../features/dashboard/dashboard.component';
 import { LoginComponent } from '../features/login/login.component';
 import { PortfolioComponent } from '../features/portfolio/portfolio.component';
+import { HoldingsComponent } from '../features/holdings/holdings.component';
 
 import { PagePlaceholderComponent } from '../shared/components/page-placeholder.component';
 
@@ -49,11 +50,7 @@ export const routes: Routes = [
 
       {
         path: 'holdings',
-        component: PagePlaceholderComponent,
-        data: {
-          title: 'Holdings',
-          description: 'View your current investment holdings.',
-        },
+        component: HoldingsComponent,
       },
 
       {
