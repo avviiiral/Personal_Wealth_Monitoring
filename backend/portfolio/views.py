@@ -1,13 +1,18 @@
 from decimal import Decimal
 
+from django.db import transaction
 from django.db.models import Sum
 
+from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework import status
 
 from investments.models import Asset, Holding, Transaction
+
+from portfolio.services.holding_engine import (
+    HoldingCalculationEngine,
+)
 
 from .serializers import (
     AssetSerializer,
@@ -128,14 +133,192 @@ def portfolio_asset_detail(request, asset_id):
             status=status.HTTP_200_OK,
         )
 
-    # DELETE is intentionally a soft delete.
-    #
-    # We do NOT physically delete the Asset because an Asset
-    # may have transactions and a calculated Holding associated
-    # with it. A hard delete could destroy financial history.
-
     asset.is_active = False
-    asset.save(update_fields=["is_active", "updated_at"])
+    asset.save(
+        update_fields=[
+            "is_active",
+            "updated_at",
+        ]
+    )
+
+    return Response(
+        status=status.HTTP_204_NO_CONTENT,
+    )
+
+
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def portfolio_transactions(request):
+    """
+    List or create transactions belonging to the
+    logged-in user.
+    """
+
+    if request.method == "GET":
+        transactions = (
+            Transaction.objects
+            .filter(
+                owner=request.user,
+            )
+            .select_related("asset")
+            .order_by(
+                "-transaction_date",
+                "-created_at",
+            )
+        )
+
+        serializer = TransactionSerializer(
+            transactions,
+            many=True,
+        )
+
+        return Response({
+            "count": transactions.count(),
+            "results": serializer.data,
+        })
+
+    serializer = TransactionSerializer(
+        data=request.data,
+        context={
+            "request": request,
+        },
+    )
+
+    if not serializer.is_valid():
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    with transaction.atomic():
+        transaction_obj = serializer.save(
+            owner=request.user,
+        )
+
+        HoldingCalculationEngine.rebuild_holding(
+            transaction_obj.asset
+        )
+
+    return Response(
+        TransactionSerializer(transaction_obj).data,
+        status=status.HTTP_201_CREATED,
+    )
+
+@api_view(["GET", "PUT", "PATCH", "DELETE"])
+@permission_classes([IsAuthenticated])
+def portfolio_transaction_detail(request, transaction_id):
+    """
+    Retrieve, update, or delete a transaction belonging
+    to the logged-in user.
+    """
+
+    try:
+        transaction_obj = (
+            Transaction.objects
+            .select_related("asset")
+            .get(
+                id=transaction_id,
+                owner=request.user,
+            )
+        )
+    except Transaction.DoesNotExist:
+        return Response(
+            {
+                "detail": "Transaction not found."
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if request.method == "GET":
+        serializer = TransactionSerializer(
+            transaction_obj,
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK,
+        )
+
+    if request.method == "PUT":
+        old_asset = transaction_obj.asset
+
+        serializer = TransactionSerializer(
+            transaction_obj,
+            data=request.data,
+            context={
+                "request": request,
+            },
+        )
+
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            transaction_obj = serializer.save()
+
+            new_asset = transaction_obj.asset
+
+            HoldingCalculationEngine.rebuild_holding(
+                old_asset
+            )
+
+            HoldingCalculationEngine.rebuild_holding(
+                new_asset
+            )
+
+        return Response(
+            TransactionSerializer(transaction_obj).data,
+            status=status.HTTP_200_OK,
+        )
+
+    if request.method == "PATCH":
+        old_asset = transaction_obj.asset
+
+        serializer = TransactionSerializer(
+            transaction_obj,
+            data=request.data,
+            partial=True,
+            context={
+                "request": request,
+            },
+        )
+
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            transaction_obj = serializer.save()
+
+            new_asset = transaction_obj.asset
+
+            HoldingCalculationEngine.rebuild_holding(
+                old_asset
+            )
+
+            if new_asset.id != old_asset.id:
+                HoldingCalculationEngine.rebuild_holding(
+                    new_asset
+                )
+
+        return Response(
+            TransactionSerializer(transaction_obj).data,
+            status=status.HTTP_200_OK,
+        )
+
+    old_asset = transaction_obj.asset
+
+    with transaction.atomic():
+        transaction_obj.delete()
+
+        HoldingCalculationEngine.rebuild_holding(
+            old_asset
+        )
 
     return Response(
         status=status.HTTP_204_NO_CONTENT,
@@ -218,35 +401,5 @@ def portfolio_holdings(request):
 
     return Response({
         "count": holdings.count(),
-        "results": serializer.data,
-    })
-
-
-@api_view(["GET"])
-@permission_classes([IsAuthenticated])
-def portfolio_transactions(request):
-    """
-    Return transactions belonging to the logged-in user.
-    """
-
-    transactions = (
-        Transaction.objects
-        .filter(
-            owner=request.user,
-        )
-        .select_related("asset")
-        .order_by(
-            "-transaction_date",
-            "-created_at",
-        )
-    )
-
-    serializer = TransactionSerializer(
-        transactions,
-        many=True,
-    )
-
-    return Response({
-        "count": transactions.count(),
         "results": serializer.data,
     })

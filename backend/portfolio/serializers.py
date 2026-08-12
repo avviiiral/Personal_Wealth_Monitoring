@@ -140,3 +140,67 @@ class TransactionSerializer(serializers.ModelSerializer):
             "notes",
             "created_at",
         ]
+
+        read_only_fields = [
+            "id",
+            "asset_name",
+            "transaction_type_display",
+            "created_at",
+        ]
+
+    def validate_asset(self, asset):
+        """
+        A transaction may only reference an asset owned
+        by the currently authenticated user.
+        """
+
+        request = self.context.get("request")
+
+        if request is None or not request.user.is_authenticated:
+            raise serializers.ValidationError(
+                "Authentication is required."
+            )
+
+        if asset.owner_id != request.user.id:
+            raise serializers.ValidationError(
+                "You can only use assets that belong to you."
+            )
+
+        if not asset.is_active:
+            raise serializers.ValidationError(
+                "Cannot create or update a transaction for an inactive asset."
+            )
+
+        return asset
+
+    def validate_quantity(self, value):
+        if value < 0:
+            raise serializers.ValidationError(
+                "Quantity cannot be negative."
+            )
+
+        return value
+
+    def validate_price_per_unit(self, value):
+        if value < 0:
+            raise serializers.ValidationError(
+                "Price per unit cannot be negative."
+            )
+
+        return value
+
+    def validate_amount(self, value):
+        if value < 0:
+            raise serializers.ValidationError(
+                "Amount cannot be negative."
+            )
+
+        return value
+
+    def validate_fees(self, value):
+        if value < 0:
+            raise serializers.ValidationError(
+                "Fees cannot be negative."
+            )
+
+        return value
