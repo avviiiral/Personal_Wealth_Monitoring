@@ -47,7 +47,13 @@ export class AddInvestmentComponent implements OnInit {
 
   private stockSearchSubscription: Subscription | null = null;
 
+  private schemeSearchTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private schemeSearchSubscription: Subscription | null = null;
+
   private readonly stockSearchCache = new Map<string, StockSearchResult[]>();
+
+  private readonly schemeSearchCache = new Map<string, MutualFundScheme[]>();
 
   saving = false;
 
@@ -194,6 +200,8 @@ export class AddInvestmentComponent implements OnInit {
     this.calculateAmount();
 
     this.calculateMutualFundAmount();
+
+    this.loadSchemes();
   }
 
   // ==========================================================
@@ -217,11 +225,33 @@ export class AddInvestmentComponent implements OnInit {
   // ==========================================================
 
   loadSchemes(search = ''): void {
+    const trimmedSearch = search.trim();
+
+    const cacheKey = trimmedSearch.toLowerCase();
+
+    if (trimmedSearch.length > 0) {
+      const cachedResults = this.schemeSearchCache.get(cacheKey);
+
+      if (cachedResults) {
+        this.schemes = cachedResults;
+
+        this.schemeSearchLoading = false;
+
+        this.cdr.detectChanges();
+
+        return;
+      }
+    }
+
     this.schemeSearchLoading = true;
 
-    this.mutualFundsApi.getSchemes(search).subscribe({
+    this.mutualFundsApi.getSchemes(trimmedSearch).subscribe({
       next: (response) => {
         this.schemes = response.results;
+
+        if (trimmedSearch.length > 0) {
+          this.schemeSearchCache.set(cacheKey, response.results);
+        }
 
         this.schemeSearchLoading = false;
 
@@ -245,13 +275,77 @@ export class AddInvestmentComponent implements OnInit {
 
     this.selectedScheme = null;
 
+    if (this.schemeSearchTimer) {
+      clearTimeout(this.schemeSearchTimer);
+
+      this.schemeSearchTimer = null;
+    }
+
+    if (this.schemeSearchSubscription) {
+      this.schemeSearchSubscription.unsubscribe();
+
+      this.schemeSearchSubscription = null;
+    }
+
     if (search.length < 2) {
       this.schemes = [];
+
+      this.schemeSearchLoading = false;
 
       return;
     }
 
-    this.loadSchemes(search);
+    const cacheKey = search.toLowerCase();
+
+    const cachedResults = this.schemeSearchCache.get(cacheKey);
+
+    if (cachedResults) {
+      this.schemes = cachedResults;
+
+      this.schemeSearchLoading = false;
+
+      this.cdr.detectChanges();
+
+      return;
+    }
+
+    this.schemeSearchLoading = true;
+
+    this.schemes = [];
+
+    this.schemeSearchTimer = setTimeout(() => {
+      this.schemeSearchSubscription = this.mutualFundsApi.getSchemes(search).subscribe({
+        next: (response) => {
+          if (this.schemeSearch.trim() !== search) {
+            return;
+          }
+
+          this.schemeSearchCache.set(cacheKey, response.results);
+
+          this.schemes = response.results;
+
+          this.schemeSearchLoading = false;
+
+          this.schemeSearchSubscription = null;
+
+          this.cdr.detectChanges();
+        },
+
+        error: (error) => {
+          console.error('Unable to search mutual fund schemes:', error);
+
+          if (this.schemeSearch.trim() === search) {
+            this.schemes = [];
+
+            this.schemeSearchLoading = false;
+
+            this.cdr.detectChanges();
+          }
+
+          this.schemeSearchSubscription = null;
+        },
+      });
+    }, 400);
   }
 
   onSchemeSelected(schemeId: number | null): void {
@@ -259,6 +353,18 @@ export class AddInvestmentComponent implements OnInit {
       this.selectedScheme = null;
 
       return;
+    }
+
+    if (this.schemeSearchTimer) {
+      clearTimeout(this.schemeSearchTimer);
+
+      this.schemeSearchTimer = null;
+    }
+
+    if (this.schemeSearchSubscription) {
+      this.schemeSearchSubscription.unsubscribe();
+
+      this.schemeSearchSubscription = null;
     }
 
     const scheme = this.schemes.find((item) => item.id === Number(schemeId));
@@ -401,6 +507,8 @@ export class AddInvestmentComponent implements OnInit {
 
     this.asset.name = stock.name;
 
+    this.asset.category = this.investmentType;
+
     this.asset.symbol = stock.symbol;
 
     this.asset.isin = stock.isin || '';
@@ -421,13 +529,9 @@ export class AddInvestmentComponent implements OnInit {
 
     this.success = '';
 
-    this.schemeSearch = '';
-
-    this.schemes = [];
-
-    this.selectedScheme = null;
-
-    this.sip.scheme = null;
+    // --------------------------------------------------------
+    // Cancel stock / ETF search
+    // --------------------------------------------------------
 
     if (this.stockSearchTimer) {
       clearTimeout(this.stockSearchTimer);
@@ -448,6 +552,61 @@ export class AddInvestmentComponent implements OnInit {
     this.stockSearchLoading = false;
 
     this.selectedStock = null;
+
+    // --------------------------------------------------------
+    // Cancel mutual-fund search
+    // --------------------------------------------------------
+
+    if (this.schemeSearchTimer) {
+      clearTimeout(this.schemeSearchTimer);
+
+      this.schemeSearchTimer = null;
+    }
+
+    if (this.schemeSearchSubscription) {
+      this.schemeSearchSubscription.unsubscribe();
+
+      this.schemeSearchSubscription = null;
+    }
+
+    this.schemeSearch = '';
+
+    this.schemes = [];
+
+    this.schemeSearchLoading = false;
+
+    this.selectedScheme = null;
+
+    // --------------------------------------------------------
+    // Reset selected SIP scheme
+    // --------------------------------------------------------
+
+    this.sip.scheme = null;
+
+    // --------------------------------------------------------
+    // Reset asset fields when switching between
+    // STOCK / ETF
+    // --------------------------------------------------------
+
+    this.asset.name = '';
+
+    this.asset.category = this.investmentType;
+
+    this.asset.symbol = '';
+
+    this.asset.isin = '';
+
+    this.asset.institution = '';
+
+    this.asset.currency = 'INR';
+
+    // --------------------------------------------------------
+    // Load mutual funds when selecting MF or SIP
+    // --------------------------------------------------------
+
+    if (this.investmentType === 'MUTUAL_FUND' || this.investmentType === 'SIP') {
+      this.loadSchemes();
+    }
   }
 
   // ==========================================================

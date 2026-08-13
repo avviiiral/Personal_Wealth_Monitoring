@@ -79,10 +79,6 @@
       </div>
 
       <div class="form-grid">
-        <!-- ================================================== -->
-        <!-- STOCK / ETF SEARCH -->
-        <!-- ================================================== -->
-
         <div class="form-field full-width stock-search-field">
           <label for="stock-search">
             {{ investmentType === 'STOCK' ? 'Stock Name' : 'ETF Name' }}
@@ -105,10 +101,6 @@
               {{ investmentType === 'STOCK' ? 'stocks' : 'ETFs' }}...
             </span>
           }
-
-          <!-- ================================================ -->
-          <!-- STOCK / ETF SEARCH RESULTS -->
-          <!-- ================================================ -->
 
           @if (!stockSearchLoading && stockSearchResults.length > 0) {
             <div class="stock-search-results">
@@ -150,10 +142,6 @@
           }
         </div>
 
-        <!-- ================================================== -->
-        <!-- SYMBOL -->
-        <!-- ================================================== -->
-
         <div class="form-field">
           <label> Symbol </label>
 
@@ -165,10 +153,6 @@
           />
         </div>
 
-        <!-- ================================================== -->
-        <!-- ISIN -->
-        <!-- ================================================== -->
-
         <div class="form-field">
           <label> ISIN </label>
 
@@ -179,10 +163,6 @@
             [disabled]="saving"
           />
         </div>
-
-        <!-- ================================================== -->
-        <!-- EXCHANGE / INSTITUTION -->
-        <!-- ================================================== -->
 
         <div class="form-field">
           <label>
@@ -197,10 +177,6 @@
           />
         </div>
 
-        <!-- ================================================== -->
-        <!-- TRANSACTION TYPE -->
-        <!-- ================================================== -->
-
         <div class="form-field">
           <label> Transaction Type </label>
 
@@ -213,10 +189,6 @@
           </select>
         </div>
 
-        <!-- ================================================== -->
-        <!-- TRANSACTION DATE -->
-        <!-- ================================================== -->
-
         <div class="form-field">
           <label>
             Transaction Date
@@ -225,10 +197,6 @@
 
           <input type="date" [(ngModel)]="transaction.transaction_date" [disabled]="saving" />
         </div>
-
-        <!-- ================================================== -->
-        <!-- QUANTITY -->
-        <!-- ================================================== -->
 
         <div class="form-field">
           <label> Quantity </label>
@@ -243,10 +211,6 @@
           />
         </div>
 
-        <!-- ================================================== -->
-        <!-- PRICE PER UNIT -->
-        <!-- ================================================== -->
-
         <div class="form-field">
           <label> Price Per Unit </label>
 
@@ -260,10 +224,6 @@
           />
         </div>
 
-        <!-- ================================================== -->
-        <!-- AMOUNT -->
-        <!-- ================================================== -->
-
         <div class="form-field">
           <label> Amount </label>
 
@@ -276,10 +236,6 @@
           />
         </div>
 
-        <!-- ================================================== -->
-        <!-- FEES -->
-        <!-- ================================================== -->
-
         <div class="form-field">
           <label> Fees </label>
 
@@ -291,10 +247,6 @@
             [disabled]="saving"
           />
         </div>
-
-        <!-- ================================================== -->
-        <!-- NOTES -->
-        <!-- ================================================== -->
 
         <div class="form-field full-width">
           <label> Notes </label>
@@ -319,17 +271,13 @@
         <div>
           <h2>Mutual Fund Scheme</h2>
 
-          <p>Enter the complete scheme information.</p>
+          <p>Search and select your mutual fund scheme.</p>
         </div>
 
         <span class="section-badge"> MUTUAL FUND </span>
       </div>
 
       <div class="form-grid">
-        <!-- ================================================== -->
-        <!-- MUTUAL FUND SCHEME SEARCH -->
-        <!-- ================================================== -->
-
         <div class="form-field full-width scheme-search-field">
           <label for="scheme-search">
             Scheme Name
@@ -349,10 +297,6 @@
           @if (schemeSearchLoading) {
             <span class="field-help"> Searching schemes... </span>
           }
-
-          <!-- ================================================ -->
-          <!-- SEARCH RESULTS -->
-          <!-- ================================================ -->
 
           @if (!schemeSearchLoading && schemes.length > 0) {
             <div class="scheme-search-results">
@@ -375,6 +319,10 @@
                     @if (scheme.scheme_code) {
                       · Code: {{ scheme.scheme_code }}
                     }
+
+                    @if (scheme.isin_growth) {
+                      · {{ scheme.isin_growth }}
+                    }
                   </span>
                 </button>
               }
@@ -385,10 +333,6 @@
             <span class="field-help"> No matching mutual fund schemes found. </span>
           }
         </div>
-
-        <!-- ================================================== -->
-        <!-- AMC -->
-        <!-- ================================================== -->
 
         <div class="form-field">
           <label> AMC </label>
@@ -401,10 +345,6 @@
           />
         </div>
 
-        <!-- ================================================== -->
-        <!-- SCHEME CODE -->
-        <!-- ================================================== -->
-
         <div class="form-field">
           <label> Scheme Code </label>
 
@@ -415,10 +355,6 @@
             [disabled]="saving"
           />
         </div>
-
-        <!-- ================================================== -->
-        <!-- ISIN GROWTH -->
-        <!-- ================================================== -->
 
         <div class="form-field">
           <label> ISIN Growth </label>
@@ -431,10 +367,6 @@
           />
         </div>
 
-        <!-- ================================================== -->
-        <!-- ISIN DIVIDEND -->
-        <!-- ================================================== -->
-
         <div class="form-field">
           <label> ISIN Dividend </label>
 
@@ -446,39 +378,24 @@
           />
         </div>
 
-        <!-- ================================================== -->
-        <!-- PLAN -->
-        <!-- ================================================== -->
-
         <div class="form-field">
           <label> Plan </label>
 
           <select [(ngModel)]="mutualFund.plan" [disabled]="saving">
             <option value="Direct">Direct</option>
-
             <option value="Regular">Regular</option>
           </select>
         </div>
-
-        <!-- ================================================== -->
-        <!-- OPTION -->
-        <!-- ================================================== -->
 
         <div class="form-field">
           <label> Option </label>
 
           <select [(ngModel)]="mutualFund.option" [disabled]="saving">
             <option value="Growth">Growth</option>
-
             <option value="IDCW">IDCW</option>
-
             <option value="Dividend">Dividend</option>
           </select>
         </div>
-
-        <!-- ================================================== -->
-        <!-- CATEGORY -->
-        <!-- ================================================== -->
 
         <div class="form-field full-width">
           <label> Category </label>
@@ -493,10 +410,6 @@
       </div>
     </section>
 
-    <!-- ====================================================== -->
-    <!-- MUTUAL FUND INITIAL TRANSACTION -->
-    <!-- ====================================================== -->
-
     <section class="investment-card">
       <div class="card-header">
         <div>
@@ -507,8 +420,6 @@
       </div>
 
       <div class="form-grid">
-        <!-- TRANSACTION TYPE -->
-
         <div class="form-field">
           <label> Transaction Type </label>
 
@@ -520,8 +431,6 @@
             }
           </select>
         </div>
-
-        <!-- TRANSACTION DATE -->
 
         <div class="form-field">
           <label>
@@ -536,8 +445,6 @@
           />
         </div>
 
-        <!-- UNITS -->
-
         <div class="form-field">
           <label> Units </label>
 
@@ -550,8 +457,6 @@
             [disabled]="saving"
           />
         </div>
-
-        <!-- NAV -->
 
         <div class="form-field">
           <label> NAV </label>
@@ -566,8 +471,6 @@
           />
         </div>
 
-        <!-- AMOUNT -->
-
         <div class="form-field">
           <label> Amount </label>
 
@@ -580,8 +483,6 @@
           />
         </div>
 
-        <!-- FEES -->
-
         <div class="form-field">
           <label> Fees </label>
 
@@ -593,8 +494,6 @@
             [disabled]="saving"
           />
         </div>
-
-        <!-- NOTES -->
 
         <div class="form-field full-width">
           <label> Notes </label>
@@ -619,37 +518,79 @@
         <div>
           <h2>SIP Configuration</h2>
 
-          <p>Create a recurring mutual fund investment.</p>
+          <p>Search and select the mutual fund for your SIP.</p>
         </div>
 
         <span class="section-badge"> SIP </span>
       </div>
 
       <div class="form-grid">
-        <!-- MUTUAL FUND SCHEME -->
-
-        <div class="form-field full-width">
-          <label>
+        <div class="form-field full-width scheme-search-field">
+          <label for="sip-scheme-search">
             Mutual Fund Scheme
             <span>*</span>
           </label>
 
-          <select [(ngModel)]="sip.scheme" [disabled]="saving">
-            <option [ngValue]="null">Select a mutual fund</option>
+          <input
+            id="sip-scheme-search"
+            type="text"
+            [(ngModel)]="schemeSearch"
+            (ngModelChange)="onSchemeSearchChange()"
+            placeholder="Search mutual fund scheme..."
+            [disabled]="saving"
+            autocomplete="off"
+          />
 
-            @for (scheme of schemes; track scheme.id) {
-              <option [ngValue]="scheme.id">
-                {{ scheme.scheme_name }}
+          @if (schemeSearchLoading) {
+            <span class="field-help"> Searching schemes... </span>
+          }
 
-                @if (scheme.amc_name) {
-                  — {{ scheme.amc_name }}
-                }
-              </option>
-            }
-          </select>
+          @if (!schemeSearchLoading && schemes.length > 0) {
+            <div class="scheme-search-results">
+              @for (scheme of schemes; track scheme.id) {
+                <button
+                  type="button"
+                  class="scheme-search-result"
+                  (mousedown)="$event.preventDefault(); onSchemeSelected(scheme.id)"
+                  [disabled]="saving"
+                >
+                  <span class="scheme-result-name">
+                    {{ scheme.scheme_name }}
+                  </span>
+
+                  <span class="scheme-result-details">
+                    @if (scheme.amc_name) {
+                      {{ scheme.amc_name }}
+                    }
+
+                    @if (scheme.scheme_code) {
+                      · Code: {{ scheme.scheme_code }}
+                    }
+
+                    @if (scheme.isin_growth) {
+                      · {{ scheme.isin_growth }}
+                    }
+                  </span>
+                </button>
+              }
+            </div>
+          }
+
+          @if (schemeSearch.trim().length >= 2 && !schemeSearchLoading && schemes.length === 0) {
+            <span class="field-help"> No matching mutual fund schemes found. </span>
+          }
         </div>
 
-        <!-- SIP AMOUNT -->
+        <div class="form-field full-width">
+          <label> Selected Scheme </label>
+
+          <input
+            type="text"
+            [value]="selectedScheme?.scheme_name || ''"
+            placeholder="Select a mutual fund scheme above"
+            disabled
+          />
+        </div>
 
         <div class="form-field">
           <label>
@@ -667,8 +608,6 @@
           />
         </div>
 
-        <!-- FREQUENCY -->
-
         <div class="form-field">
           <label> Frequency </label>
 
@@ -681,8 +620,6 @@
           </select>
         </div>
 
-        <!-- START DATE -->
-
         <div class="form-field">
           <label>
             Start Date
@@ -692,15 +629,11 @@
           <input type="date" [(ngModel)]="sip.start_date" [disabled]="saving" />
         </div>
 
-        <!-- NEXT INSTALLMENT -->
-
         <div class="form-field">
           <label> Next Installment </label>
 
           <input type="date" [(ngModel)]="sip.next_installment_date" [disabled]="saving" />
         </div>
-
-        <!-- END DATE -->
 
         <div class="form-field">
           <label> End Date </label>
@@ -708,14 +641,11 @@
           <input type="date" [(ngModel)]="sip.end_date" [disabled]="saving" />
         </div>
 
-        <!-- STATUS -->
-
         <div class="form-field">
           <label> Status </label>
 
           <select [(ngModel)]="sip.is_active" [disabled]="saving">
             <option [ngValue]="true">Active</option>
-
             <option [ngValue]="false">Inactive</option>
           </select>
         </div>

@@ -41,4 +41,10 @@ urlpatterns = [
         stock_search,
         name="stock-search",
     ),
+
+    # AI Portfolio Chat
+    path(
+        "api/ai/",
+        include("ai.urls"),
+    ),
 ]
