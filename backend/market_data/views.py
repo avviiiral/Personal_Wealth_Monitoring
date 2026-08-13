@@ -1,6 +1,9 @@
+import hashlib
 import logging
 
 from curl_cffi import requests
+
+from django.core.cache import cache
 
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -10,11 +13,17 @@ from rest_framework.response import Response
 logger = logging.getLogger(__name__)
 
 
+STOCK_SEARCH_CACHE_TIMEOUT = 300
+YAHOO_FINANCE_TIMEOUT = 5
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def stock_search(request):
     """
     Search Indian stocks/ETFs using Yahoo Finance.
+    Results are cached for a short period to avoid repeated
+    Yahoo Finance requests.
     """
 
     search = (
@@ -36,6 +45,28 @@ def stock_search(request):
             "results": [],
         })
 
+    if asset_type not in {"STOCK", "ETF"}:
+        asset_type = "STOCK"
+
+    cache_key_source = (
+        f"stock-search:{asset_type}:{search.lower()}"
+    )
+
+    cache_key = (
+        "pwms:"
+        + hashlib.md5(
+            cache_key_source.encode("utf-8")
+        ).hexdigest()
+    )
+
+    cached_results = cache.get(cache_key)
+
+    if cached_results is not None:
+        return Response({
+            "count": len(cached_results),
+            "results": cached_results,
+        })
+
     try:
         session = requests.Session(
             impersonate="chrome",
@@ -49,7 +80,7 @@ def stock_search(request):
                 "quotesCount": 20,
                 "newsCount": 0,
             },
-            timeout=10,
+            timeout=YAHOO_FINANCE_TIMEOUT,
         )
 
         response.raise_for_status()
@@ -57,8 +88,9 @@ def stock_search(request):
         data = response.json()
 
     except Exception as exc:
-        logger.exception(
-            "Yahoo Finance stock search failed: %s",
+        logger.warning(
+            "Yahoo Finance stock search failed for '%s': %s",
+            search,
             exc,
         )
 
@@ -123,6 +155,12 @@ def stock_search(request):
 
         if len(results) >= 10:
             break
+
+    cache.set(
+        cache_key,
+        results,
+        STOCK_SEARCH_CACHE_TIMEOUT,
+    )
 
     return Response({
         "count": len(results),
