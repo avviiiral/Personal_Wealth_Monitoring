@@ -108,4 +108,10 @@ urlpatterns = [
         sip_create,
         name="sip-create",
     ),
+    
+    path(
+        "csrf/",
+        csrf_token,
+        name="csrf-token",
+    ),
 ]

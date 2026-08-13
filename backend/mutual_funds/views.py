@@ -44,6 +44,8 @@ from .services.sip_installment_execution import (
     SIPInstallmentExecutionService,
 )
 
+from django.views.decorators.csrf import ensure_csrf_cookie
+
 # ==========================================================
 # MUTUAL FUND SCHEMES
 # ==========================================================
@@ -149,6 +151,7 @@ def mutual_fund_transaction_create(request):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@ensure_csrf_cookie
 def sip_create(request):
 
     serializer = CreateSIPSerializer(
@@ -156,7 +159,9 @@ def sip_create(request):
         context={"request": request},
     )
 
-    serializer.is_valid(raise_exception=True)
+    serializer.is_valid(
+        raise_exception=True
+    )
 
     sip = serializer.save(
         owner=request.user
@@ -598,6 +603,18 @@ def csrf_token(request):
 
     Angular uses this cookie when making state-changing
     requests such as SIP installment execution.
+    """
+
+    return Response({
+        "detail": "CSRF cookie set."
+    })
+    
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+@ensure_csrf_cookie
+def csrf_token(request):
+    """
+    Set the Django CSRF cookie for Angular.
     """
 
     return Response({
