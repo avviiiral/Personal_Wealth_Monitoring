@@ -25,6 +25,7 @@ import {
 
 import { Subscription } from 'rxjs';
 
+import { ToastService } from '../../core/services/toast.service';
 @Component({
   selector: 'app-add-investment',
   standalone: true,
@@ -42,6 +43,8 @@ export class AddInvestmentComponent implements OnInit {
   private readonly router = inject(Router);
 
   private readonly cdr = inject(ChangeDetectorRef);
+
+  private readonly toastService = inject(ToastService);
 
   private stockSearchTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -870,7 +873,9 @@ export class AddInvestmentComponent implements OnInit {
   private finishSuccess(message: string): void {
     this.saving = false;
 
-    this.success = message;
+    this.success = '';
+
+    this.toastService.success(message);
 
     this.cdr.detectChanges();
 
@@ -893,6 +898,8 @@ export class AddInvestmentComponent implements OnInit {
       error?.error?.error ||
       error?.error?.non_field_errors?.[0] ||
       fallback;
+
+    this.toastService.error(this.error);
 
     this.cdr.detectChanges();
   }

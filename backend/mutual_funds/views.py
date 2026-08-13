@@ -44,6 +44,10 @@ from .services.sip_installment_execution import (
     SIPInstallmentExecutionService,
 )
 
+from .services.sip_installments import (
+    SIPInstallmentService,
+)
+
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 # ==========================================================
@@ -166,6 +170,11 @@ def sip_create(request):
     sip = serializer.save(
         owner=request.user
     )
+
+    # Immediately create the SIP installment records
+    # and mark installments whose scheduled date has
+    # arrived as DUE.
+    SIPInstallmentService.synchronize_sip(sip)
 
     return Response(
         SIPSerializer(sip).data,
