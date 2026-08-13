@@ -54,13 +54,35 @@ def mutual_fund_schemes(request):
 
     if request.method == "GET":
 
+        search = (
+            request.query_params
+            .get("search", "")
+            .strip()
+        )
+
         schemes = (
             MutualFundScheme.objects
             .filter(
                 owner=request.user,
                 is_active=True,
             )
+        )
+
+        if search:
+            from django.db.models import Q
+
+            schemes = schemes.filter(
+                Q(scheme_name__icontains=search)
+                | Q(scheme_code__icontains=search)
+                | Q(isin_growth__icontains=search)
+                | Q(isin_dividend__icontains=search)
+                | Q(amc_name__icontains=search)
+            )
+
+        schemes = (
+            schemes
             .order_by("scheme_name")
+            [:50]
         )
 
         serializer = MutualFundSchemeSerializer(
@@ -69,7 +91,7 @@ def mutual_fund_schemes(request):
         )
 
         return Response({
-            "count": schemes.count(),
+            "count": len(serializer.data),
             "results": serializer.data,
         })
 

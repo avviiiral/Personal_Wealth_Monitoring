@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
 export interface MutualFundSummary {
@@ -46,6 +46,7 @@ export interface CreateMutualFundTransactionRequest {
   fees?: number;
   notes?: string | null;
 }
+
 export interface SIP {
   id: number;
   scheme: number;
@@ -63,6 +64,7 @@ export interface SIP {
   created_at: string;
   updated_at: string;
 }
+
 export interface CreateSIPRequest {
   scheme: number;
   amount: number;
@@ -72,6 +74,7 @@ export interface CreateSIPRequest {
   next_installment_date?: string | null;
   is_active: boolean;
 }
+
 export interface MutualFundHolding {
   id: number;
   scheme: number;
@@ -137,11 +140,18 @@ export class MutualFundsApiService {
       this.requestOptions,
     );
   }
-  getSchemes(): Observable<ApiListResponse<MutualFundScheme>> {
-    return this.http.get<ApiListResponse<MutualFundScheme>>(
-      `${this.baseUrl}/schemes/`,
-      this.requestOptions,
-    );
+
+  getSchemes(search = ''): Observable<ApiListResponse<MutualFundScheme>> {
+    let params = new HttpParams();
+
+    if (search.trim()) {
+      params = params.set('search', search.trim());
+    }
+
+    return this.http.get<ApiListResponse<MutualFundScheme>>(`${this.baseUrl}/schemes/`, {
+      ...this.requestOptions,
+      params,
+    });
   }
 
   createScheme(payload: CreateMutualFundSchemeRequest): Observable<MutualFundScheme> {

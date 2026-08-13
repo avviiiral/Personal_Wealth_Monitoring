@@ -221,16 +221,66 @@
       </div>
 
       <div class="form-grid">
-        <div class="form-field full-width">
-          <label> Scheme Name <span>*</span> </label>
+        <!-- ================================================== -->
+        <!-- MUTUAL FUND SCHEME SEARCH -->
+        <!-- ================================================== -->
+
+        <div class="form-field full-width scheme-search-field">
+          <label for="scheme-search"> Scheme Name <span>*</span> </label>
 
           <input
+            id="scheme-search"
             type="text"
-            [(ngModel)]="mutualFund.scheme_name"
-            placeholder="e.g. Parag Parikh Flexi Cap Fund"
+            [(ngModel)]="schemeSearch"
+            (ngModelChange)="onSchemeSearchChange()"
+            placeholder="Search mutual fund scheme..."
             [disabled]="saving"
+            autocomplete="off"
           />
+
+          @if (schemeSearchLoading) {
+            <span class="field-help"> Searching schemes... </span>
+          }
+
+          <!-- ================================================ -->
+          <!-- SEARCH RESULTS -->
+          <!-- ================================================ -->
+
+          @if (!schemeSearchLoading && schemes.length > 0) {
+            <div class="scheme-search-results">
+              @for (scheme of schemes; track scheme.id) {
+                <button
+                  type="button"
+                  class="scheme-search-result"
+                  (click)="onSchemeSelected(scheme.id)"
+                  [disabled]="saving"
+                >
+                  <span class="scheme-result-name">
+                    {{ scheme.scheme_name }}
+                  </span>
+
+                  <span class="scheme-result-details">
+                    @if (scheme.amc_name) {
+                      {{ scheme.amc_name }}
+                    }
+
+                    @if (scheme.scheme_code) {
+                      · Code: {{ scheme.scheme_code }}
+                    }
+                  </span>
+                </button>
+              }
+            </div>
+          }
+
+          @if (schemeSearch.trim().length >= 2 && !schemeSearchLoading && schemes.length === 0) {
+            <span class="field-help"> No matching mutual fund schemes found. </span>
+          }
         </div>
+
+        <!-- ================================================== -->
+        <!-- AMC -->
+        <!-- ================================================== -->
 
         <div class="form-field">
           <label> AMC </label>
@@ -243,6 +293,10 @@
           />
         </div>
 
+        <!-- ================================================== -->
+        <!-- SCHEME CODE -->
+        <!-- ================================================== -->
+
         <div class="form-field">
           <label> Scheme Code </label>
 
@@ -253,6 +307,10 @@
             [disabled]="saving"
           />
         </div>
+
+        <!-- ================================================== -->
+        <!-- ISIN GROWTH -->
+        <!-- ================================================== -->
 
         <div class="form-field">
           <label> ISIN Growth </label>
@@ -265,6 +323,10 @@
           />
         </div>
 
+        <!-- ================================================== -->
+        <!-- ISIN DIVIDEND -->
+        <!-- ================================================== -->
+
         <div class="form-field">
           <label> ISIN Dividend </label>
 
@@ -276,6 +338,10 @@
           />
         </div>
 
+        <!-- ================================================== -->
+        <!-- PLAN -->
+        <!-- ================================================== -->
+
         <div class="form-field">
           <label> Plan </label>
 
@@ -285,6 +351,10 @@
             <option value="Regular">Regular</option>
           </select>
         </div>
+
+        <!-- ================================================== -->
+        <!-- OPTION -->
+        <!-- ================================================== -->
 
         <div class="form-field">
           <label> Option </label>
@@ -298,6 +368,10 @@
           </select>
         </div>
 
+        <!-- ================================================== -->
+        <!-- CATEGORY -->
+        <!-- ================================================== -->
+
         <div class="form-field full-width">
           <label> Category </label>
 
@@ -310,6 +384,10 @@
         </div>
       </div>
     </section>
+
+    <!-- ====================================================== -->
+    <!-- MUTUAL FUND INITIAL TRANSACTION -->
+    <!-- ====================================================== -->
 
     <section class="investment-card">
       <div class="card-header">
@@ -432,6 +510,7 @@
             @for (scheme of schemes; track scheme.id) {
               <option [ngValue]="scheme.id">
                 {{ scheme.scheme_name }}
+
                 @if (scheme.amc_name) {
                   — {{ scheme.amc_name }}
                 }

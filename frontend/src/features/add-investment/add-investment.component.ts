@@ -104,7 +104,17 @@ export class AddInvestmentComponent implements OnInit {
     is_active: true,
   };
 
+  // ==========================================================
+  // MUTUAL FUND SCHEMES
+  // ==========================================================
+
   schemes: MutualFundScheme[] = [];
+
+  schemeSearch = '';
+
+  schemeSearchLoading = false;
+
+  selectedScheme: MutualFundScheme | null = null;
 
   // ==========================================================
   // OPTIONS
@@ -154,8 +164,6 @@ export class AddInvestmentComponent implements OnInit {
 
     this.sip.next_installment_date = today;
 
-    this.loadSchemes();
-
     this.calculateAmount();
 
     this.calculateMutualFundAmount();
@@ -181,18 +189,78 @@ export class AddInvestmentComponent implements OnInit {
   // LOAD MUTUAL FUND SCHEMES
   // ==========================================================
 
-  loadSchemes(): void {
-    this.mutualFundsApi.getSchemes().subscribe({
+  loadSchemes(search = ''): void {
+    this.schemeSearchLoading = true;
+
+    this.mutualFundsApi.getSchemes(search).subscribe({
       next: (response) => {
         this.schemes = response.results;
+
+        this.schemeSearchLoading = false;
 
         this.cdr.detectChanges();
       },
 
       error: (error) => {
         console.error('Unable to load mutual fund schemes:', error);
+
+        this.schemeSearchLoading = false;
+
+        this.schemes = [];
+
+        this.cdr.detectChanges();
       },
     });
+  }
+
+  onSchemeSearchChange(): void {
+    const search = this.schemeSearch.trim();
+
+    this.selectedScheme = null;
+
+    if (search.length < 2) {
+      this.schemes = [];
+
+      return;
+    }
+
+    this.loadSchemes(search);
+  }
+
+  onSchemeSelected(schemeId: number | null): void {
+    if (!schemeId) {
+      this.selectedScheme = null;
+
+      return;
+    }
+
+    const scheme = this.schemes.find((item) => item.id === Number(schemeId));
+
+    if (!scheme) {
+      return;
+    }
+
+    this.selectedScheme = scheme;
+
+    this.sip.scheme = scheme.id;
+
+    this.mutualFund.scheme_name = scheme.scheme_name;
+
+    this.mutualFund.amc_name = scheme.amc_name || '';
+
+    this.mutualFund.scheme_code = scheme.scheme_code || '';
+
+    this.mutualFund.isin_growth = scheme.isin_growth || '';
+
+    this.mutualFund.isin_dividend = scheme.isin_dividend || '';
+
+    this.mutualFund.plan = scheme.plan || '';
+
+    this.mutualFund.option = scheme.option || '';
+
+    this.mutualFund.category = scheme.category || '';
+
+    this.cdr.detectChanges();
   }
 
   // ==========================================================
@@ -204,9 +272,13 @@ export class AddInvestmentComponent implements OnInit {
 
     this.success = '';
 
-    if (this.investmentType === 'MUTUAL_FUND' || this.investmentType === 'SIP') {
-      this.loadSchemes();
-    }
+    this.schemeSearch = '';
+
+    this.schemes = [];
+
+    this.selectedScheme = null;
+
+    this.sip.scheme = null;
   }
 
   // ==========================================================

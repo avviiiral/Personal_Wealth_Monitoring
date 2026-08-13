@@ -3,6 +3,7 @@ from decimal import Decimal, InvalidOperation
 
 import pandas as pd
 import yfinance as yf
+from curl_cffi import requests
 
 from django.db import transaction
 
@@ -69,7 +70,15 @@ class YahooFinanceService:
             )
 
         try:
-            ticker = yf.Ticker(symbol)
+            session = requests.Session(
+                impersonate="chrome",
+                doh_url="https://1.1.1.1/dns-query",
+            )
+
+            ticker = yf.Ticker(
+                symbol,
+                session=session,
+            )
 
             kwargs = {
                 "interval": interval,
