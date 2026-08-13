@@ -1,3 +1,4 @@
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 import requests
@@ -51,17 +52,25 @@ class AMFIService:
         """
         Parse AMFI's semicolon-separated NAV file.
 
-        Expected data fields:
+        AMFI format:
 
-            Scheme Code
-            ISIN Div Payout
-            ISIN Div Reinvestment
-            Scheme Name
-            NAV
-            Date
+            0 = Scheme Code
+            1 = ISIN Div Payout / ISIN Growth
+            2 = ISIN Div Reinvestment
+            3 = Scheme Name
+            4 = NAV
+            5 = Date
 
-        AMFI also contains AMC/category header rows,
-        which are ignored.
+        Important:
+
+        Field 1 is NOT always a dividend ISIN.
+
+        For Growth schemes:
+            Field 1 = Growth ISIN
+
+        For IDCW / Dividend schemes:
+            Field 1 = Dividend Payout ISIN
+            Field 2 = Dividend Reinvestment ISIN
         """
 
         records = []
@@ -73,21 +82,22 @@ class AMFIService:
             if not line:
                 continue
 
+            if ";" not in line:
+                continue
+
             parts = [
                 part.strip()
                 for part in line.split(";")
             ]
 
-            # A valid NAV row normally contains
-            # at least six fields.
             if len(parts) < 6:
                 continue
 
             scheme_code = parts[0]
 
-            isin_div_payout = parts[1]
+            isin_first = parts[1]
 
-            isin_div_reinvestment = parts[2]
+            isin_second = parts[2]
 
             scheme_name = parts[3]
 
@@ -95,14 +105,22 @@ class AMFIService:
 
             date_text = parts[5]
 
-            # Ignore non-data/header rows.
+            # --------------------------------------------------
+            # Ignore headers / AMC names / invalid rows
+            # --------------------------------------------------
+
             if not scheme_code.isdigit():
                 continue
 
             if not scheme_name:
                 continue
 
+            # --------------------------------------------------
+            # NAV
+            # --------------------------------------------------
+
             try:
+
                 nav = Decimal(nav_text)
 
             except (
@@ -110,13 +128,17 @@ class AMFIService:
                 ValueError,
                 TypeError,
             ):
+
                 continue
 
             if nav < 0:
                 continue
 
+            # --------------------------------------------------
+            # DATE
+            # --------------------------------------------------
+
             try:
-                from datetime import datetime
 
                 nav_date = datetime.strptime(
                     date_text,
@@ -124,24 +146,81 @@ class AMFIService:
                 ).date()
 
             except ValueError:
+
                 continue
 
-            records.append({
-                "scheme_code": scheme_code,
-                "isin_div_payout": (
-                    isin_div_payout
-                    if isin_div_payout != "-"
-                    else None
-                ),
-                "isin_div_reinvestment": (
-                    isin_div_reinvestment
-                    if isin_div_reinvestment != "-"
-                    else None
-                ),
-                "scheme_name": scheme_name,
-                "nav": nav,
-                "date": nav_date,
-            })
+            # --------------------------------------------------
+            # ISIN RESOLUTION
+            # --------------------------------------------------
+            #
+            # AMFI field 1 is:
+            #
+            # ISIN Div Payout / ISIN Growth
+            #
+            # Therefore we must determine what it represents
+            # from the scheme name.
+            #
+            # Growth scheme:
+            #
+            #     field 1 -> isin_growth
+            #
+            # IDCW / Dividend scheme:
+            #
+            #     field 1 -> isin_dividend
+            #     field 2 -> isin_dividend when field 2 exists
+            #
+            # --------------------------------------------------
+
+            scheme_name_lower = scheme_name.lower()
+
+            isin_growth = None
+
+            isin_dividend = None
+
+            if (
+                "growth" in scheme_name_lower
+                and "idcw" not in scheme_name_lower
+                and "dividend" not in scheme_name_lower
+            ):
+
+                if (
+                    isin_first
+                    and isin_first != "-"
+                ):
+
+                    isin_growth = isin_first
+
+            else:
+
+                if (
+                    isin_first
+                    and isin_first != "-"
+                ):
+
+                    isin_dividend = isin_first
+
+                elif (
+                    isin_second
+                    and isin_second != "-"
+                ):
+
+                    isin_dividend = isin_second
+
+            records.append(
+                {
+                    "scheme_code": scheme_code,
+
+                    "isin_growth": isin_growth,
+
+                    "isin_dividend": isin_dividend,
+
+                    "scheme_name": scheme_name,
+
+                    "nav": nav,
+
+                    "date": nav_date,
+                }
+            )
 
         return records
 
@@ -153,6 +232,7 @@ class AMFIService:
         all valid scheme records.
 
         Existing schemes are updated.
+
         Existing NAV records are updated rather than
         duplicated.
         """
@@ -168,37 +248,71 @@ class AMFIService:
         )
 
         scheme_count = 0
+
         nav_count = 0
 
         for record in records:
+
+            # --------------------------------------------------
+            # Prepare scheme defaults
+            # --------------------------------------------------
+
+            defaults = {
+                "scheme_name": record[
+                    "scheme_name"
+                ],
+            }
+
+            # --------------------------------------------------
+            # Growth ISIN
+            # --------------------------------------------------
+
+            if record["isin_growth"]:
+
+                defaults["isin_growth"] = (
+                    record["isin_growth"]
+                )
+
+            # --------------------------------------------------
+            # Dividend / IDCW ISIN
+            # --------------------------------------------------
+
+            if record["isin_dividend"]:
+
+                defaults["isin_dividend"] = (
+                    record["isin_dividend"]
+                )
+
+            # --------------------------------------------------
+            # Create / update scheme
+            # --------------------------------------------------
 
             scheme, _ = (
                 MutualFundScheme.objects
                 .update_or_create(
                     owner=owner,
+
                     scheme_code=record[
                         "scheme_code"
                     ],
-                    defaults={
-                        "scheme_name": record[
-                            "scheme_name"
-                        ],
-                        "isin_growth": record[
-                            "isin_div_reinvestment"
-                        ],
-                        "isin_dividend": record[
-                            "isin_div_payout"
-                        ],
-                    },
+
+                    defaults=defaults,
                 )
             )
 
             scheme_count += 1
 
+            # --------------------------------------------------
+            # NAV
+            # --------------------------------------------------
+
             MutualFundNAV.objects.update_or_create(
                 scheme=scheme,
+
                 date=record["date"],
+
                 source="AMFI",
+
                 defaults={
                     "nav": record["nav"],
                 },
