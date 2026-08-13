@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
+import { Observable, switchMap } from 'rxjs';
 
 export interface MutualFundSummary {
   total_invested: number;
@@ -111,6 +111,10 @@ export interface ApiListResponse<T> {
   results: T[];
 }
 
+interface CsrfResponse {
+  detail: string;
+}
+
 @Injectable({
   providedIn: 'root',
 })
@@ -123,9 +127,65 @@ export class MutualFundsApiService {
     withCredentials: true,
   };
 
+  // ==========================================================
+  // CSRF
+  // ==========================================================
+
+  /**
+   * Ask Django to create/set the csrftoken cookie.
+   *
+   * This MUST be called before any POST request because
+   * Django's CSRF middleware checks the token before the
+   * DRF view is executed.
+   */
+  private getCsrfToken(): Observable<CsrfResponse> {
+    return this.http.get<CsrfResponse>(`${this.baseUrl}/csrf/`, this.requestOptions);
+  }
+
+  /**
+   * Read Django's csrftoken cookie.
+   */
+  private readCsrfToken(): string | null {
+    const cookies = document.cookie.split(';');
+
+    for (const cookie of cookies) {
+      const [name, ...valueParts] = cookie.trim().split('=');
+
+      if (name === 'csrftoken') {
+        return decodeURIComponent(valueParts.join('='));
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Build headers required by Django CSRF protection.
+   */
+  private getCsrfHeaders(): HttpHeaders {
+    const csrfToken = this.readCsrfToken();
+
+    if (!csrfToken) {
+      throw new Error('CSRF token was not found. Please refresh the page and try again.');
+    }
+
+    return new HttpHeaders({
+      'X-CSRFToken': csrfToken,
+      'Content-Type': 'application/json',
+    });
+  }
+
+  // ==========================================================
+  // SUMMARY
+  // ==========================================================
+
   getSummary(): Observable<MutualFundSummary> {
     return this.http.get<MutualFundSummary>(`${this.baseUrl}/summary/`, this.requestOptions);
   }
+
+  // ==========================================================
+  // HOLDINGS
+  // ==========================================================
 
   getHoldings(): Observable<ApiListResponse<MutualFundHolding>> {
     return this.http.get<ApiListResponse<MutualFundHolding>>(
@@ -134,12 +194,20 @@ export class MutualFundsApiService {
     );
   }
 
+  // ==========================================================
+  // TRANSACTIONS
+  // ==========================================================
+
   getTransactions(): Observable<ApiListResponse<MutualFundTransaction>> {
     return this.http.get<ApiListResponse<MutualFundTransaction>>(
       `${this.baseUrl}/transactions/`,
       this.requestOptions,
     );
   }
+
+  // ==========================================================
+  // MUTUAL FUND SCHEMES
+  // ==========================================================
 
   getSchemes(search = ''): Observable<ApiListResponse<MutualFundScheme>> {
     let params = new HttpParams();
@@ -154,25 +222,60 @@ export class MutualFundsApiService {
     });
   }
 
+  // ==========================================================
+  // CREATE MUTUAL FUND SCHEME
+  // ==========================================================
+
   createScheme(payload: CreateMutualFundSchemeRequest): Observable<MutualFundScheme> {
-    return this.http.post<MutualFundScheme>(
-      `${this.baseUrl}/schemes/`,
-      payload,
-      this.requestOptions,
+    return this.getCsrfToken().pipe(
+      switchMap(() => {
+        const headers = this.getCsrfHeaders();
+
+        return this.http.post<MutualFundScheme>(`${this.baseUrl}/schemes/`, payload, {
+          ...this.requestOptions,
+          headers,
+        });
+      }),
     );
   }
+
+  // ==========================================================
+  // CREATE MUTUAL FUND TRANSACTION
+  // ==========================================================
 
   createTransaction(
     payload: CreateMutualFundTransactionRequest,
   ): Observable<MutualFundTransaction> {
-    return this.http.post<MutualFundTransaction>(
-      `${this.baseUrl}/transactions/create/`,
-      payload,
-      this.requestOptions,
+    return this.getCsrfToken().pipe(
+      switchMap(() => {
+        const headers = this.getCsrfHeaders();
+
+        return this.http.post<MutualFundTransaction>(
+          `${this.baseUrl}/transactions/create/`,
+          payload,
+          {
+            ...this.requestOptions,
+            headers,
+          },
+        );
+      }),
     );
   }
 
+  // ==========================================================
+  // CREATE SIP
+  // ==========================================================
+
   createSIP(payload: CreateSIPRequest): Observable<SIP> {
-    return this.http.post<SIP>(`${this.baseUrl}/sips/create/`, payload, this.requestOptions);
+    return this.getCsrfToken().pipe(
+      switchMap(() => {
+        const headers = this.getCsrfHeaders();
+
+        return this.http.post<SIP>(`${this.baseUrl}/sips/create/`, payload, {
+          ...this.requestOptions,
+          headers,
+        });
+      }),
+    );
   }
 }
