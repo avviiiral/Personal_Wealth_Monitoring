@@ -8,8 +8,23 @@
 
   <div class="header-right">
     <!-- SEARCH -->
-    <button type="button" class="header-icon-button" aria-label="Search">
+    <button
+      type="button"
+      class="header-icon-button"
+      aria-label="Search"
+      (click)="toggleSearch($event)"
+    >
       <span class="search-icon">⌕</span>
+    </button>
+
+    <!-- AI CHAT -->
+    <button
+      type="button"
+      class="header-icon-button ai-button"
+      aria-label="AI Assistant"
+      (click)="toggleChat($event)"
+    >
+      <span>AI</span>
     </button>
 
     <!-- NOTIFICATIONS -->
@@ -83,6 +98,84 @@
           </span>
         </button>
       </div>
+    </div>
+  </div>
+
+  <!-- SEARCH PANEL -->
+  <div class="header-search-panel" *ngIf="searchOpen" (click)="$event.stopPropagation()">
+    <div class="search-panel-header">
+      <span>Search</span>
+
+      <button type="button" class="panel-close-button" (click)="closeSearch()">×</button>
+    </div>
+
+    <input
+      type="text"
+      class="header-search-input"
+      placeholder="Search your portfolio..."
+      [(ngModel)]="searchText"
+      autofocus
+    />
+
+    <div class="search-empty">
+      Search your portfolio holdings, stocks, mutual funds and other investments.
+    </div>
+  </div>
+
+  <!-- AI CHAT PANEL -->
+  <div class="ai-chat-panel" *ngIf="chatOpen" (click)="$event.stopPropagation()">
+    <div class="ai-chat-header">
+      <div>
+        <strong>PWMS AI Assistant</strong>
+        <span>Ask about your portfolio</span>
+      </div>
+
+      <button type="button" class="panel-close-button" (click)="closeChat()">×</button>
+    </div>
+
+    <div class="ai-chat-messages">
+      <div class="ai-welcome" *ngIf="chatMessages.length === 0">
+        <strong>How can I help?</strong>
+
+        <span>
+          Ask me about your holdings, investments, returns, allocation, performance or other
+          portfolio information.
+        </span>
+      </div>
+
+      <div
+        *ngFor="let message of chatMessages"
+        class="chat-message"
+        [class.user-message]="message.role === 'user'"
+        [class.assistant-message]="message.role === 'assistant'"
+      >
+        <div class="chat-message-bubble">
+          {{ message.text }}
+        </div>
+      </div>
+
+      <div class="chat-message assistant-message" *ngIf="chatLoading">
+        <div class="chat-message-bubble">Thinking...</div>
+      </div>
+    </div>
+
+    <div class="ai-chat-input-area">
+      <textarea
+        [(ngModel)]="chatMessage"
+        (keydown)="handleChatKeydown($event)"
+        placeholder="Ask about your portfolio..."
+        rows="2"
+        [disabled]="chatLoading"
+      ></textarea>
+
+      <button
+        type="button"
+        class="chat-send-button"
+        [disabled]="chatLoading || !chatMessage.trim()"
+        (click)="sendChatMessage()"
+      >
+        Send
+      </button>
     </div>
   </div>
 </header>
