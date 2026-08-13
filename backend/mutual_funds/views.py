@@ -594,21 +594,10 @@ def sip_installment_execute(
         status=200,
     )
 
-@api_view(["GET"])
-@permission_classes([IsAuthenticated])
-@ensure_csrf_cookie
-def csrf_token(request):
-    """
-    Ensure the browser receives Django's CSRF cookie.
+# ==========================================================
+# CSRF TOKEN
+# ==========================================================
 
-    Angular uses this cookie when making state-changing
-    requests such as SIP installment execution.
-    """
-
-    return Response({
-        "detail": "CSRF cookie set."
-    })
-    
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 @ensure_csrf_cookie
