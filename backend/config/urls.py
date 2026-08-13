@@ -1,6 +1,8 @@
 from django.contrib import admin
 from django.urls import include, path
 
+from market_data.views import stock_search
+
 
 urlpatterns = [
 
@@ -26,10 +28,17 @@ urlpatterns = [
         "api/analytics/",
         include("analytics.urls"),
     ),
-    
+
     # Mutual Funds API
     path(
         "api/mutual-funds/",
         include("mutual_funds.urls"),
+    ),
+
+    # Market Data API
+    path(
+        "api/market-data/stocks/search/",
+        stock_search,
+        name="stock-search",
     ),
 ]

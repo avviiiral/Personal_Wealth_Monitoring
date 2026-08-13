@@ -70,7 +70,7 @@
             {{ investmentType === 'STOCK' ? 'Stock Details' : 'ETF Details' }}
           </h2>
 
-          <p>Add the investment and its initial transaction.</p>
+          <p>Search and select the investment, then enter its transaction.</p>
         </div>
 
         <span class="section-badge">
@@ -79,16 +79,80 @@
       </div>
 
       <div class="form-grid">
-        <div class="form-field">
-          <label> Name <span>*</span> </label>
+        <!-- ================================================== -->
+        <!-- STOCK / ETF SEARCH -->
+        <!-- ================================================== -->
+
+        <div class="form-field full-width stock-search-field">
+          <label for="stock-search">
+            {{ investmentType === 'STOCK' ? 'Stock Name' : 'ETF Name' }}
+            <span>*</span>
+          </label>
 
           <input
+            id="stock-search"
             type="text"
-            [(ngModel)]="asset.name"
-            placeholder="e.g. Tata Consultancy Services"
+            [(ngModel)]="stockSearch"
+            (ngModelChange)="onStockSearchChange()"
+            [placeholder]="investmentType === 'STOCK' ? 'Search stock...' : 'Search ETF...'"
             [disabled]="saving"
+            autocomplete="off"
           />
+
+          @if (stockSearchLoading) {
+            <span class="field-help">
+              Searching
+              {{ investmentType === 'STOCK' ? 'stocks' : 'ETFs' }}...
+            </span>
+          }
+
+          <!-- ================================================ -->
+          <!-- STOCK / ETF SEARCH RESULTS -->
+          <!-- ================================================ -->
+
+          @if (!stockSearchLoading && stockSearchResults.length > 0) {
+            <div class="stock-search-results">
+              @for (stock of stockSearchResults; track stock.symbol) {
+                <button
+                  type="button"
+                  class="stock-search-result"
+                  (mousedown)="$event.preventDefault(); onStockSelected(stock)"
+                  [disabled]="saving"
+                >
+                  <span class="stock-result-name">
+                    {{ stock.name }}
+                  </span>
+
+                  <span class="stock-result-details">
+                    {{ stock.symbol }}
+
+                    @if (stock.exchange) {
+                      · {{ stock.exchange }}
+                    }
+
+                    @if (stock.isin) {
+                      · {{ stock.isin }}
+                    }
+                  </span>
+                </button>
+              }
+            </div>
+          }
+
+          @if (
+            stockSearch.trim().length >= 2 && !stockSearchLoading && stockSearchResults.length === 0
+          ) {
+            <span class="field-help">
+              No matching
+              {{ investmentType === 'STOCK' ? 'stocks' : 'ETFs' }}
+              found.
+            </span>
+          }
         </div>
+
+        <!-- ================================================== -->
+        <!-- SYMBOL -->
+        <!-- ================================================== -->
 
         <div class="form-field">
           <label> Symbol </label>
@@ -96,10 +160,14 @@
           <input
             type="text"
             [(ngModel)]="asset.symbol"
-            placeholder="e.g. TCS or TCS.NS"
+            placeholder="e.g. TCS.NS"
             [disabled]="saving"
           />
         </div>
+
+        <!-- ================================================== -->
+        <!-- ISIN -->
+        <!-- ================================================== -->
 
         <div class="form-field">
           <label> ISIN </label>
@@ -112,16 +180,26 @@
           />
         </div>
 
+        <!-- ================================================== -->
+        <!-- EXCHANGE / INSTITUTION -->
+        <!-- ================================================== -->
+
         <div class="form-field">
-          <label> Institution </label>
+          <label>
+            {{ selectedStock ? 'Exchange' : 'Institution' }}
+          </label>
 
           <input
             type="text"
             [(ngModel)]="asset.institution"
-            placeholder="Broker / Bank"
+            [placeholder]="selectedStock ? 'NSE / BSE' : 'Broker / Bank'"
             [disabled]="saving"
           />
         </div>
+
+        <!-- ================================================== -->
+        <!-- TRANSACTION TYPE -->
+        <!-- ================================================== -->
 
         <div class="form-field">
           <label> Transaction Type </label>
@@ -135,11 +213,22 @@
           </select>
         </div>
 
+        <!-- ================================================== -->
+        <!-- TRANSACTION DATE -->
+        <!-- ================================================== -->
+
         <div class="form-field">
-          <label> Transaction Date <span>*</span> </label>
+          <label>
+            Transaction Date
+            <span>*</span>
+          </label>
 
           <input type="date" [(ngModel)]="transaction.transaction_date" [disabled]="saving" />
         </div>
+
+        <!-- ================================================== -->
+        <!-- QUANTITY -->
+        <!-- ================================================== -->
 
         <div class="form-field">
           <label> Quantity </label>
@@ -154,6 +243,10 @@
           />
         </div>
 
+        <!-- ================================================== -->
+        <!-- PRICE PER UNIT -->
+        <!-- ================================================== -->
+
         <div class="form-field">
           <label> Price Per Unit </label>
 
@@ -167,6 +260,10 @@
           />
         </div>
 
+        <!-- ================================================== -->
+        <!-- AMOUNT -->
+        <!-- ================================================== -->
+
         <div class="form-field">
           <label> Amount </label>
 
@@ -179,6 +276,10 @@
           />
         </div>
 
+        <!-- ================================================== -->
+        <!-- FEES -->
+        <!-- ================================================== -->
+
         <div class="form-field">
           <label> Fees </label>
 
@@ -190,6 +291,10 @@
             [disabled]="saving"
           />
         </div>
+
+        <!-- ================================================== -->
+        <!-- NOTES -->
+        <!-- ================================================== -->
 
         <div class="form-field full-width">
           <label> Notes </label>
@@ -226,7 +331,10 @@
         <!-- ================================================== -->
 
         <div class="form-field full-width scheme-search-field">
-          <label for="scheme-search"> Scheme Name <span>*</span> </label>
+          <label for="scheme-search">
+            Scheme Name
+            <span>*</span>
+          </label>
 
           <input
             id="scheme-search"
@@ -252,7 +360,7 @@
                 <button
                   type="button"
                   class="scheme-search-result"
-                  (click)="onSchemeSelected(scheme.id)"
+                  (mousedown)="$event.preventDefault(); onSchemeSelected(scheme.id)"
                   [disabled]="saving"
                 >
                   <span class="scheme-result-name">
@@ -399,6 +507,8 @@
       </div>
 
       <div class="form-grid">
+        <!-- TRANSACTION TYPE -->
+
         <div class="form-field">
           <label> Transaction Type </label>
 
@@ -411,8 +521,13 @@
           </select>
         </div>
 
+        <!-- TRANSACTION DATE -->
+
         <div class="form-field">
-          <label> Transaction Date <span>*</span> </label>
+          <label>
+            Transaction Date
+            <span>*</span>
+          </label>
 
           <input
             type="date"
@@ -420,6 +535,8 @@
             [disabled]="saving"
           />
         </div>
+
+        <!-- UNITS -->
 
         <div class="form-field">
           <label> Units </label>
@@ -434,6 +551,8 @@
           />
         </div>
 
+        <!-- NAV -->
+
         <div class="form-field">
           <label> NAV </label>
 
@@ -447,6 +566,8 @@
           />
         </div>
 
+        <!-- AMOUNT -->
+
         <div class="form-field">
           <label> Amount </label>
 
@@ -459,6 +580,8 @@
           />
         </div>
 
+        <!-- FEES -->
+
         <div class="form-field">
           <label> Fees </label>
 
@@ -470,6 +593,8 @@
             [disabled]="saving"
           />
         </div>
+
+        <!-- NOTES -->
 
         <div class="form-field full-width">
           <label> Notes </label>
@@ -501,8 +626,13 @@
       </div>
 
       <div class="form-grid">
+        <!-- MUTUAL FUND SCHEME -->
+
         <div class="form-field full-width">
-          <label> Mutual Fund Scheme <span>*</span> </label>
+          <label>
+            Mutual Fund Scheme
+            <span>*</span>
+          </label>
 
           <select [(ngModel)]="sip.scheme" [disabled]="saving">
             <option [ngValue]="null">Select a mutual fund</option>
@@ -519,8 +649,13 @@
           </select>
         </div>
 
+        <!-- SIP AMOUNT -->
+
         <div class="form-field">
-          <label> SIP Amount <span>*</span> </label>
+          <label>
+            SIP Amount
+            <span>*</span>
+          </label>
 
           <input
             type="number"
@@ -531,6 +666,8 @@
             [disabled]="saving"
           />
         </div>
+
+        <!-- FREQUENCY -->
 
         <div class="form-field">
           <label> Frequency </label>
@@ -544,11 +681,18 @@
           </select>
         </div>
 
+        <!-- START DATE -->
+
         <div class="form-field">
-          <label> Start Date <span>*</span> </label>
+          <label>
+            Start Date
+            <span>*</span>
+          </label>
 
           <input type="date" [(ngModel)]="sip.start_date" [disabled]="saving" />
         </div>
+
+        <!-- NEXT INSTALLMENT -->
 
         <div class="form-field">
           <label> Next Installment </label>
@@ -556,11 +700,15 @@
           <input type="date" [(ngModel)]="sip.next_installment_date" [disabled]="saving" />
         </div>
 
+        <!-- END DATE -->
+
         <div class="form-field">
           <label> End Date </label>
 
           <input type="date" [(ngModel)]="sip.end_date" [disabled]="saving" />
         </div>
+
+        <!-- STATUS -->
 
         <div class="form-field">
           <label> Status </label>

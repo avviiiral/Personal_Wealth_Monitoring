@@ -18,6 +18,10 @@ import {
   CreateSIPRequest,
 } from '../../core/services/mutual-funds-api.service';
 
+import {
+  MarketDataApiService,
+  StockSearchResult,
+} from '../../core/services/market-data-api.service';
 @Component({
   selector: 'app-add-investment',
   standalone: true,
@@ -29,6 +33,7 @@ export class AddInvestmentComponent implements OnInit {
   private readonly portfolioApi = inject(PortfolioApiService);
 
   private readonly mutualFundsApi = inject(MutualFundsApiService);
+  private readonly marketDataApi = inject(MarketDataApiService);
 
   private readonly router = inject(Router);
 
@@ -115,6 +120,18 @@ export class AddInvestmentComponent implements OnInit {
   schemeSearchLoading = false;
 
   selectedScheme: MutualFundScheme | null = null;
+
+  // ==========================================================
+  // STOCK / ETF SEARCH
+  // ==========================================================
+
+  stockSearch = '';
+
+  stockSearchLoading = false;
+
+  stockSearchResults: StockSearchResult[] = [];
+
+  selectedStock: StockSearchResult | null = null;
 
   // ==========================================================
   // OPTIONS
@@ -230,7 +247,6 @@ export class AddInvestmentComponent implements OnInit {
   onSchemeSelected(schemeId: number | null): void {
     if (!schemeId) {
       this.selectedScheme = null;
-
       return;
     }
 
@@ -240,25 +256,87 @@ export class AddInvestmentComponent implements OnInit {
       return;
     }
 
+    // Store selected scheme
     this.selectedScheme = scheme;
 
+    // Update search box with selected scheme name
+    this.schemeSearch = scheme.scheme_name;
+
+    // Close search results immediately
+    this.schemes = [];
+
+    // Store scheme ID for SIP usage
     this.sip.scheme = scheme.id;
 
+    // Populate mutual fund details
     this.mutualFund.scheme_name = scheme.scheme_name;
-
     this.mutualFund.amc_name = scheme.amc_name || '';
-
     this.mutualFund.scheme_code = scheme.scheme_code || '';
-
     this.mutualFund.isin_growth = scheme.isin_growth || '';
-
     this.mutualFund.isin_dividend = scheme.isin_dividend || '';
-
     this.mutualFund.plan = scheme.plan || '';
-
     this.mutualFund.option = scheme.option || '';
-
     this.mutualFund.category = scheme.category || '';
+
+    // Make Angular update the UI immediately
+    this.cdr.detectChanges();
+  }
+
+  // ==========================================================
+  // STOCK / ETF SEARCH
+  // ==========================================================
+
+  onStockSearchChange(): void {
+    const search = this.stockSearch.trim();
+
+    this.selectedStock = null;
+
+    if (search.length < 2) {
+      this.stockSearchResults = [];
+      return;
+    }
+
+    this.stockSearchLoading = true;
+
+    const type = this.investmentType === 'ETF' ? 'ETF' : 'STOCK';
+
+    this.marketDataApi.searchStocks(search, type).subscribe({
+      next: (response) => {
+        this.stockSearchResults = response.results;
+
+        this.stockSearchLoading = false;
+
+        this.cdr.detectChanges();
+      },
+
+      error: (error) => {
+        console.error('Unable to search stocks:', error);
+
+        this.stockSearchResults = [];
+
+        this.stockSearchLoading = false;
+
+        this.cdr.detectChanges();
+      },
+    });
+  }
+
+  onStockSelected(stock: StockSearchResult): void {
+    this.selectedStock = stock;
+
+    this.stockSearch = stock.name;
+
+    this.stockSearchResults = [];
+
+    this.asset.name = stock.name;
+
+    this.asset.symbol = stock.symbol;
+
+    this.asset.isin = stock.isin || '';
+
+    this.asset.institution = stock.exchange || '';
+
+    this.asset.currency = stock.currency || 'INR';
 
     this.cdr.detectChanges();
   }
@@ -279,6 +357,12 @@ export class AddInvestmentComponent implements OnInit {
     this.selectedScheme = null;
 
     this.sip.scheme = null;
+
+    this.stockSearch = '';
+
+    this.stockSearchResults = [];
+
+    this.selectedStock = null;
   }
 
   // ==========================================================

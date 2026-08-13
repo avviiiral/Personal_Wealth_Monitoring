@@ -425,11 +425,13 @@
 
 .scheme-search-field {
   position: relative;
+  z-index: 20;
 }
 
 .scheme-search-results {
   position: absolute;
-  z-index: 1000;
+  z-index: 9999;
+
   top: calc(100% - 1px);
   left: 0;
   right: 0;
@@ -442,6 +444,8 @@
   border-radius: 0 0 8px 8px;
 
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+
+  pointer-events: auto;
 }
 
 .scheme-search-result {
@@ -496,4 +500,92 @@
 
   color: #8a93a3;
   font-size: 12px;
+}
+
+// ==========================================================
+// STOCK / ETF SEARCH
+// ==========================================================
+
+.stock-search-field {
+  position: relative;
+  z-index: 20;
+}
+
+.stock-search-results {
+  position: absolute;
+  z-index: 9999;
+
+  top: calc(100% - 1px);
+  left: 0;
+  right: 0;
+
+  max-height: 320px;
+
+  overflow-y: auto;
+
+  background: #ffffff;
+
+  border: 1px solid #d1d5db;
+
+  border-radius: 0 0 8px 8px;
+
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+
+  pointer-events: auto;
+}
+
+.stock-search-result {
+  display: flex;
+
+  flex-direction: column;
+
+  align-items: flex-start;
+
+  width: 100%;
+
+  padding: 11px 13px;
+
+  border: 0;
+
+  border-bottom: 1px solid #eef0f3;
+
+  background: #ffffff;
+
+  text-align: left;
+
+  cursor: pointer;
+
+  transition: background 0.15s ease;
+}
+
+.stock-search-result:last-child {
+  border-bottom: 0;
+}
+
+.stock-search-result:hover {
+  background: #f8fafc;
+}
+
+.stock-search-result:disabled {
+  cursor: not-allowed;
+}
+
+.stock-result-name {
+  color: #111827;
+
+  font-size: 13px;
+
+  font-weight: 600;
+
+  line-height: 1.4;
+}
+
+.stock-result-details {
+  margin-top: 3px;
+
+  color: #8a93a3;
+
+  font-size: 11px;
+
+  line-height: 1.4;
 }
