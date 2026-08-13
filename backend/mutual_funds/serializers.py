@@ -5,6 +5,7 @@ from rest_framework import serializers
 from mutual_funds.models import (
     MutualFundHolding,
     MutualFundTransaction,
+    MutualFundScheme,
     SIP,
     SIPInstallment,
 )
@@ -252,3 +253,177 @@ class SIPInstallmentSerializer(
             "created_at",
             "updated_at",
         ]
+        
+class MutualFundSchemeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MutualFundScheme
+
+        fields = [
+            "id",
+            "scheme_name",
+            "amc_name",
+            "scheme_code",
+            "isin_growth",
+            "isin_dividend",
+            "plan",
+            "option",
+            "category",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_scheme_name(self, value):
+        value = value.strip()
+
+        if not value:
+            raise serializers.ValidationError(
+                "Scheme name cannot be empty."
+            )
+
+        return value
+
+
+class CreateMutualFundTransactionSerializer(
+    serializers.ModelSerializer
+):
+    class Meta:
+        model = MutualFundTransaction
+
+        fields = [
+            "id",
+            "scheme",
+            "transaction_type",
+            "transaction_date",
+            "units",
+            "nav",
+            "amount",
+            "fees",
+            "notes",
+            "created_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "created_at",
+        ]
+
+    def validate_scheme(self, scheme):
+        request = self.context.get("request")
+
+        if request is None or not request.user.is_authenticated:
+            raise serializers.ValidationError(
+                "Authentication is required."
+            )
+
+        if scheme.owner_id != request.user.id:
+            raise serializers.ValidationError(
+                "You can only use your own mutual fund schemes."
+            )
+
+        if not scheme.is_active:
+            raise serializers.ValidationError(
+                "Cannot create a transaction for an inactive scheme."
+            )
+
+        return scheme
+
+    def validate_units(self, value):
+        if value < 0:
+            raise serializers.ValidationError(
+                "Units cannot be negative."
+            )
+
+        return value
+
+    def validate_nav(self, value):
+        if value < 0:
+            raise serializers.ValidationError(
+                "NAV cannot be negative."
+            )
+
+        return value
+
+    def validate_amount(self, value):
+        if value < 0:
+            raise serializers.ValidationError(
+                "Amount cannot be negative."
+            )
+
+        return value
+
+    def validate_fees(self, value):
+        if value < 0:
+            raise serializers.ValidationError(
+                "Fees cannot be negative."
+            )
+
+        return value
+
+
+class CreateSIPSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SIP
+
+        fields = [
+            "id",
+            "scheme",
+            "amount",
+            "frequency",
+            "start_date",
+            "end_date",
+            "next_installment_date",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ]
+
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_scheme(self, scheme):
+        request = self.context.get("request")
+
+        if request is None or not request.user.is_authenticated:
+            raise serializers.ValidationError(
+                "Authentication is required."
+            )
+
+        if scheme.owner_id != request.user.id:
+            raise serializers.ValidationError(
+                "You can only use your own mutual fund schemes."
+            )
+
+        if not scheme.is_active:
+            raise serializers.ValidationError(
+                "Cannot create a SIP for an inactive scheme."
+            )
+
+        return scheme
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError(
+                "SIP amount must be greater than zero."
+            )
+
+        return value
+
+    def validate_end_date(self, value):
+        start_date = self.initial_data.get("start_date")
+
+        if value and start_date and str(value) < str(start_date):
+            raise serializers.ValidationError(
+                "End date cannot be before start date."
+            )
+
+        return value

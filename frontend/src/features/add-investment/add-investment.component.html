@@ -1,272 +1,517 @@
 <div class="add-investment-page">
-  <!-- ====================================================== -->
-  <!-- PAGE HEADER -->
-  <!-- ====================================================== -->
-
   <header class="page-header">
     <div>
-      <span class="page-eyebrow">Portfolio</span>
+      <span class="page-eyebrow"> Portfolio </span>
 
       <h1>Add Investment</h1>
 
-      <p>Add an investment and record its initial transaction.</p>
+      <p>Add stocks, ETFs, mutual funds or SIPs.</p>
     </div>
 
-    <button type="button" class="back-button" (click)="cancel()">← Back to Portfolio</button>
+    <button type="button" class="back-button" (click)="cancel()">← Back</button>
   </header>
 
-  <!-- ====================================================== -->
-  <!-- ERROR -->
-  <!-- ====================================================== -->
+  @if (error) {
+    <div class="message error-message">
+      {{ error }}
+    </div>
+  }
 
-  <div class="message error-message" *ngIf="error">
-    {{ error }}
-  </div>
-
-  <!-- ====================================================== -->
-  <!-- SUCCESS -->
-  <!-- ====================================================== -->
-
-  <div class="message success-message" *ngIf="success">
-    {{ success }}
-  </div>
+  @if (success) {
+    <div class="message success-message">
+      {{ success }}
+    </div>
+  }
 
   <!-- ====================================================== -->
-  <!-- INVESTMENT DETAILS -->
+  <!-- INVESTMENT TYPE -->
   <!-- ====================================================== -->
 
   <section class="investment-card">
     <div class="card-header">
       <div>
-        <h2>Investment Details</h2>
+        <h2>Investment Type</h2>
 
-        <p>Basic information about the investment.</p>
+        <p>Select what you want to add.</p>
       </div>
-
-      <span class="section-badge"> Asset </span>
     </div>
 
     <div class="form-grid">
-      <!-- NAME -->
-
       <div class="form-field full-width">
         <label>
-          Investment Name
+          Investment Type
           <span>*</span>
         </label>
 
-        <input
-          type="text"
-          [(ngModel)]="asset.name"
-          placeholder="e.g. Reliance Industries"
+        <select
+          [(ngModel)]="investmentType"
+          (ngModelChange)="onInvestmentTypeChange()"
           [disabled]="saving"
-        />
-      </div>
-
-      <!-- CATEGORY -->
-
-      <div class="form-field">
-        <label>
-          Asset Type
-          <span>*</span>
-        </label>
-
-        <select [(ngModel)]="asset.category" [disabled]="saving">
-          <option *ngFor="let category of assetCategories" [value]="category.value">
-            {{ category.label }}
-          </option>
-        </select>
-      </div>
-
-      <!-- SYMBOL -->
-
-      <div class="form-field">
-        <label> Symbol </label>
-
-        <input
-          type="text"
-          [(ngModel)]="asset.symbol"
-          placeholder="e.g. RELIANCE"
-          [disabled]="saving"
-        />
-      </div>
-
-      <!-- ISIN -->
-
-      <div class="form-field">
-        <label> ISIN </label>
-
-        <input
-          type="text"
-          [(ngModel)]="asset.isin"
-          placeholder="e.g. INE002A01018"
-          [disabled]="saving"
-        />
-      </div>
-
-      <!-- INSTITUTION -->
-
-      <div class="form-field">
-        <label> Institution </label>
-
-        <input
-          type="text"
-          [(ngModel)]="asset.institution"
-          placeholder="e.g. Zerodha"
-          [disabled]="saving"
-        />
-      </div>
-
-      <!-- CURRENCY -->
-
-      <div class="form-field">
-        <label> Currency </label>
-
-        <select [(ngModel)]="asset.currency" [disabled]="saving">
-          <option value="INR">Indian Rupee (₹)</option>
-
-          <option value="USD">US Dollar ($)</option>
-
-          <option value="EUR">Euro (€)</option>
-
-          <option value="GBP">British Pound (£)</option>
+        >
+          @for (type of investmentTypes; track type.value) {
+            <option [value]="type.value">
+              {{ type.label }}
+            </option>
+          }
         </select>
       </div>
     </div>
   </section>
 
   <!-- ====================================================== -->
-  <!-- INITIAL TRANSACTION -->
+  <!-- STOCK / ETF -->
+  <!-- ====================================================== -->
+
+  @if (investmentType === 'STOCK' || investmentType === 'ETF') {
+    <section class="investment-card">
+      <div class="card-header">
+        <div>
+          <h2>
+            {{ investmentType === 'STOCK' ? 'Stock Details' : 'ETF Details' }}
+          </h2>
+
+          <p>Add the investment and its initial transaction.</p>
+        </div>
+
+        <span class="section-badge">
+          {{ investmentType }}
+        </span>
+      </div>
+
+      <div class="form-grid">
+        <div class="form-field">
+          <label> Name <span>*</span> </label>
+
+          <input
+            type="text"
+            [(ngModel)]="asset.name"
+            placeholder="e.g. Tata Consultancy Services"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-field">
+          <label> Symbol </label>
+
+          <input
+            type="text"
+            [(ngModel)]="asset.symbol"
+            placeholder="e.g. TCS or TCS.NS"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-field">
+          <label> ISIN </label>
+
+          <input
+            type="text"
+            [(ngModel)]="asset.isin"
+            placeholder="e.g. INE467B01029"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-field">
+          <label> Institution </label>
+
+          <input
+            type="text"
+            [(ngModel)]="asset.institution"
+            placeholder="Broker / Bank"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-field">
+          <label> Transaction Type </label>
+
+          <select [(ngModel)]="transaction.transaction_type" [disabled]="saving">
+            @for (type of transactionTypes; track type.value) {
+              <option [value]="type.value">
+                {{ type.label }}
+              </option>
+            }
+          </select>
+        </div>
+
+        <div class="form-field">
+          <label> Transaction Date <span>*</span> </label>
+
+          <input type="date" [(ngModel)]="transaction.transaction_date" [disabled]="saving" />
+        </div>
+
+        <div class="form-field">
+          <label> Quantity </label>
+
+          <input
+            type="number"
+            [(ngModel)]="transaction.quantity"
+            (ngModelChange)="calculateAmount()"
+            min="0"
+            step="any"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-field">
+          <label> Price Per Unit </label>
+
+          <input
+            type="number"
+            [(ngModel)]="transaction.price_per_unit"
+            (ngModelChange)="calculateAmount()"
+            min="0"
+            step="any"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-field">
+          <label> Amount </label>
+
+          <input
+            type="number"
+            [(ngModel)]="transaction.amount"
+            min="0"
+            step="0.01"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-field">
+          <label> Fees </label>
+
+          <input
+            type="number"
+            [(ngModel)]="transaction.fees"
+            min="0"
+            step="0.01"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-field full-width">
+          <label> Notes </label>
+
+          <textarea
+            [(ngModel)]="transaction.notes"
+            placeholder="Optional notes"
+            [disabled]="saving"
+          ></textarea>
+        </div>
+      </div>
+    </section>
+  }
+
+  <!-- ====================================================== -->
+  <!-- MUTUAL FUND -->
+  <!-- ====================================================== -->
+
+  @if (investmentType === 'MUTUAL_FUND') {
+    <section class="investment-card">
+      <div class="card-header">
+        <div>
+          <h2>Mutual Fund Scheme</h2>
+
+          <p>Enter the complete scheme information.</p>
+        </div>
+
+        <span class="section-badge"> MUTUAL FUND </span>
+      </div>
+
+      <div class="form-grid">
+        <div class="form-field full-width">
+          <label> Scheme Name <span>*</span> </label>
+
+          <input
+            type="text"
+            [(ngModel)]="mutualFund.scheme_name"
+            placeholder="e.g. Parag Parikh Flexi Cap Fund"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-field">
+          <label> AMC </label>
+
+          <input
+            type="text"
+            [(ngModel)]="mutualFund.amc_name"
+            placeholder="e.g. PPFAS Mutual Fund"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-field">
+          <label> Scheme Code </label>
+
+          <input
+            type="text"
+            [(ngModel)]="mutualFund.scheme_code"
+            placeholder="AMFI scheme code"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-field">
+          <label> ISIN Growth </label>
+
+          <input
+            type="text"
+            [(ngModel)]="mutualFund.isin_growth"
+            placeholder="Growth ISIN"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-field">
+          <label> ISIN Dividend </label>
+
+          <input
+            type="text"
+            [(ngModel)]="mutualFund.isin_dividend"
+            placeholder="Dividend / IDCW ISIN"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-field">
+          <label> Plan </label>
+
+          <select [(ngModel)]="mutualFund.plan" [disabled]="saving">
+            <option value="Direct">Direct</option>
+
+            <option value="Regular">Regular</option>
+          </select>
+        </div>
+
+        <div class="form-field">
+          <label> Option </label>
+
+          <select [(ngModel)]="mutualFund.option" [disabled]="saving">
+            <option value="Growth">Growth</option>
+
+            <option value="IDCW">IDCW</option>
+
+            <option value="Dividend">Dividend</option>
+          </select>
+        </div>
+
+        <div class="form-field full-width">
+          <label> Category </label>
+
+          <input
+            type="text"
+            [(ngModel)]="mutualFund.category"
+            placeholder="e.g. Equity - Flexi Cap"
+            [disabled]="saving"
+          />
+        </div>
+      </div>
+    </section>
+
+    <section class="investment-card">
+      <div class="card-header">
+        <div>
+          <h2>Initial Transaction</h2>
+
+          <p>Record your first mutual fund investment.</p>
+        </div>
+      </div>
+
+      <div class="form-grid">
+        <div class="form-field">
+          <label> Transaction Type </label>
+
+          <select [(ngModel)]="mutualFundTransaction.transaction_type" [disabled]="saving">
+            @for (type of mutualFundTransactionTypes; track type.value) {
+              <option [value]="type.value">
+                {{ type.label }}
+              </option>
+            }
+          </select>
+        </div>
+
+        <div class="form-field">
+          <label> Transaction Date <span>*</span> </label>
+
+          <input
+            type="date"
+            [(ngModel)]="mutualFundTransaction.transaction_date"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-field">
+          <label> Units </label>
+
+          <input
+            type="number"
+            [(ngModel)]="mutualFundTransaction.units"
+            (ngModelChange)="calculateMutualFundAmount()"
+            min="0"
+            step="any"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-field">
+          <label> NAV </label>
+
+          <input
+            type="number"
+            [(ngModel)]="mutualFundTransaction.nav"
+            (ngModelChange)="calculateMutualFundAmount()"
+            min="0"
+            step="any"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-field">
+          <label> Amount </label>
+
+          <input
+            type="number"
+            [(ngModel)]="mutualFundTransaction.amount"
+            min="0"
+            step="0.01"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-field">
+          <label> Fees </label>
+
+          <input
+            type="number"
+            [(ngModel)]="mutualFundTransaction.fees"
+            min="0"
+            step="0.01"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-field full-width">
+          <label> Notes </label>
+
+          <textarea
+            [(ngModel)]="mutualFundTransaction.notes"
+            placeholder="Optional notes"
+            [disabled]="saving"
+          ></textarea>
+        </div>
+      </div>
+    </section>
+  }
+
+  <!-- ====================================================== -->
+  <!-- SIP -->
+  <!-- ====================================================== -->
+
+  @if (investmentType === 'SIP') {
+    <section class="investment-card">
+      <div class="card-header">
+        <div>
+          <h2>SIP Configuration</h2>
+
+          <p>Create a recurring mutual fund investment.</p>
+        </div>
+
+        <span class="section-badge"> SIP </span>
+      </div>
+
+      <div class="form-grid">
+        <div class="form-field full-width">
+          <label> Mutual Fund Scheme <span>*</span> </label>
+
+          <select [(ngModel)]="sip.scheme" [disabled]="saving">
+            <option [ngValue]="null">Select a mutual fund</option>
+
+            @for (scheme of schemes; track scheme.id) {
+              <option [ngValue]="scheme.id">
+                {{ scheme.scheme_name }}
+                @if (scheme.amc_name) {
+                  — {{ scheme.amc_name }}
+                }
+              </option>
+            }
+          </select>
+        </div>
+
+        <div class="form-field">
+          <label> SIP Amount <span>*</span> </label>
+
+          <input
+            type="number"
+            [(ngModel)]="sip.amount"
+            min="1"
+            step="0.01"
+            placeholder="5000"
+            [disabled]="saving"
+          />
+        </div>
+
+        <div class="form-field">
+          <label> Frequency </label>
+
+          <select [(ngModel)]="sip.frequency" [disabled]="saving">
+            @for (frequency of sipFrequencies; track frequency.value) {
+              <option [value]="frequency.value">
+                {{ frequency.label }}
+              </option>
+            }
+          </select>
+        </div>
+
+        <div class="form-field">
+          <label> Start Date <span>*</span> </label>
+
+          <input type="date" [(ngModel)]="sip.start_date" [disabled]="saving" />
+        </div>
+
+        <div class="form-field">
+          <label> Next Installment </label>
+
+          <input type="date" [(ngModel)]="sip.next_installment_date" [disabled]="saving" />
+        </div>
+
+        <div class="form-field">
+          <label> End Date </label>
+
+          <input type="date" [(ngModel)]="sip.end_date" [disabled]="saving" />
+        </div>
+
+        <div class="form-field">
+          <label> Status </label>
+
+          <select [(ngModel)]="sip.is_active" [disabled]="saving">
+            <option [ngValue]="true">Active</option>
+
+            <option [ngValue]="false">Inactive</option>
+          </select>
+        </div>
+      </div>
+    </section>
+  }
+
+  <!-- ====================================================== -->
+  <!-- ACTIONS -->
   <!-- ====================================================== -->
 
   <section class="investment-card">
-    <div class="card-header">
-      <div>
-        <h2>Initial Transaction</h2>
-
-        <p>Record the transaction associated with this investment.</p>
-      </div>
-
-      <span class="section-badge"> Transaction </span>
-    </div>
-
-    <div class="form-grid">
-      <!-- TRANSACTION TYPE -->
-
-      <div class="form-field">
-        <label>
-          Transaction Type
-          <span>*</span>
-        </label>
-
-        <select [(ngModel)]="transaction.transaction_type" [disabled]="saving">
-          <option *ngFor="let type of transactionTypes" [value]="type.value">
-            {{ type.label }}
-          </option>
-        </select>
-      </div>
-
-      <!-- DATE -->
-
-      <div class="form-field">
-        <label>
-          Transaction Date
-          <span>*</span>
-        </label>
-
-        <input type="date" [(ngModel)]="transaction.transaction_date" [disabled]="saving" />
-      </div>
-
-      <!-- QUANTITY -->
-
-      <div class="form-field">
-        <label> Quantity </label>
-
-        <input
-          type="number"
-          min="0"
-          step="0.000001"
-          [(ngModel)]="transaction.quantity"
-          (input)="calculateAmount()"
-          [disabled]="saving"
-        />
-      </div>
-
-      <!-- PRICE -->
-
-      <div class="form-field">
-        <label> Price Per Unit </label>
-
-        <input
-          type="number"
-          min="0"
-          step="0.000001"
-          [(ngModel)]="transaction.price_per_unit"
-          (input)="calculateAmount()"
-          [disabled]="saving"
-        />
-      </div>
-
-      <!-- AMOUNT -->
-
-      <div class="form-field">
-        <label>
-          Amount
-          <span>*</span>
-        </label>
-
-        <input
-          type="number"
-          min="0"
-          step="0.01"
-          [(ngModel)]="transaction.amount"
-          [disabled]="saving"
-        />
-
-        <span class="field-help"> Automatically calculated from quantity × price. </span>
-      </div>
-
-      <!-- FEES -->
-
-      <div class="form-field">
-        <label> Fees </label>
-
-        <input
-          type="number"
-          min="0"
-          step="0.01"
-          [(ngModel)]="transaction.fees"
-          [disabled]="saving"
-        />
-      </div>
-
-      <!-- NOTES -->
-
-      <div class="form-field full-width">
-        <label> Notes </label>
-
-        <textarea
-          rows="4"
-          [(ngModel)]="transaction.notes"
-          placeholder="Optional notes about this investment..."
-          [disabled]="saving"
-        ></textarea>
-      </div>
-    </div>
-
-    <!-- ==================================================== -->
-    <!-- ACTIONS -->
-    <!-- ==================================================== -->
-
     <div class="card-actions">
       <button type="button" class="cancel-button" (click)="cancel()" [disabled]="saving">
         Cancel
       </button>
 
       <button type="button" class="save-button" (click)="addInvestment()" [disabled]="saving">
-        <span *ngIf="!saving"> Add Investment </span>
-
-        <span *ngIf="saving"> Adding Investment... </span>
+        @if (saving) {
+          Saving...
+        } @else {
+          Add Investment
+        }
       </button>
     </div>
   </section>

@@ -20,6 +20,9 @@ from .serializers import (
     TransactionSerializer,
 )
 
+from market_data.services.market_data_manager import (
+    MarketDataManager,
+)
 
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
@@ -59,8 +62,31 @@ def portfolio_assets(request):
         owner=request.user,
     )
 
+    market_data = {
+        "success": False,
+        "skipped": True,
+        "reason": "Market data not requested.",
+    }
+
+    if asset.category in ["STOCK", "ETF"]:
+        try:
+            market_data = MarketDataManager.fetch_and_rebuild(
+                asset,
+                period="1y",
+            )
+
+        except Exception as exc:
+            market_data = {
+                "success": False,
+                "skipped": False,
+                "error": str(exc),
+            }
+
     return Response(
-        AssetSerializer(asset).data,
+        {
+            **AssetSerializer(asset).data,
+            "market_data": market_data,
+        },
         status=status.HTTP_201_CREATED,
     )
 

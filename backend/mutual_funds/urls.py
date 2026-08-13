@@ -2,15 +2,19 @@ from django.urls import path
 
 from .views import (
     csrf_token,
-    mutual_fund_holdings,
+
     mutual_fund_summary,
+    mutual_fund_holdings,
     mutual_fund_transactions,
+    mutual_fund_schemes,
+    mutual_fund_transaction_create,
+
     sip_due,
     sip_execute,
     sip_list,
     sip_summary,
     sip_installment_execute,
-    
+    sip_create,
 )
 
 
@@ -78,5 +82,30 @@ urlpatterns = [
         "csrf/",
         csrf_token,
         name="csrf-token",
+    ),
+    # ------------------------------------------------------
+    # Mutual Fund Schemes
+    # ------------------------------------------------------
+
+    path(
+        "schemes/",
+        mutual_fund_schemes,
+        name="mutual-fund-schemes",
+    ),
+
+    path(
+        "transactions/create/",
+        mutual_fund_transaction_create,
+        name="mutual-fund-transaction-create",
+    ),
+
+    # ------------------------------------------------------
+    # SIP Creation
+    # ------------------------------------------------------
+
+    path(
+        "sips/create/",
+        sip_create,
+        name="sip-create",
     ),
 ]

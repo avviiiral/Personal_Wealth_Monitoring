@@ -15,6 +15,7 @@ from rest_framework.response import Response
 from mutual_funds.models import (
     MutualFundHolding,
     MutualFundTransaction,
+    MutualFundScheme,
     SIP,
     SIPInstallment,
     SIPInstallmentStatus,
@@ -23,6 +24,9 @@ from mutual_funds.models import (
 from .serializers import (
     MutualFundHoldingSerializer,
     MutualFundTransactionSerializer,
+    MutualFundSchemeSerializer,
+    CreateMutualFundTransactionSerializer,
+    CreateSIPSerializer,
     SIPSerializer,
 )
 
@@ -40,7 +44,107 @@ from .services.sip_installment_execution import (
     SIPInstallmentExecutionService,
 )
 
+# ==========================================================
+# MUTUAL FUND SCHEMES
+# ==========================================================
 
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def mutual_fund_schemes(request):
+
+    if request.method == "GET":
+
+        schemes = (
+            MutualFundScheme.objects
+            .filter(
+                owner=request.user,
+                is_active=True,
+            )
+            .order_by("scheme_name")
+        )
+
+        serializer = MutualFundSchemeSerializer(
+            schemes,
+            many=True,
+        )
+
+        return Response({
+            "count": schemes.count(),
+            "results": serializer.data,
+        })
+
+    serializer = MutualFundSchemeSerializer(
+        data=request.data,
+        context={"request": request},
+    )
+
+    serializer.is_valid(raise_exception=True)
+
+    scheme = serializer.save(
+        owner=request.user
+    )
+
+    return Response(
+        MutualFundSchemeSerializer(scheme).data,
+        status=201,
+    )
+
+
+# ==========================================================
+# CREATE MUTUAL FUND TRANSACTION
+# ==========================================================
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def mutual_fund_transaction_create(request):
+
+    serializer = CreateMutualFundTransactionSerializer(
+        data=request.data,
+        context={"request": request},
+    )
+
+    serializer.is_valid(raise_exception=True)
+
+    transaction_record = serializer.save(
+        owner=request.user
+    )
+
+    MutualFundHoldingEngine.rebuild_holding(
+        transaction_record.scheme
+    )
+
+    return Response(
+        MutualFundTransactionSerializer(
+            transaction_record
+        ).data,
+        status=201,
+    )
+
+
+# ==========================================================
+# CREATE SIP
+# ==========================================================
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def sip_create(request):
+
+    serializer = CreateSIPSerializer(
+        data=request.data,
+        context={"request": request},
+    )
+
+    serializer.is_valid(raise_exception=True)
+
+    sip = serializer.save(
+        owner=request.user
+    )
+
+    return Response(
+        SIPSerializer(sip).data,
+        status=201,
+    )
+    
 # ==========================================================
 # MUTUAL FUND SUMMARY
 # ==========================================================

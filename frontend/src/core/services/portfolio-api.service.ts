@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { Observable, switchMap } from 'rxjs';
 
 export interface PortfolioSummary {
   total_invested: number;
@@ -89,9 +89,47 @@ export class PortfolioApiService {
 
   private readonly baseUrl = 'http://localhost:8000/api/portfolio';
 
+  private readonly csrfUrl = 'http://localhost:8000/api/health/';
+
   private readonly requestOptions = {
     withCredentials: true,
   };
+
+  // ==========================================================
+  // CSRF
+  // ==========================================================
+
+  private getCsrfToken(): Observable<any> {
+    return this.http.get(this.csrfUrl, {
+      withCredentials: true,
+    });
+  }
+
+  private readCsrfToken(): string {
+    const cookies = document.cookie.split(';');
+
+    for (const cookie of cookies) {
+      const trimmedCookie = cookie.trim();
+
+      if (trimmedCookie.startsWith('csrftoken=')) {
+        return decodeURIComponent(trimmedCookie.substring('csrftoken='.length));
+      }
+    }
+
+    return '';
+  }
+
+  private getCsrfHeaders(): HttpHeaders {
+    const csrfToken = this.readCsrfToken();
+
+    let headers = new HttpHeaders();
+
+    if (csrfToken) {
+      headers = headers.set('X-CSRFToken', csrfToken);
+    }
+
+    return headers;
+  }
 
   // ==========================================================
   // SUMMARY
@@ -139,7 +177,14 @@ export class PortfolioApiService {
   // ==========================================================
 
   createAsset(payload: CreateAssetRequest): Observable<PortfolioAsset> {
-    return this.http.post<PortfolioAsset>(`${this.baseUrl}/assets/`, payload, this.requestOptions);
+    return this.getCsrfToken().pipe(
+      switchMap(() =>
+        this.http.post<PortfolioAsset>(`${this.baseUrl}/assets/`, payload, {
+          headers: this.getCsrfHeaders(),
+          withCredentials: true,
+        }),
+      ),
+    );
   }
 
   // ==========================================================
@@ -147,10 +192,13 @@ export class PortfolioApiService {
   // ==========================================================
 
   createTransaction(payload: CreateTransactionRequest): Observable<Transaction> {
-    return this.http.post<Transaction>(
-      `${this.baseUrl}/transactions/`,
-      payload,
-      this.requestOptions,
+    return this.getCsrfToken().pipe(
+      switchMap(() =>
+        this.http.post<Transaction>(`${this.baseUrl}/transactions/`, payload, {
+          headers: this.getCsrfHeaders(),
+          withCredentials: true,
+        }),
+      ),
     );
   }
 }

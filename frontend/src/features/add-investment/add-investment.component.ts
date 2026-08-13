@@ -1,4 +1,5 @@
 import { ChangeDetectorRef, Component, OnInit, inject } from '@angular/core';
+
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -9,6 +10,14 @@ import {
   CreateTransactionRequest,
 } from '../../core/services/portfolio-api.service';
 
+import {
+  MutualFundsApiService,
+  MutualFundScheme,
+  CreateMutualFundSchemeRequest,
+  CreateMutualFundTransactionRequest,
+  CreateSIPRequest,
+} from '../../core/services/mutual-funds-api.service';
+
 @Component({
   selector: 'app-add-investment',
   standalone: true,
@@ -18,12 +27,24 @@ import {
 })
 export class AddInvestmentComponent implements OnInit {
   private readonly portfolioApi = inject(PortfolioApiService);
+
+  private readonly mutualFundsApi = inject(MutualFundsApiService);
+
   private readonly router = inject(Router);
+
   private readonly cdr = inject(ChangeDetectorRef);
 
   saving = false;
+
   error = '';
+
   success = '';
+
+  investmentType = 'STOCK';
+
+  // ==========================================================
+  // STOCK / ETF / OTHER ASSET
+  // ==========================================================
 
   asset = {
     name: '',
@@ -44,23 +65,61 @@ export class AddInvestmentComponent implements OnInit {
     notes: '',
   };
 
-  readonly assetCategories = [
+  // ==========================================================
+  // MUTUAL FUND
+  // ==========================================================
+
+  mutualFund = {
+    scheme_name: '',
+    amc_name: '',
+    scheme_code: '',
+    isin_growth: '',
+    isin_dividend: '',
+    plan: 'Direct',
+    option: 'Growth',
+    category: '',
+  };
+
+  mutualFundTransaction = {
+    transaction_type: 'PURCHASE',
+    transaction_date: '',
+    units: 0,
+    nav: 0,
+    amount: 0,
+    fees: 0,
+    notes: '',
+  };
+
+  // ==========================================================
+  // SIP
+  // ==========================================================
+
+  sip = {
+    scheme: null as number | null,
+    amount: 0,
+    frequency: 'MONTHLY',
+    start_date: '',
+    end_date: '',
+    next_installment_date: '',
+    is_active: true,
+  };
+
+  schemes: MutualFundScheme[] = [];
+
+  // ==========================================================
+  // OPTIONS
+  // ==========================================================
+
+  readonly investmentTypes = [
     { value: 'STOCK', label: 'Stock' },
-    { value: 'MUTUAL_FUND', label: 'Mutual Fund' },
     { value: 'ETF', label: 'ETF' },
-    { value: 'FIXED_DEPOSIT', label: 'Fixed Deposit' },
-    { value: 'GOLD', label: 'Gold' },
-    { value: 'CASH', label: 'Cash' },
-    { value: 'REAL_ESTATE', label: 'Real Estate' },
-    { value: 'BOND', label: 'Bond' },
-    { value: 'CRYPTO', label: 'Cryptocurrency' },
-    { value: 'OTHER', label: 'Other' },
+    { value: 'MUTUAL_FUND', label: 'Mutual Fund' },
+    { value: 'SIP', label: 'SIP' },
   ];
 
   readonly transactionTypes = [
     { value: 'BUY', label: 'Buy' },
     { value: 'SELL', label: 'Sell' },
-    { value: 'SIP', label: 'SIP' },
     { value: 'DIVIDEND', label: 'Dividend' },
     { value: 'INTEREST', label: 'Interest' },
     { value: 'DEPOSIT', label: 'Deposit' },
@@ -70,24 +129,113 @@ export class AddInvestmentComponent implements OnInit {
     { value: 'OTHER', label: 'Other' },
   ];
 
+  readonly mutualFundTransactionTypes = [
+    { value: 'PURCHASE', label: 'Purchase' },
+    { value: 'SIP', label: 'SIP' },
+    { value: 'REDEMPTION', label: 'Redemption' },
+    { value: 'DIVIDEND', label: 'Dividend' },
+  ];
+
+  readonly sipFrequencies = [
+    { value: 'MONTHLY', label: 'Monthly' },
+    { value: 'WEEKLY', label: 'Weekly' },
+    { value: 'QUARTERLY', label: 'Quarterly' },
+    { value: 'YEARLY', label: 'Yearly' },
+  ];
+
   ngOnInit(): void {
+    const today = this.getToday();
+
+    this.transaction.transaction_date = today;
+
+    this.mutualFundTransaction.transaction_date = today;
+
+    this.sip.start_date = today;
+
+    this.sip.next_installment_date = today;
+
+    this.loadSchemes();
+
+    this.calculateAmount();
+
+    this.calculateMutualFundAmount();
+  }
+
+  // ==========================================================
+  // DATE
+  // ==========================================================
+
+  private getToday(): string {
     const today = new Date();
 
     const year = today.getFullYear();
+
     const month = String(today.getMonth() + 1).padStart(2, '0');
+
     const day = String(today.getDate()).padStart(2, '0');
 
-    this.transaction.transaction_date = `${year}-${month}-${day}`;
-
-    this.calculateAmount();
+    return `${year}-${month}-${day}`;
   }
+
+  // ==========================================================
+  // LOAD MUTUAL FUND SCHEMES
+  // ==========================================================
+
+  loadSchemes(): void {
+    this.mutualFundsApi.getSchemes().subscribe({
+      next: (response) => {
+        this.schemes = response.results;
+
+        this.cdr.detectChanges();
+      },
+
+      error: (error) => {
+        console.error('Unable to load mutual fund schemes:', error);
+      },
+    });
+  }
+
+  // ==========================================================
+  // CHANGE INVESTMENT TYPE
+  // ==========================================================
+
+  onInvestmentTypeChange(): void {
+    this.error = '';
+
+    this.success = '';
+
+    if (this.investmentType === 'MUTUAL_FUND' || this.investmentType === 'SIP') {
+      this.loadSchemes();
+    }
+  }
+
+  // ==========================================================
+  // STOCK / ETF AMOUNT
+  // ==========================================================
 
   calculateAmount(): void {
     const quantity = Number(this.transaction.quantity) || 0;
+
     const price = Number(this.transaction.price_per_unit) || 0;
 
     this.transaction.amount = Number((quantity * price).toFixed(2));
   }
+
+  // ==========================================================
+  // MUTUAL FUND AMOUNT
+  // ==========================================================
+
+  calculateMutualFundAmount(): void {
+    const units = Number(this.mutualFundTransaction.units) || 0;
+
+    const nav = Number(this.mutualFundTransaction.nav) || 0;
+
+    this.mutualFundTransaction.amount = Number((units * nav).toFixed(2));
+  }
+
+  // ==========================================================
+  // ADD INVESTMENT
+  // ==========================================================
 
   addInvestment(): void {
     if (this.saving) {
@@ -95,108 +243,258 @@ export class AddInvestmentComponent implements OnInit {
     }
 
     this.error = '';
+
     this.success = '';
 
-    if (!this.asset.name.trim()) {
-      this.error = 'Investment name is required.';
+    if (this.investmentType === 'MUTUAL_FUND') {
+      this.addMutualFund();
+
       return;
     }
 
-    if (!this.asset.category) {
-      this.error = 'Please select an asset type.';
+    if (this.investmentType === 'SIP') {
+      this.addSIP();
+
+      return;
+    }
+
+    this.addPortfolioInvestment();
+  }
+
+  // ==========================================================
+  // STOCK / ETF
+  // ==========================================================
+
+  private addPortfolioInvestment(): void {
+    if (!this.asset.name.trim()) {
+      this.error = 'Investment name is required.';
+
       return;
     }
 
     if (!this.transaction.transaction_date) {
       this.error = 'Transaction date is required.';
-      return;
-    }
 
-    if (Number(this.transaction.quantity) < 0) {
-      this.error = 'Quantity cannot be negative.';
-      return;
-    }
-
-    if (Number(this.transaction.price_per_unit) < 0) {
-      this.error = 'Price per unit cannot be negative.';
-      return;
-    }
-
-    if (Number(this.transaction.amount) < 0) {
-      this.error = 'Amount cannot be negative.';
-      return;
-    }
-
-    if (Number(this.transaction.fees) < 0) {
-      this.error = 'Fees cannot be negative.';
       return;
     }
 
     this.saving = true;
 
-    const assetPayload: CreateAssetRequest = {
+    const payload: CreateAssetRequest = {
       name: this.asset.name.trim(),
-      category: this.asset.category,
+
+      category: this.investmentType,
+
       symbol: this.asset.symbol.trim() || null,
+
       isin: this.asset.isin.trim() || null,
+
       institution: this.asset.institution.trim() || null,
+
       currency: this.asset.currency,
     };
 
-    this.portfolioApi.createAsset(assetPayload).subscribe({
+    this.portfolioApi.createAsset(payload).subscribe({
       next: (createdAsset) => {
         const transactionPayload: CreateTransactionRequest = {
           asset: createdAsset.id,
+
           transaction_type: this.transaction.transaction_type,
+
           transaction_date: this.transaction.transaction_date,
+
           quantity: Number(this.transaction.quantity),
+
           price_per_unit: Number(this.transaction.price_per_unit),
+
           amount: Number(this.transaction.amount),
+
           fees: Number(this.transaction.fees) || 0,
+
           notes: this.transaction.notes.trim() || null,
         };
 
         this.portfolioApi.createTransaction(transactionPayload).subscribe({
           next: () => {
-            this.saving = false;
-            this.success = 'Investment added successfully.';
-            this.cdr.detectChanges();
-
-            setTimeout(() => {
-              this.router.navigate(['/portfolio']);
-            }, 800);
+            this.finishSuccess('Investment added successfully.');
           },
 
           error: (error) => {
-            console.error('Transaction creation error:', error);
-
-            this.saving = false;
-
-            this.error =
-              error?.error?.detail ||
-              error?.error?.amount?.[0] ||
-              error?.error?.transaction_type?.[0] ||
-              'Investment was created, but the transaction could not be created.';
-
-            this.cdr.detectChanges();
+            this.handleError(
+              error,
+              'Investment was created, but the transaction could not be created.',
+            );
           },
         });
       },
 
       error: (error) => {
-        console.error('Asset creation error:', error);
-
-        this.saving = false;
-
-        this.error =
-          error?.error?.detail ||
-          error?.error?.name?.[0] ||
-          error?.error?.category?.[0] ||
-          'Unable to create investment.';
-
-        this.cdr.detectChanges();
+        this.handleError(error, 'Unable to create investment.');
       },
     });
+  }
+
+  // ==========================================================
+  // MUTUAL FUND
+  // ==========================================================
+
+  private addMutualFund(): void {
+    if (!this.mutualFund.scheme_name.trim()) {
+      this.error = 'Mutual fund scheme name is required.';
+
+      return;
+    }
+
+    if (!this.mutualFundTransaction.transaction_date) {
+      this.error = 'Transaction date is required.';
+
+      return;
+    }
+
+    this.saving = true;
+
+    const schemePayload: CreateMutualFundSchemeRequest = {
+      scheme_name: this.mutualFund.scheme_name.trim(),
+
+      amc_name: this.mutualFund.amc_name.trim() || null,
+
+      scheme_code: this.mutualFund.scheme_code.trim() || null,
+
+      isin_growth: this.mutualFund.isin_growth.trim() || null,
+
+      isin_dividend: this.mutualFund.isin_dividend.trim() || null,
+
+      plan: this.mutualFund.plan.trim() || null,
+
+      option: this.mutualFund.option.trim() || null,
+
+      category: this.mutualFund.category.trim() || null,
+    };
+
+    this.mutualFundsApi.createScheme(schemePayload).subscribe({
+      next: (scheme) => {
+        const transactionPayload: CreateMutualFundTransactionRequest = {
+          scheme: scheme.id,
+
+          transaction_type: this.mutualFundTransaction.transaction_type,
+
+          transaction_date: this.mutualFundTransaction.transaction_date,
+
+          units: Number(this.mutualFundTransaction.units),
+
+          nav: Number(this.mutualFundTransaction.nav),
+
+          amount: Number(this.mutualFundTransaction.amount),
+
+          fees: Number(this.mutualFundTransaction.fees) || 0,
+
+          notes: this.mutualFundTransaction.notes.trim() || null,
+        };
+
+        this.mutualFundsApi.createTransaction(transactionPayload).subscribe({
+          next: () => {
+            this.finishSuccess('Mutual fund investment added successfully.');
+          },
+
+          error: (error) => {
+            this.handleError(
+              error,
+              'Mutual fund was created, but the transaction could not be created.',
+            );
+          },
+        });
+      },
+
+      error: (error) => {
+        this.handleError(error, 'Unable to create mutual fund.');
+      },
+    });
+  }
+
+  // ==========================================================
+  // SIP
+  // ==========================================================
+
+  private addSIP(): void {
+    if (!this.sip.scheme) {
+      this.error = 'Please select a mutual fund scheme.';
+
+      return;
+    }
+
+    if (Number(this.sip.amount) <= 0) {
+      this.error = 'SIP amount must be greater than zero.';
+
+      return;
+    }
+
+    if (!this.sip.start_date) {
+      this.error = 'SIP start date is required.';
+
+      return;
+    }
+
+    this.saving = true;
+
+    const payload: CreateSIPRequest = {
+      scheme: Number(this.sip.scheme),
+
+      amount: Number(this.sip.amount),
+
+      frequency: this.sip.frequency,
+
+      start_date: this.sip.start_date,
+
+      end_date: this.sip.end_date || null,
+
+      next_installment_date: this.sip.next_installment_date || this.sip.start_date,
+
+      is_active: this.sip.is_active,
+    };
+
+    this.mutualFundsApi.createSIP(payload).subscribe({
+      next: () => {
+        this.finishSuccess('SIP added successfully.');
+      },
+
+      error: (error) => {
+        this.handleError(error, 'Unable to create SIP.');
+      },
+    });
+  }
+
+  // ==========================================================
+  // SUCCESS
+  // ==========================================================
+
+  private finishSuccess(message: string): void {
+    this.saving = false;
+
+    this.success = message;
+
+    this.cdr.detectChanges();
+
+    setTimeout(() => {
+      this.router.navigate(['/portfolio']);
+    }, 800);
+  }
+
+  // ==========================================================
+  // ERROR
+  // ==========================================================
+
+  private handleError(error: any, fallback: string): void {
+    console.error('Add investment error:', error);
+
+    this.saving = false;
+
+    this.error =
+      error?.error?.detail ||
+      error?.error?.error ||
+      error?.error?.non_field_errors?.[0] ||
+      fallback;
+
+    this.cdr.detectChanges();
   }
 
   cancel(): void {
