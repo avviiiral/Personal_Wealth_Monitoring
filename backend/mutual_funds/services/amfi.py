@@ -21,13 +21,14 @@ class AMFIService:
         "https://www.amfiindia.com/spages/NAVAll.txt"
     )
 
-    @staticmethod
-    def download_latest_nav():
-        """
-        Download the latest NAV text file from AMFI.
-        """
+    NAV_HISTORY_URL = (
+        "https://portal.amfiindia.com/"
+        "DownloadNAVHistoryReport_Po.aspx"
+    )
 
-        headers = {
+    @staticmethod
+    def _headers():
+        return {
             "User-Agent": (
                 "Mozilla/5.0 "
                 "(Windows NT 10.0; Win64; x64) "
@@ -37,9 +38,15 @@ class AMFIService:
             )
         }
 
+    @staticmethod
+    def download_latest_nav():
+        """
+        Download the latest NAV text file from AMFI.
+        """
+
         response = requests.get(
             AMFIService.NAV_URL,
-            headers=headers,
+            headers=AMFIService._headers(),
             timeout=30,
         )
 
@@ -48,29 +55,231 @@ class AMFIService:
         return response.text
 
     @staticmethod
-    def parse_nav_file(text):
+    def download_historical_nav(
+        from_date,
+        to_date,
+    ):
         """
-        Parse AMFI's semicolon-separated NAV file.
+        Download historical NAV data from AMFI.
 
-        AMFI format:
+        AMFI historical NAV downloads support a maximum
+        period of 90 days at a time.
+        """
 
-            0 = Scheme Code
-            1 = ISIN Div Payout / ISIN Growth
-            2 = ISIN Div Reinvestment
-            3 = Scheme Name
-            4 = NAV
-            5 = Date
+        if from_date > to_date:
+            raise ValueError(
+                "From date cannot be after to date."
+            )
 
-        Important:
+        if (
+            to_date - from_date
+        ).days > 90:
+            raise ValueError(
+                "AMFI historical NAV download supports "
+                "a maximum period of 90 days at a time."
+            )
 
-        Field 1 is NOT always a dividend ISIN.
+        response = requests.get(
+            AMFIService.NAV_HISTORY_URL,
+            params={
+                "tp": "1",
+                "frmdt": from_date.strftime(
+                    "%d-%b-%Y"
+                ),
+                "todt": to_date.strftime(
+                    "%d-%b-%Y"
+                ),
+            },
+            headers=AMFIService._headers(),
+            timeout=60,
+        )
 
-        For Growth schemes:
-            Field 1 = Growth ISIN
+        response.raise_for_status()
 
-        For IDCW / Dividend schemes:
-            Field 1 = Dividend Payout ISIN
-            Field 2 = Dividend Reinvestment ISIN
+        return response.text
+
+    @staticmethod
+    def _build_record(
+        scheme_code,
+        isin_first,
+        isin_second,
+        scheme_name,
+        nav,
+        nav_date,
+    ):
+        """
+        Build a normalized AMFI NAV record.
+        """
+
+        scheme_name_lower = (
+            scheme_name.lower()
+        )
+
+        isin_growth = None
+        isin_dividend = None
+
+        if (
+            "growth" in scheme_name_lower
+            and "idcw" not in scheme_name_lower
+            and "dividend" not in scheme_name_lower
+        ):
+
+            if (
+                isin_first
+                and isin_first != "-"
+            ):
+                isin_growth = isin_first
+
+        else:
+
+            if (
+                isin_first
+                and isin_first != "-"
+            ):
+                isin_dividend = isin_first
+
+            elif (
+                isin_second
+                and isin_second != "-"
+            ):
+                isin_dividend = isin_second
+
+        return {
+            "scheme_code": scheme_code,
+            "isin_growth": isin_growth,
+            "isin_dividend": isin_dividend,
+            "scheme_name": scheme_name,
+            "nav": nav,
+            "date": nav_date,
+        }
+
+    @staticmethod
+    def _parse_latest_record(parts):
+        """
+        Parse latest AMFI NAV format.
+
+        0 = Scheme Code
+        1 = ISIN Div Payout / ISIN Growth
+        2 = ISIN Div Reinvestment
+        3 = Scheme Name
+        4 = NAV
+        5 = Date
+        """
+
+        if len(parts) < 6:
+            return None
+
+        scheme_code = parts[0]
+        isin_first = parts[1]
+        isin_second = parts[2]
+        scheme_name = parts[3]
+        nav_text = parts[4]
+        date_text = parts[5]
+
+        if not scheme_code.isdigit():
+            return None
+
+        if not scheme_name:
+            return None
+
+        try:
+            nav = Decimal(nav_text)
+        except (
+            InvalidOperation,
+            ValueError,
+            TypeError,
+        ):
+            return None
+
+        if nav < 0:
+            return None
+
+        try:
+            nav_date = datetime.strptime(
+                date_text,
+                "%d-%b-%Y",
+            ).date()
+        except ValueError:
+            return None
+
+        return AMFIService._build_record(
+            scheme_code=scheme_code,
+            isin_first=isin_first,
+            isin_second=isin_second,
+            scheme_name=scheme_name,
+            nav=nav,
+            nav_date=nav_date,
+        )
+
+    @staticmethod
+    def _parse_historical_record(parts):
+        """
+        Parse historical AMFI NAV format.
+
+        0 = Scheme Code
+        1 = Scheme Name
+        2 = ISIN Div Payout / ISIN Growth
+        3 = ISIN Div Reinvestment
+        4 = NAV
+        5 = Repurchase Price
+        6 = Sale Price
+        7 = Date
+        """
+
+        if len(parts) < 8:
+            return None
+
+        scheme_code = parts[0]
+        scheme_name = parts[1]
+        isin_first = parts[2]
+        isin_second = parts[3]
+        nav_text = parts[4]
+        date_text = parts[-1]
+
+        if not scheme_code.isdigit():
+            return None
+
+        if not scheme_name:
+            return None
+
+        try:
+            nav = Decimal(nav_text)
+        except (
+            InvalidOperation,
+            ValueError,
+            TypeError,
+        ):
+            return None
+
+        if nav < 0:
+            return None
+
+        try:
+            nav_date = datetime.strptime(
+                date_text,
+                "%d-%b-%Y",
+            ).date()
+        except ValueError:
+            return None
+
+        return AMFIService._build_record(
+            scheme_code=scheme_code,
+            isin_first=isin_first,
+            isin_second=isin_second,
+            scheme_name=scheme_name,
+            nav=nav,
+            nav_date=nav_date,
+        )
+
+    @staticmethod
+    def parse_nav_file(
+        text,
+        historical=False,
+    ):
+        """
+        Parse AMFI NAV data.
+
+        Supports both latest and historical formats.
         """
 
         records = []
@@ -90,172 +299,46 @@ class AMFIService:
                 for part in line.split(";")
             ]
 
-            if len(parts) < 6:
-                continue
+            if historical:
 
-            scheme_code = parts[0]
-
-            isin_first = parts[1]
-
-            isin_second = parts[2]
-
-            scheme_name = parts[3]
-
-            nav_text = parts[4]
-
-            date_text = parts[5]
-
-            # --------------------------------------------------
-            # Ignore headers / AMC names / invalid rows
-            # --------------------------------------------------
-
-            if not scheme_code.isdigit():
-                continue
-
-            if not scheme_name:
-                continue
-
-            # --------------------------------------------------
-            # NAV
-            # --------------------------------------------------
-
-            try:
-
-                nav = Decimal(nav_text)
-
-            except (
-                InvalidOperation,
-                ValueError,
-                TypeError,
-            ):
-
-                continue
-
-            if nav < 0:
-                continue
-
-            # --------------------------------------------------
-            # DATE
-            # --------------------------------------------------
-
-            try:
-
-                nav_date = datetime.strptime(
-                    date_text,
-                    "%d-%b-%Y",
-                ).date()
-
-            except ValueError:
-
-                continue
-
-            # --------------------------------------------------
-            # ISIN RESOLUTION
-            # --------------------------------------------------
-            #
-            # AMFI field 1 is:
-            #
-            # ISIN Div Payout / ISIN Growth
-            #
-            # Therefore we must determine what it represents
-            # from the scheme name.
-            #
-            # Growth scheme:
-            #
-            #     field 1 -> isin_growth
-            #
-            # IDCW / Dividend scheme:
-            #
-            #     field 1 -> isin_dividend
-            #     field 2 -> isin_dividend when field 2 exists
-            #
-            # --------------------------------------------------
-
-            scheme_name_lower = scheme_name.lower()
-
-            isin_growth = None
-
-            isin_dividend = None
-
-            if (
-                "growth" in scheme_name_lower
-                and "idcw" not in scheme_name_lower
-                and "dividend" not in scheme_name_lower
-            ):
-
-                if (
-                    isin_first
-                    and isin_first != "-"
-                ):
-
-                    isin_growth = isin_first
+                record = (
+                    AMFIService
+                    ._parse_historical_record(
+                        parts
+                    )
+                )
 
             else:
 
-                if (
-                    isin_first
-                    and isin_first != "-"
-                ):
+                record = (
+                    AMFIService
+                    ._parse_latest_record(
+                        parts
+                    )
+                )
 
-                    isin_dividend = isin_first
-
-                elif (
-                    isin_second
-                    and isin_second != "-"
-                ):
-
-                    isin_dividend = isin_second
-
-            records.append(
-                {
-                    "scheme_code": scheme_code,
-
-                    "isin_growth": isin_growth,
-
-                    "isin_dividend": isin_dividend,
-
-                    "scheme_name": scheme_name,
-
-                    "nav": nav,
-
-                    "date": nav_date,
-                }
-            )
+            if record:
+                records.append(record)
 
         return records
 
     @staticmethod
-    @transaction.atomic
-    def import_latest_navs(owner):
+    def _import_records(
+        owner,
+        records,
+    ):
         """
-        Download the latest AMFI NAV file and import
-        all valid scheme records.
+        Import parsed NAV records.
 
         Existing schemes are updated.
-
-        Existing NAV records are updated rather than
-        duplicated.
+        Existing NAV records are updated rather
+        than duplicated.
         """
 
-        text = (
-            AMFIService
-            .download_latest_nav()
-        )
-
-        records = (
-            AMFIService
-            .parse_nav_file(text)
-        )
-
         scheme_count = 0
-
         nav_count = 0
 
         for record in records:
-
-            # --------------------------------------------------
-            # Prepare scheme defaults
-            # --------------------------------------------------
 
             defaults = {
                 "scheme_name": record[
@@ -263,19 +346,11 @@ class AMFIService:
                 ],
             }
 
-            # --------------------------------------------------
-            # Growth ISIN
-            # --------------------------------------------------
-
             if record["isin_growth"]:
 
                 defaults["isin_growth"] = (
                     record["isin_growth"]
                 )
-
-            # --------------------------------------------------
-            # Dividend / IDCW ISIN
-            # --------------------------------------------------
 
             if record["isin_dividend"]:
 
@@ -283,36 +358,23 @@ class AMFIService:
                     record["isin_dividend"]
                 )
 
-            # --------------------------------------------------
-            # Create / update scheme
-            # --------------------------------------------------
-
             scheme, _ = (
                 MutualFundScheme.objects
                 .update_or_create(
                     owner=owner,
-
                     scheme_code=record[
                         "scheme_code"
                     ],
-
                     defaults=defaults,
                 )
             )
 
             scheme_count += 1
 
-            # --------------------------------------------------
-            # NAV
-            # --------------------------------------------------
-
             MutualFundNAV.objects.update_or_create(
                 scheme=scheme,
-
                 date=record["date"],
-
                 source="AMFI",
-
                 defaults={
                     "nav": record["nav"],
                 },
@@ -324,3 +386,61 @@ class AMFIService:
             "schemes": scheme_count,
             "nav_records": nav_count,
         }
+
+    @staticmethod
+    @transaction.atomic
+    def import_latest_navs(owner):
+        """
+        Download the latest AMFI NAV file and import
+        all valid scheme records.
+        """
+
+        text = (
+            AMFIService
+            .download_latest_nav()
+        )
+
+        records = (
+            AMFIService
+            .parse_nav_file(
+                text,
+                historical=False,
+            )
+        )
+
+        return AMFIService._import_records(
+            owner,
+            records,
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def import_historical_navs(
+        owner,
+        from_date,
+        to_date,
+    ):
+        """
+        Download and import historical AMFI NAV data.
+        """
+
+        text = (
+            AMFIService
+            .download_historical_nav(
+                from_date,
+                to_date,
+            )
+        )
+
+        records = (
+            AMFIService
+            .parse_nav_file(
+                text,
+                historical=True,
+            )
+        )
+
+        return AMFIService._import_records(
+            owner,
+            records,
+        )
