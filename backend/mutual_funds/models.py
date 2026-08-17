@@ -163,6 +163,18 @@ class MutualFundTransaction(models.Model):
         related_name="mutual_fund_transactions",
     )
 
+    family_name = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+    )
+
+    portfolio = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+    )
+
     scheme = models.ForeignKey(
         MutualFundScheme,
         on_delete=models.CASCADE,

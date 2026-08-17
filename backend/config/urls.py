@@ -47,4 +47,10 @@ urlpatterns = [
         "api/ai/",
         include("ai.urls"),
     ),
+    
+    # Transaction Import API
+    path(
+        "api/investments/",
+        include("investments.urls"),
+    ),
 ]
