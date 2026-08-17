@@ -3,6 +3,20 @@ from decimal import Decimal
 from django.db import transaction
 from django.db.models import Sum
 
+from investments.models import (
+    Asset,
+    Holding,
+    Transaction,
+)
+
+from mutual_funds.models import (
+    MutualFundTransaction,
+)
+
+from investments.services.file_transaction_sync import (
+    FileTransactionSyncService,
+)
+
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -429,3 +443,273 @@ def portfolio_holdings(request):
         "count": holdings.count(),
         "results": serializer.data,
     })
+    
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def portfolio_tree(request):
+    """
+    Return portfolio data grouped as:
+
+        Family Name
+            -> Asset Class
+                -> Portfolio
+                    -> Assets
+    """
+
+    # --------------------------------------------------
+    # Synchronize Excel data
+    # --------------------------------------------------
+
+    try:
+        FileTransactionSyncService.sync(
+            owner=request.user
+        )
+
+    except FileNotFoundError as exc:
+        return Response(
+            {
+                "success": False,
+                "message": str(exc),
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    except Exception as exc:
+        return Response(
+            {
+                "success": False,
+                "message": (
+                    "Unable to synchronize "
+                    "transaction file."
+                ),
+                "error": str(exc),
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    # --------------------------------------------------
+    # Build hierarchy
+    # --------------------------------------------------
+
+    families = {}
+
+    # --------------------------------------------------
+    # Stocks / ETFs / other investments
+    # --------------------------------------------------
+
+    investment_transactions = (
+        Transaction.objects
+        .filter(owner=request.user)
+        .select_related("asset")
+        .order_by(
+            "family_name",
+            "portfolio",
+            "asset__name",
+        )
+    )
+
+    for tx in investment_transactions:
+
+        family_name = (
+            tx.family_name or "Unassigned"
+        )
+
+        portfolio = (
+            tx.portfolio or "Unassigned"
+        )
+
+        asset = tx.asset
+
+        asset_class = (
+            asset.get_category_display()
+        )
+
+        family = families.setdefault(
+            family_name,
+            {},
+        )
+
+        asset_class_data = (
+            family.setdefault(
+                asset_class,
+                {},
+            )
+        )
+
+        portfolio_data = (
+            asset_class_data.setdefault(
+                portfolio,
+                {
+                    "portfolio": portfolio,
+                    "assets": {},
+                },
+            )
+        )
+
+        asset_key = asset.id
+
+        if asset_key not in portfolio_data["assets"]:
+
+            portfolio_data["assets"][asset_key] = {
+                "asset_name": asset.name,
+                "isin": asset.isin,
+                "asset_class": asset_class,
+            }
+
+    # --------------------------------------------------
+    # Mutual funds
+    # --------------------------------------------------
+
+    mutual_fund_transactions = (
+        MutualFundTransaction.objects
+        .filter(owner=request.user)
+        .select_related("scheme")
+        .order_by(
+            "family_name",
+            "portfolio",
+            "scheme__scheme_name",
+        )
+    )
+
+    for tx in mutual_fund_transactions:
+
+        family_name = (
+            tx.family_name or "Unassigned"
+        )
+
+        portfolio = (
+            tx.portfolio or "Unassigned"
+        )
+
+        asset_class = "Mutual Fund"
+
+        family = families.setdefault(
+            family_name,
+            {},
+        )
+
+        asset_class_data = (
+            family.setdefault(
+                asset_class,
+                {},
+            )
+        )
+
+        portfolio_data = (
+            asset_class_data.setdefault(
+                portfolio,
+                {
+                    "portfolio": portfolio,
+                    "assets": {},
+                },
+            )
+        )
+
+        scheme_key = tx.scheme.id
+
+        if (
+            scheme_key
+            not in portfolio_data["assets"]
+        ):
+
+            portfolio_data["assets"][
+                scheme_key
+            ] = {
+                "asset_name": (
+                    tx.scheme.scheme_name
+                ),
+                "isin": (
+                    tx.scheme.isin_growth
+                ),
+                "asset_class": asset_class,
+            }
+
+    # --------------------------------------------------
+    # Convert dictionaries to API-friendly lists
+    # --------------------------------------------------
+
+    response_data = []
+
+    for family_name, asset_classes in families.items():
+
+        family_data = {
+            "family_name": family_name,
+            "asset_classes": [],
+        }
+
+        for (
+            asset_class,
+            portfolios,
+        ) in asset_classes.items():
+
+            asset_class_data = {
+                "asset_class": asset_class,
+                "portfolios": [],
+            }
+
+            for (
+                portfolio_name,
+                portfolio_data,
+            ) in portfolios.items():
+
+                assets = list(
+                    portfolio_data[
+                        "assets"
+                    ].values()
+                )
+
+                assets.sort(
+                    key=lambda item: (
+                        item["asset_name"] or ""
+                    ).lower()
+                )
+
+                asset_class_data[
+                    "portfolios"
+                ].append(
+                    {
+                        "portfolio": (
+                            portfolio_name
+                        ),
+                        "assets": assets,
+                    }
+                )
+
+            asset_class_data[
+                "portfolios"
+            ].sort(
+                key=lambda item: (
+                    item["portfolio"] or ""
+                ).lower()
+            )
+
+            family_data[
+                "asset_classes"
+            ].append(
+                asset_class_data
+            )
+
+        family_data[
+            "asset_classes"
+        ].sort(
+            key=lambda item: (
+                item["asset_class"] or ""
+            ).lower()
+        )
+
+        response_data.append(
+            family_data
+        )
+
+    response_data.sort(
+        key=lambda item: (
+            item["family_name"] or ""
+        ).lower()
+    )
+
+    return Response(
+        {
+            "success": True,
+            "results": response_data,
+        }
+    )

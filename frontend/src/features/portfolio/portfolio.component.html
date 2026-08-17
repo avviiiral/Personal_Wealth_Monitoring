@@ -2,7 +2,8 @@
   <div class="page-header">
     <div>
       <h1>Portfolio</h1>
-      <p>Manage and monitor your investments.</p>
+
+      <p>View your investments by family, asset class and portfolio.</p>
     </div>
 
     <button type="button" class="refresh-button" (click)="refresh()" [disabled]="loading">
@@ -10,215 +11,122 @@
     </button>
   </div>
 
+  <!-- LOADING -->
+
   <div *ngIf="loading" class="loading-card">
     <div class="loading-spinner"></div>
-    <span>Loading portfolio...</span>
+
+    <span> Loading portfolio... </span>
   </div>
+
+  <!-- ERROR -->
 
   <div *ngIf="!loading && error" class="error-card">
     {{ error }}
   </div>
 
-  <ng-container *ngIf="!loading">
-    <!-- SUMMARY -->
+  <ng-container *ngIf="!loading && !error">
+    <!-- FILTERS -->
 
-    <div class="summary-grid">
-      <div class="summary-card">
-        <span class="label"> Total Invested </span>
+    <section class="card filters-card">
+      <div class="filters">
+        <!-- FAMILY -->
 
-        <strong>
-          {{ summary?.total_invested ?? 0 | currency: 'INR' : 'symbol' : '1.0-0' }}
-        </strong>
-      </div>
+        <div class="filter-group">
+          <label> Family Name </label>
 
-      <div class="summary-card">
-        <span class="label"> Current Value </span>
+          <select [(ngModel)]="selectedFamily" (ngModelChange)="onFamilyChange()">
+            <option value="">All Families</option>
 
-        <strong>
-          {{ summary?.total_current_value ?? 0 | currency: 'INR' : 'symbol' : '1.0-0' }}
-        </strong>
-      </div>
-
-      <div class="summary-card">
-        <span class="label"> Unrealized P&amp;L </span>
-
-        <strong
-          [class.positive]="(summary?.total_unrealized_pnl ?? 0) >= 0"
-          [class.negative]="(summary?.total_unrealized_pnl ?? 0) < 0"
-        >
-          {{ summary?.total_unrealized_pnl ?? 0 | currency: 'INR' : 'symbol' : '1.0-0' }}
-        </strong>
-      </div>
-
-      <div class="summary-card">
-        <span class="label"> Return </span>
-
-        <strong
-          [class.positive]="(summary?.pnl_percentage ?? 0) >= 0"
-          [class.negative]="(summary?.pnl_percentage ?? 0) < 0"
-        >
-          {{ summary?.pnl_percentage ?? 0 }}%
-        </strong>
-      </div>
-    </div>
-
-    <!-- HOLDINGS -->
-
-    <section class="card">
-      <div class="card-header">
-        <div>
-          <h2>Holdings</h2>
-          <p>Your current investment positions.</p>
+            <option *ngFor="let family of families" [value]="family.family_name">
+              {{ family.family_name }}
+            </option>
+          </select>
         </div>
 
-        <span class="count-badge">
-          {{ holdings.length }}
-        </span>
-      </div>
+        <!-- ASSET CLASS -->
 
-      <div *ngIf="holdings.length === 0" class="empty-state">No holdings available.</div>
+        <div class="filter-group" *ngIf="selectedFamily">
+          <label> Asset Class </label>
 
-      <div *ngIf="holdings.length > 0" class="table-wrapper">
-        <table>
-          <thead>
-            <tr>
-              <th>Asset</th>
-              <th>Category</th>
-              <th>Quantity</th>
-              <th>Avg. Cost</th>
-              <th>Current Price</th>
-              <th>Invested</th>
-              <th>Current Value</th>
-              <th>P&amp;L</th>
-              <th>Return</th>
-            </tr>
-          </thead>
+          <select [(ngModel)]="selectedAssetClass" (ngModelChange)="onAssetClassChange()">
+            <option value="">All Asset Classes</option>
 
-          <tbody>
-            <tr *ngFor="let holding of holdings; trackBy: trackByHolding">
-              <td>
-                <div class="asset-name">
-                  {{ holding.asset_name }}
-                </div>
-
-                <div *ngIf="holding.symbol" class="asset-symbol">
-                  {{ holding.symbol }}
-                </div>
-              </td>
-
-              <td>
-                {{ holding.asset_category_display }}
-              </td>
-
-              <td>
-                {{ holding.quantity | number: '1.0-6' }}
-              </td>
-
-              <td>
-                {{ holding.average_cost | currency: 'INR' : 'symbol' : '1.0-2' }}
-              </td>
-
-              <td>
-                {{ holding.current_price | currency: 'INR' : 'symbol' : '1.0-2' }}
-              </td>
-
-              <td>
-                {{ holding.invested_value | currency: 'INR' : 'symbol' : '1.0-0' }}
-              </td>
-
-              <td>
-                {{ holding.current_value | currency: 'INR' : 'symbol' : '1.0-0' }}
-              </td>
-
-              <td
-                [class.positive]="holding.unrealized_pnl >= 0"
-                [class.negative]="holding.unrealized_pnl < 0"
-              >
-                {{ holding.unrealized_pnl | currency: 'INR' : 'symbol' : '1.0-0' }}
-              </td>
-
-              <td
-                [class.positive]="holding.pnl_percentage >= 0"
-                [class.negative]="holding.pnl_percentage < 0"
-              >
-                {{ holding.pnl_percentage }}%
-              </td>
-            </tr>
-          </tbody>
-        </table>
+            <option *ngFor="let assetClass of assetClasses" [value]="assetClass.asset_class">
+              {{ assetClass.asset_class }}
+            </option>
+          </select>
+        </div>
       </div>
     </section>
 
-    <!-- TRANSACTIONS -->
+    <!-- INITIAL STATE -->
 
-    <section class="card">
-      <div class="card-header">
-        <div>
-          <h2>Recent Transactions</h2>
-          <p>Your investment transaction history.</p>
+    <section *ngIf="!selectedFamily" class="card empty-state">
+      <h2>Select a Family Name</h2>
+
+      <p>Select a family to view its portfolios.</p>
+    </section>
+
+    <!-- PORTFOLIOS -->
+
+    <ng-container *ngIf="selectedFamily">
+      <section *ngFor="let assetClass of selectedAssetClassData" class="card">
+        <div class="card-header">
+          <div>
+            <h2>
+              {{ assetClass.asset_class }}
+            </h2>
+
+            <p>Portfolios</p>
+          </div>
+
+          <span class="count-badge">
+            {{ assetClass.portfolios.length }}
+          </span>
         </div>
 
-        <span class="count-badge">
-          {{ transactions.length }}
-        </span>
-      </div>
+        <div class="portfolio-list">
+          <div *ngFor="let portfolio of assetClass.portfolios" class="portfolio-item">
+            <!-- PORTFOLIO ROW -->
 
-      <div *ngIf="transactions.length === 0" class="empty-state">No transactions available.</div>
+            <button
+              type="button"
+              class="portfolio-row"
+              (click)="togglePortfolio(portfolio.portfolio)"
+            >
+              <span class="portfolio-name">
+                {{ portfolio.portfolio }}
+              </span>
 
-      <div *ngIf="transactions.length > 0" class="table-wrapper">
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Asset</th>
-              <th>Type</th>
-              <th>Quantity</th>
-              <th>Price</th>
-              <th>Amount</th>
-              <th>Fees</th>
-            </tr>
-          </thead>
+              <span class="portfolio-arrow">
+                {{ expandedPortfolio === portfolio.portfolio ? '−' : '+' }}
+              </span>
+            </button>
 
-          <tbody>
-            <tr *ngFor="let transaction of transactions; trackBy: trackByTransaction">
-              <td>
-                {{ transaction.transaction_date }}
-              </td>
+            <!-- ASSETS -->
 
-              <td>
-                {{ transaction.asset_name }}
-              </td>
+            <div *ngIf="expandedPortfolio === portfolio.portfolio" class="asset-list">
+              <div *ngFor="let asset of portfolio.assets" class="asset-row">
+                <div>
+                  <div class="asset-name">
+                    {{ asset.asset_name }}
+                  </div>
 
-              <td>
-                <span
-                  class="transaction-type"
-                  [class.buy]="transaction.transaction_type === 'BUY'"
-                  [class.sell]="transaction.transaction_type === 'SELL'"
-                  [class.sip]="transaction.transaction_type === 'SIP'"
-                >
-                  {{ transaction.transaction_type_display }}
+                  <div class="asset-isin">
+                    ISIN:
+                    {{ asset.isin || 'N/A' }}
+                  </div>
+                </div>
+
+                <span class="asset-class">
+                  {{ asset.asset_class }}
                 </span>
-              </td>
-
-              <td>
-                {{ transaction.quantity | number: '1.0-6' }}
-              </td>
-
-              <td>
-                {{ transaction.price_per_unit | currency: 'INR' : 'symbol' : '1.0-2' }}
-              </td>
-
-              <td>
-                {{ transaction.amount | currency: 'INR' : 'symbol' : '1.0-0' }}
-              </td>
-
-              <td>
-                {{ transaction.fees | currency: 'INR' : 'symbol' : '1.0-0' }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </ng-container>
   </ng-container>
 </div>

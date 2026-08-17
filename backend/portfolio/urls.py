@@ -1,22 +1,17 @@
 from django.urls import path
 
 from .views import (
-    portfolio_asset_detail,
     portfolio_assets,
-    portfolio_holdings,
-    portfolio_summary,
-    portfolio_transaction_detail,
+    portfolio_asset_detail,
     portfolio_transactions,
+    portfolio_transaction_detail,
+    portfolio_summary,
+    portfolio_holdings,
+    portfolio_tree,
 )
 
 
 urlpatterns = [
-    path(
-        "summary/",
-        portfolio_summary,
-        name="portfolio-summary",
-    ),
-
     path(
         "assets/",
         portfolio_assets,
@@ -30,12 +25,6 @@ urlpatterns = [
     ),
 
     path(
-        "holdings/",
-        portfolio_holdings,
-        name="portfolio-holdings",
-    ),
-
-    path(
         "transactions/",
         portfolio_transactions,
         name="portfolio-transactions",
@@ -45,5 +34,23 @@ urlpatterns = [
         "transactions/<int:transaction_id>/",
         portfolio_transaction_detail,
         name="portfolio-transaction-detail",
+    ),
+
+    path(
+        "summary/",
+        portfolio_summary,
+        name="portfolio-summary",
+    ),
+
+    path(
+        "holdings/",
+        portfolio_holdings,
+        name="portfolio-holdings",
+    ),
+
+    path(
+        "tree/",
+        portfolio_tree,
+        name="portfolio-tree",
     ),
 ]
