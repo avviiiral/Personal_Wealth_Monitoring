@@ -58,6 +58,10 @@ INVESTMENT_TRANSACTION_MAP = {
     "BONUS": TransactionType.BONUS,
     "SPLIT": TransactionType.SPLIT,
     "OTHER": TransactionType.OTHER,
+
+    # Dividend reinvestment is stored internally as BUY
+    # so the holding quantity and cost basis increase.
+    "DIVIDEND REINVESTMENT": TransactionType.BUY,
 }
 
 
@@ -68,6 +72,10 @@ MUTUAL_FUND_TRANSACTION_MAP = {
     "SELL": MutualFundTransactionType.REDEMPTION,
     "REDEMPTION": MutualFundTransactionType.REDEMPTION,
     "DIVIDEND": MutualFundTransactionType.DIVIDEND,
+
+    # Dividend reinvestment is stored internally as PURCHASE
+    # so the units and cost basis increase.
+    "DIVIDEND REINVESTMENT": MutualFundTransactionType.PURCHASE,
 }
 
 
@@ -416,6 +424,15 @@ class TransactionImporter:
                     * transaction_price
                 )
 
+                is_dividend_reinvestment = (
+                    transaction_type
+                    == "DIVIDEND REINVESTMENT"
+                )
+
+                # ==========================================
+                # MUTUAL FUND
+                # ==========================================
+
                 if (
                     asset_class.upper()
                     in {
@@ -423,6 +440,7 @@ class TransactionImporter:
                         "MUTUAL_FUND",
                     }
                 ):
+
                     if (
                         transaction_type
                         not in MUTUAL_FUND_TRANSACTION_MAP
@@ -442,6 +460,12 @@ class TransactionImporter:
                         )
                     )
 
+                    notes = (
+                        "DIVIDEND REINVESTMENT"
+                        if is_dividend_reinvestment
+                        else None
+                    )
+
                     MutualFundTransaction.objects.create(
                         owner=owner,
                         family_name=family_name,
@@ -459,11 +483,17 @@ class TransactionImporter:
                         nav=transaction_price,
                         amount=amount,
                         fees=transaction_charges,
+                        notes=notes,
                     )
 
                     imported_mutual_funds += 1
 
+                # ==========================================
+                # STOCK / ETF / OTHER INVESTMENT
+                # ==========================================
+
                 else:
+
                     if (
                         transaction_type
                         not in INVESTMENT_TRANSACTION_MAP
@@ -482,6 +512,12 @@ class TransactionImporter:
                             isin=isin,
                             asset_class=asset_class,
                         )
+                    )
+
+                    notes = (
+                        "DIVIDEND REINVESTMENT"
+                        if is_dividend_reinvestment
+                        else None
                     )
 
                     Transaction.objects.create(
@@ -503,11 +539,13 @@ class TransactionImporter:
                         ),
                         amount=amount,
                         fees=transaction_charges,
+                        notes=notes,
                     )
 
                     imported_investments += 1
 
             except Exception as exc:
+
                 errors.append(
                     {
                         "row": excel_row_number,
@@ -516,6 +554,7 @@ class TransactionImporter:
                 )
 
         if errors:
+
             raise TransactionImportError(
                 {
                     "message": (

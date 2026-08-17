@@ -102,6 +102,14 @@ class PortfolioMetricsService:
                 or PortfolioMetricsService.ZERO
             )
 
+            # Dividend reinvestment increases the holding,
+            # but does not represent fresh external cash.
+            if (
+                tx.notes
+                == "DIVIDEND REINVESTMENT"
+            ):
+                continue
+
             if tx.transaction_type in (
                 TransactionType.BUY,
                 TransactionType.SIP,

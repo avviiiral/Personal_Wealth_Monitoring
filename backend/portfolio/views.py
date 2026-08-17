@@ -876,7 +876,13 @@ def portfolio_tree(request):
                 )
 
 
-                if mf_tx.transaction_type in (
+                if (
+                    mf_tx.notes
+                    == "DIVIDEND REINVESTMENT"
+                ):
+                    continue
+
+                elif mf_tx.transaction_type in (
                     "PURCHASE",
                     "SIP",
                 ):
