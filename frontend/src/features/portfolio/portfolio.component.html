@@ -1,17 +1,27 @@
 <div class="portfolio-page">
+  <!-- ======================================================
+       HEADER
+       ====================================================== -->
+
   <div class="page-header">
     <div>
+      <div class="page-eyebrow">Bagla Group</div>
+
       <h1>Portfolio</h1>
 
       <p>View your investments by family, asset class and portfolio.</p>
     </div>
 
     <button type="button" class="refresh-button" (click)="refresh()" [disabled]="loading">
+      <span class="refresh-icon"> ↻ </span>
+
       Refresh
     </button>
   </div>
 
-  <!-- LOADING -->
+  <!-- ======================================================
+       LOADING
+       ====================================================== -->
 
   <div *ngIf="loading" class="loading-card">
     <div class="loading-spinner"></div>
@@ -19,114 +29,238 @@
     <span> Loading portfolio... </span>
   </div>
 
-  <!-- ERROR -->
+  <!-- ======================================================
+       ERROR
+       ====================================================== -->
 
   <div *ngIf="!loading && error" class="error-card">
     {{ error }}
   </div>
 
+  <!-- ======================================================
+       MAIN
+       ====================================================== -->
+
   <ng-container *ngIf="!loading && !error">
-    <!-- FILTERS -->
+    <!-- ====================================================
+         FILTERS
+         ==================================================== -->
 
-    <section class="card filters-card">
-      <div class="filters">
-        <!-- FAMILY -->
+    <section class="filter-card">
+      <!-- ================================================
+           FAMILY FILTER
+           ================================================ -->
 
-        <div class="filter-group">
-          <label> Family Name </label>
+      <div class="filter-section">
+        <div class="filter-title">
+          <span class="filter-number"> 1. </span>
 
-          <select [(ngModel)]="selectedFamily" (ngModelChange)="onFamilyChange()">
-            <option value="">All Families</option>
-
-            <option *ngFor="let family of families" [value]="family.family_name">
-              {{ family.family_name }}
-            </option>
-          </select>
+          <span> Select Family Name </span>
         </div>
 
-        <!-- ASSET CLASS -->
+        <div class="filter-buttons">
+          <!-- ALL FAMILIES -->
 
-        <div class="filter-group" *ngIf="selectedFamily">
-          <label> Asset Class </label>
+          <button
+            type="button"
+            class="filter-button"
+            [class.active]="!selectedFamily"
+            (click)="clearFamily()"
+          >
+            <span class="filter-icon"> 👥 </span>
 
-          <select [(ngModel)]="selectedAssetClass" (ngModelChange)="onAssetClassChange()">
-            <option value="">All Asset Classes</option>
+            <span> All Families </span>
+          </button>
 
-            <option *ngFor="let assetClass of assetClasses" [value]="assetClass.asset_class">
+          <!-- DYNAMIC FAMILY BUTTONS -->
+
+          <button
+            *ngFor="let family of familyOptions"
+            type="button"
+            class="filter-button"
+            [class.active]="selectedFamily === family"
+            (click)="selectFamily(family)"
+          >
+            <span class="filter-icon"> ♙ </span>
+
+            <span>
+              {{ family }}
+            </span>
+          </button>
+        </div>
+
+        <div class="filter-count">
+          <span class="info-icon"> ⓘ </span>
+
+          Showing
+          {{ familyOptions.length }}
+          {{ familyOptions.length === 1 ? 'Family' : 'Families' }}
+        </div>
+      </div>
+
+      <div class="filter-divider"></div>
+
+      <!-- ================================================
+           ASSET CLASS FILTER
+           ================================================ -->
+
+      <div class="filter-section">
+        <div class="filter-title">
+          <span class="filter-number"> 2. </span>
+
+          <span> Select Asset Class </span>
+        </div>
+
+        <div class="filter-buttons">
+          <!-- ALL ASSET CLASSES -->
+
+          <button
+            type="button"
+            class="filter-button"
+            [class.active]="!selectedAssetClass"
+            (click)="clearAssetClass()"
+          >
+            <span class="filter-icon"> ▤ </span>
+
+            <span> All Asset Classes </span>
+          </button>
+
+          <!-- DYNAMIC ASSET CLASS BUTTONS -->
+
+          <button
+            *ngFor="let assetClass of availableAssetClasses"
+            type="button"
+            class="filter-button"
+            [class.active]="selectedAssetClass === assetClass.asset_class"
+            (click)="selectAssetClass(assetClass.asset_class)"
+          >
+            <span class="filter-icon"> ◈ </span>
+
+            <span>
               {{ assetClass.asset_class }}
-            </option>
-          </select>
+            </span>
+          </button>
+        </div>
+
+        <div class="filter-count">
+          <span class="info-icon"> ⓘ </span>
+
+          Showing
+          {{ availableAssetClasses.length }}
+          {{ availableAssetClasses.length === 1 ? 'Asset Class' : 'Asset Classes' }}
         </div>
       </div>
     </section>
 
-    <!-- INITIAL STATE -->
+    <!-- ====================================================
+         PORTFOLIOS
+         ==================================================== -->
 
-    <section *ngIf="!selectedFamily" class="card empty-state">
-      <h2>Select a Family Name</h2>
+    <section class="portfolio-card">
+      <!-- HEADER -->
 
-      <p>Select a family to view its portfolios.</p>
-    </section>
+      <div class="portfolio-header">
+        <h2>Portfolios</h2>
 
-    <!-- PORTFOLIOS -->
+        <span class="portfolio-count">
+          {{ portfolioCount }}
+          {{ portfolioCount === 1 ? 'Portfolio' : 'Portfolios' }}
+        </span>
+      </div>
 
-    <ng-container *ngIf="selectedFamily">
-      <section *ngFor="let assetClass of selectedAssetClassData" class="card">
-        <div class="card-header">
-          <div>
-            <h2>
-              {{ assetClass.asset_class }}
-            </h2>
+      <!-- ==================================================
+           NO RESULTS
+           ================================================== -->
 
-            <p>Portfolios</p>
+      <div *ngIf="portfolioGroups.length === 0" class="no-results">
+        <div class="no-results-icon">◫</div>
+
+        <h3>No portfolios found</h3>
+
+        <p>There are no portfolios matching the selected filters.</p>
+      </div>
+
+      <!-- ==================================================
+           PORTFOLIO LIST
+           ================================================== -->
+
+      <div *ngFor="let portfolio of portfolioGroups" class="portfolio-item">
+        <!-- ================================================
+             PORTFOLIO HEADER
+             ================================================ -->
+
+        <button
+          type="button"
+          class="portfolio-row"
+          (click)="
+            togglePortfolio(
+              getPortfolioKey(portfolio.family_name, portfolio.asset_class, portfolio.portfolio)
+            )
+          "
+        >
+          <div class="portfolio-row-left">
+            <span class="portfolio-folder"> ▢ </span>
+
+            <span class="portfolio-name">
+              {{ portfolio.portfolio }}
+            </span>
           </div>
 
-          <span class="count-badge">
-            {{ assetClass.portfolios.length }}
-          </span>
-        </div>
+          <div class="portfolio-row-right">
+            <span class="asset-count">
+              {{ getAssetCount(portfolio) }}
+              {{ getAssetCount(portfolio) === 1 ? 'Asset' : 'Assets' }}
+            </span>
 
-        <div class="portfolio-list">
-          <div *ngFor="let portfolio of assetClass.portfolios" class="portfolio-item">
-            <!-- PORTFOLIO ROW -->
+            <span class="portfolio-expand">
+              {{
+                expandedPortfolio ===
+                getPortfolioKey(portfolio.family_name, portfolio.asset_class, portfolio.portfolio)
+                  ? '−'
+                  : '+'
+              }}
+            </span>
+          </div>
+        </button>
 
-            <button
-              type="button"
-              class="portfolio-row"
-              (click)="togglePortfolio(portfolio.portfolio)"
-            >
-              <span class="portfolio-name">
-                {{ portfolio.portfolio }}
-              </span>
+        <!-- ================================================
+             ASSETS
+             ================================================ -->
 
-              <span class="portfolio-arrow">
-                {{ expandedPortfolio === portfolio.portfolio ? '−' : '+' }}
-              </span>
-            </button>
+        <div
+          *ngIf="
+            expandedPortfolio ===
+            getPortfolioKey(portfolio.family_name, portfolio.asset_class, portfolio.portfolio)
+          "
+          class="asset-container"
+        >
+          <div class="asset-header">
+            <div>Asset Name</div>
 
-            <!-- ASSETS -->
+            <div>ISIN</div>
 
-            <div *ngIf="expandedPortfolio === portfolio.portfolio" class="asset-list">
-              <div *ngFor="let asset of portfolio.assets" class="asset-row">
-                <div>
-                  <div class="asset-name">
-                    {{ asset.asset_name }}
-                  </div>
+            <div>Asset Class</div>
 
-                  <div class="asset-isin">
-                    ISIN:
-                    {{ asset.isin || 'N/A' }}
-                  </div>
-                </div>
+            <div></div>
+          </div>
 
-                <span class="asset-class">
-                  {{ asset.asset_class }}
-                </span>
-              </div>
+          <div *ngFor="let asset of portfolio.assets" class="asset-row">
+            <div class="asset-name">
+              {{ asset.asset_name }}
             </div>
+
+            <div class="asset-isin">
+              {{ asset.isin || 'N/A' }}
+            </div>
+
+            <div class="asset-class">
+              {{ asset.asset_class }}
+            </div>
+
+            <div class="asset-arrow">›</div>
           </div>
         </div>
-      </section>
-    </ng-container>
+      </div>
+    </section>
   </ng-container>
 </div>
