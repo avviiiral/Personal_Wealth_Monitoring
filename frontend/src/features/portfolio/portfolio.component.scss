@@ -403,17 +403,16 @@
   background: #ffffff;
 }
 
-// ==========================================================
-// ASSET HEADER
-// ==========================================================
-
 .asset-header {
   display: grid;
 
   grid-template-columns:
-    minmax(240px, 1.4fr)
-    minmax(180px, 1fr)
-    minmax(150px, 0.7fr)
+    minmax(220px, 1.35fr)
+    minmax(150px, 1fr)
+    minmax(90px, 0.55fr)
+    minmax(120px, 0.75fr)
+    minmax(90px, 0.55fr)
+    minmax(110px, 0.6fr)
     30px;
 
   align-items: center;
@@ -436,22 +435,21 @@
   letter-spacing: 0.035em;
 }
 
-// ==========================================================
-// ASSET ROW
-// ==========================================================
-
 .asset-row {
   display: grid;
 
   grid-template-columns:
-    minmax(240px, 1.4fr)
-    minmax(180px, 1fr)
-    minmax(150px, 0.7fr)
+    minmax(220px, 1.35fr)
+    minmax(150px, 1fr)
+    minmax(90px, 0.55fr)
+    minmax(120px, 0.75fr)
+    minmax(90px, 0.55fr)
+    minmax(110px, 0.6fr)
     30px;
 
   align-items: center;
 
-  min-height: 55px;
+  min-height: 58px;
 
   padding: 0 17px 0 44px;
 
@@ -464,6 +462,29 @@
   &:hover {
     background: #fafbfd;
   }
+}
+
+.asset-quantity {
+  color: #263244;
+
+  font-size: 13px;
+
+  font-variant-numeric: tabular-nums;
+}
+
+.asset-pnl,
+.asset-xirr {
+  font-size: 13px;
+}
+
+.asset-pnl small {
+  display: block;
+
+  margin-top: 2px;
+
+  font-size: 11px;
+
+  opacity: 0.7;
 }
 
 .asset-name {

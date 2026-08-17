@@ -239,6 +239,12 @@
 
             <div>ISIN</div>
 
+            <div>Quantity</div>
+
+            <div>P&amp;L</div>
+
+            <div>XIRR</div>
+
             <div>Asset Class</div>
 
             <div></div>
@@ -251,6 +257,30 @@
 
             <div class="asset-isin">
               {{ asset.isin || 'N/A' }}
+            </div>
+
+            <div class="asset-quantity">
+              {{ asset.quantity | number: '1.0-4' }}
+            </div>
+
+            <div
+              class="asset-pnl"
+              [class.positive]="asset.pnl >= 0"
+              [class.negative]="asset.pnl < 0"
+            >
+              <div>
+                {{ asset.pnl | currency: 'INR' : 'symbol' : '1.0-0' }}
+              </div>
+
+              <small> {{ asset.pnl_percentage }}% </small>
+            </div>
+
+            <div
+              class="asset-xirr"
+              [class.positive]="asset.xirr !== null && asset.xirr >= 0"
+              [class.negative]="asset.xirr !== null && asset.xirr < 0"
+            >
+              {{ asset.xirr !== null ? asset.xirr + '%' : 'N/A' }}
             </div>
 
             <div class="asset-class">

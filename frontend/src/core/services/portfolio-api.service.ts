@@ -117,6 +117,22 @@ export interface PortfolioAssetNode {
   asset_name: string;
   isin: string | null;
   asset_class: string;
+
+  quantity: number;
+
+  average_cost: number;
+
+  invested_value: number;
+
+  current_price: number;
+
+  current_value: number;
+
+  pnl: number;
+
+  pnl_percentage: number;
+
+  xirr: number | null;
 }
 
 export interface PortfolioNode {
