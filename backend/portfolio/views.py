@@ -17,6 +17,10 @@ from investments.services.file_transaction_sync import (
     FileTransactionSyncService,
 )
 
+from investments.services.xirr import (
+    XIRRCalculator,
+)
+
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -40,6 +44,10 @@ from market_data.services.market_data_manager import (
 
 from investments.services.portfolio_metrics import (
     PortfolioMetricsService,
+)
+
+from investments.services.xirr import (
+    XIRRCalculator,
 )
 
 @api_view(["GET", "POST"])
