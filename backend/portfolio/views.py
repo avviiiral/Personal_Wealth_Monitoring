@@ -1,3 +1,5 @@
+import traceback
+
 from decimal import Decimal
 
 from django.db import transaction
@@ -26,8 +28,6 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from investments.models import Asset, Holding, Transaction
-
 from portfolio.services.holding_engine import (
     HoldingCalculationEngine,
 )
@@ -46,9 +46,6 @@ from investments.services.portfolio_metrics import (
     PortfolioMetricsService,
 )
 
-from investments.services.xirr import (
-    XIRRCalculator,
-)
 
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
@@ -130,6 +127,7 @@ def portfolio_asset_detail(request, asset_id):
             id=asset_id,
             owner=request.user,
         )
+
     except Asset.DoesNotExist:
         return Response(
             {
@@ -186,6 +184,7 @@ def portfolio_asset_detail(request, asset_id):
         )
 
     asset.is_active = False
+
     asset.save(
         update_fields=[
             "is_active",
@@ -243,6 +242,7 @@ def portfolio_transactions(request):
         )
 
     with transaction.atomic():
+
         transaction_obj = serializer.save(
             owner=request.user,
         )
@@ -255,6 +255,7 @@ def portfolio_transactions(request):
         TransactionSerializer(transaction_obj).data,
         status=status.HTTP_201_CREATED,
     )
+
 
 @api_view(["GET", "PUT", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
@@ -273,6 +274,7 @@ def portfolio_transaction_detail(request, transaction_id):
                 owner=request.user,
             )
         )
+
     except Transaction.DoesNotExist:
         return Response(
             {
@@ -282,6 +284,7 @@ def portfolio_transaction_detail(request, transaction_id):
         )
 
     if request.method == "GET":
+
         serializer = TransactionSerializer(
             transaction_obj,
         )
@@ -292,6 +295,7 @@ def portfolio_transaction_detail(request, transaction_id):
         )
 
     if request.method == "PUT":
+
         old_asset = transaction_obj.asset
 
         serializer = TransactionSerializer(
@@ -309,6 +313,7 @@ def portfolio_transaction_detail(request, transaction_id):
             )
 
         with transaction.atomic():
+
             transaction_obj = serializer.save()
 
             new_asset = transaction_obj.asset
@@ -327,6 +332,7 @@ def portfolio_transaction_detail(request, transaction_id):
         )
 
     if request.method == "PATCH":
+
         old_asset = transaction_obj.asset
 
         serializer = TransactionSerializer(
@@ -345,6 +351,7 @@ def portfolio_transaction_detail(request, transaction_id):
             )
 
         with transaction.atomic():
+
             transaction_obj = serializer.save()
 
             new_asset = transaction_obj.asset
@@ -354,6 +361,7 @@ def portfolio_transaction_detail(request, transaction_id):
             )
 
             if new_asset.id != old_asset.id:
+
                 HoldingCalculationEngine.rebuild_holding(
                     new_asset
                 )
@@ -366,6 +374,7 @@ def portfolio_transaction_detail(request, transaction_id):
     old_asset = transaction_obj.asset
 
     with transaction.atomic():
+
         transaction_obj.delete()
 
         HoldingCalculationEngine.rebuild_holding(
@@ -381,7 +390,8 @@ def portfolio_transaction_detail(request, transaction_id):
 @permission_classes([IsAuthenticated])
 def portfolio_summary(request):
     """
-    Return the high-level portfolio summary for the logged-in user.
+    Return the high-level portfolio summary for the
+    logged-in user.
     """
 
     holdings = Holding.objects.filter(
@@ -455,7 +465,8 @@ def portfolio_holdings(request):
         "count": holdings.count(),
         "results": serializer.data,
     })
-    
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def portfolio_tree(request):
@@ -468,6 +479,10 @@ def portfolio_tree(request):
                     -> Asset
                         -> Holding Metrics
     """
+
+    # ======================================================
+    # EXCEL SYNCHRONIZATION
+    # ======================================================
 
     try:
 
@@ -486,6 +501,26 @@ def portfolio_tree(request):
         )
 
     except Exception as exc:
+
+        print(
+            "\n"
+            + "=" * 80
+        )
+
+        print(
+            "[PORTFOLIO TREE] Excel synchronization failed:"
+        )
+
+        print(
+            str(exc)
+        )
+
+        traceback.print_exc()
+
+        print(
+            "=" * 80
+            + "\n"
+        )
 
         return Response(
             {
@@ -830,6 +865,7 @@ def portfolio_tree(request):
 
             cash_flows = []
 
+
             for mf_tx in (
                 transactions_for_scheme
             ):
@@ -851,6 +887,7 @@ def portfolio_tree(request):
                             -float(amount),
                         )
                     )
+
 
                 elif (
                     mf_tx.transaction_type
