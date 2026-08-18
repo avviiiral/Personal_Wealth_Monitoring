@@ -1,358 +1,327 @@
-from datetime import date
 from decimal import Decimal
+from datetime import date
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from rest_framework.test import APIClient
 
-from investments.models import (
-    Asset,
-    Holding,
-    Transaction,
-    TransactionType,
-)
-
-from portfolio.services.holding_engine import (
-    HoldingCalculationEngine,
-)
-
-from portfolio.services.portfolio_position_engine import (
-    PortfolioPositionEngine,
+from investments.models import Asset, Transaction
+from portfolio.services.portfolio_tree_service import (
+    PortfolioTreeService,
 )
 
 
-User = get_user_model()
-
-
-class PortfolioCalculationTests(TestCase):
+class PortfolioTreeServiceTests(TestCase):
 
     def setUp(self):
+        User = get_user_model()
 
         self.user = User.objects.create_user(
-            username="portfolio_test",
+            username="portfolio_test_user",
             password="test-password",
         )
 
         self.asset = Asset.objects.create(
             owner=self.user,
-            name="Test Stock",
+            name="Test Equity",
             category="STOCK",
-            symbol="TEST",
-            isin="INE000000000",
-            currency="INR",
-            is_active=True,
+            isin="INE000TEST001",
         )
 
-    def create_transaction(
-        self,
-        transaction_type,
-        quantity,
-        amount,
-        family_name="Family",
-        portfolio="Equity",
-    ):
-
-        return Transaction.objects.create(
+        Transaction.objects.create(
             owner=self.user,
-            family_name=family_name,
-            portfolio=portfolio,
             asset=self.asset,
-            transaction_type=transaction_type,
-            transaction_date=date(
-                2025,
-                1,
-                1,
-            ),
-            quantity=Decimal(
-                str(quantity)
-            ),
-            amount=Decimal(
-                str(amount)
-            ),
-            source="TEST",
-            source_key=(
-                f"test-{Transaction.objects.count()}"
-            ),
-        )
-
-    def test_buy_calculates_position(self):
-
-        self.create_transaction(
-            TransactionType.BUY,
-            10,
-            1000,
-        )
-
-        result = (
-            HoldingCalculationEngine
-            .calculate_position(
-                self.asset
-            )
-        )
-
-        self.assertEqual(
-            result["quantity"],
-            Decimal("10"),
-        )
-
-        self.assertEqual(
-            result["invested_value"],
-            Decimal("1000"),
-        )
-
-        self.assertEqual(
-            result["average_cost"],
-            Decimal("100"),
-        )
-
-    def test_multiple_buys(self):
-
-        self.create_transaction(
-            TransactionType.BUY,
-            10,
-            1000,
-        )
-
-        self.create_transaction(
-            TransactionType.BUY,
-            20,
-            2400,
-        )
-
-        result = (
-            HoldingCalculationEngine
-            .calculate_position(
-                self.asset
-            )
-        )
-
-        self.assertEqual(
-            result["quantity"],
-            Decimal("30"),
-        )
-
-        self.assertEqual(
-            result["invested_value"],
-            Decimal("3400"),
-        )
-
-        self.assertEqual(
-            result["average_cost"],
-            Decimal("113.3333333333333333333333333"),
-        )
-
-    def test_sell_reduces_cost_basis(self):
-
-        self.create_transaction(
-            TransactionType.BUY,
-            10,
-            1000,
-        )
-
-        self.create_transaction(
-            TransactionType.SELL,
-            4,
-            600,
-        )
-
-        result = (
-            HoldingCalculationEngine
-            .calculate_position(
-                self.asset
-            )
-        )
-
-        self.assertEqual(
-            result["quantity"],
-            Decimal("6"),
-        )
-
-        self.assertEqual(
-            result["invested_value"],
-            Decimal("600"),
-        )
-
-        self.assertEqual(
-            result["average_cost"],
-            Decimal("100"),
-        )
-
-    def test_sell_entire_position(self):
-
-        self.create_transaction(
-            TransactionType.BUY,
-            10,
-            1000,
-        )
-
-        self.create_transaction(
-            TransactionType.SELL,
-            10,
-            1500,
-        )
-
-        result = (
-            HoldingCalculationEngine
-            .calculate_position(
-                self.asset
-            )
-        )
-
-        self.assertEqual(
-            result["quantity"],
-            Decimal("0"),
-        )
-
-        self.assertEqual(
-            result["invested_value"],
-            Decimal("0"),
-        )
-
-        self.assertEqual(
-            result["average_cost"],
-            Decimal("0"),
-        )
-
-    def test_bonus_increases_quantity_without_cost(self):
-
-        self.create_transaction(
-            TransactionType.BUY,
-            10,
-            1000,
-        )
-
-        self.create_transaction(
-            TransactionType.BONUS,
-            10,
-            0,
-        )
-
-        result = (
-            HoldingCalculationEngine
-            .calculate_position(
-                self.asset
-            )
-        )
-
-        self.assertEqual(
-            result["quantity"],
-            Decimal("20"),
-        )
-
-        self.assertEqual(
-            result["invested_value"],
-            Decimal("1000"),
-        )
-
-    def test_portfolio_position_is_family_and_portfolio_specific(
-        self,
-    ):
-
-        self.create_transaction(
-            TransactionType.BUY,
-            10,
-            1000,
             family_name="Family A",
             portfolio="Portfolio A",
+            asset_class="Equity",
+            sub_class="Large Cap",
+            asset_name="Test Equity",
+            transaction_date=date(2026, 1, 10),
+            transaction_type="BUY",
+            quantity=Decimal("10"),
+            price_per_unit=Decimal("100"),
+            amount=Decimal("1000"),
+            fees=Decimal("0"),
         )
 
-        self.create_transaction(
-            TransactionType.BUY,
-            20,
-            3000,
+    def test_tree_hierarchy(self):
+        result = PortfolioTreeService.build(self.user)
+
+        self.assertEqual(result["count"], 1)
+
+        family = result["families"][0]
+        self.assertEqual(
+            family["family_name"],
+            "Family A",
+        )
+
+        portfolio = family["portfolios"][0]
+        self.assertEqual(
+            portfolio["portfolio"],
+            "Portfolio A",
+        )
+
+        asset_class = portfolio["asset_classes"][0]
+        self.assertEqual(
+            asset_class["asset_class"],
+            "Equity",
+        )
+
+        sub_class = asset_class["sub_classes"][0]
+        self.assertEqual(
+            sub_class["sub_class"],
+            "Large Cap",
+        )
+
+        asset = sub_class["assets"][0]
+
+        self.assertEqual(
+            asset["asset_name"],
+            "Test Equity",
+        )
+
+        self.assertEqual(
+            asset["isin"],
+            "INE000TEST001",
+        )
+
+    def test_position_calculation(self):
+        result = PortfolioTreeService.build(self.user)
+
+        asset = (
+            result["families"][0]
+            ["portfolios"][0]
+            ["asset_classes"][0]
+            ["sub_classes"][0]
+            ["assets"][0]
+        )
+
+        self.assertEqual(asset["quantity"], 10.0)
+        self.assertEqual(
+            asset["invested_value"],
+            1000.0,
+        )
+        self.assertEqual(
+            asset["average_cost"],
+            100.0,
+        )
+
+    def test_multiple_families_are_separated(self):
+        second_asset = Asset.objects.create(
+            owner=self.user,
+            name="Second Equity",
+            category="STOCK",
+            isin="INE000TEST002",
+        )
+
+        Transaction.objects.create(
+            owner=self.user,
+            asset=second_asset,
             family_name="Family B",
             portfolio="Portfolio B",
+            asset_class="Equity",
+            sub_class="Mid Cap",
+            asset_name="Second Equity",
+            transaction_date=date(2026, 2, 10),
+            transaction_type="BUY",
+            quantity=Decimal("5"),
+            price_per_unit=Decimal("200"),
+            amount=Decimal("1000"),
+            fees=Decimal("0"),
         )
 
-        result_a = (
-            PortfolioPositionEngine
-            .calculate_position(
-                owner=self.user,
-                family_name="Family A",
-                portfolio="Portfolio A",
-                asset=self.asset,
-            )
+        result = PortfolioTreeService.build(self.user)
+
+        self.assertEqual(result["count"], 2)
+
+        family_names = {
+            family["family_name"]
+            for family in result["families"]
+        }
+
+        self.assertEqual(
+            family_names,
+            {"Family A", "Family B"},
         )
 
-        result_b = (
-            PortfolioPositionEngine
-            .calculate_position(
-                owner=self.user,
-                family_name="Family B",
-                portfolio="Portfolio B",
-                asset=self.asset,
-            )
+    def test_sell_reduces_position(self):
+        Transaction.objects.create(
+            owner=self.user,
+            asset=self.asset,
+            family_name="Family A",
+            portfolio="Portfolio A",
+            asset_class="Equity",
+            sub_class="Large Cap",
+            asset_name="Test Equity",
+            transaction_date=date(2026, 2, 10),
+            transaction_type="SELL",
+            quantity=Decimal("4"),
+            price_per_unit=Decimal("120"),
+            amount=Decimal("480"),
+            fees=Decimal("0"),
+        )
+
+        result = PortfolioTreeService.build(self.user)
+
+        asset = (
+            result["families"][0]
+            ["portfolios"][0]
+            ["asset_classes"][0]
+            ["sub_classes"][0]
+            ["assets"][0]
+        )
+
+        self.assertEqual(asset["quantity"], 6.0)
+        self.assertEqual(
+            asset["invested_value"],
+            600.0,
+        )
+        self.assertEqual(
+            asset["average_cost"],
+            100.0,
+        )
+
+
+class PortfolioTreeAPITests(TestCase):
+    
+    def setUp(self):
+        User = get_user_model()
+
+        self.user = User.objects.create_user(
+            username="portfolio_api_user",
+            password="test-password",
+        )
+
+        self.client = APIClient()
+
+        self.client.force_authenticate(
+            user=self.user
+        )
+
+        self.asset = Asset.objects.create(
+            owner=self.user,
+            name="API Test Equity",
+            category="STOCK",
+            isin="INE000TEST003",
+        )
+
+        Transaction.objects.create(
+            owner=self.user,
+            asset=self.asset,
+            family_name="Family API",
+            portfolio="Portfolio API",
+            asset_class="Equity",
+            sub_class="Large Cap",
+            asset_name="API Test Equity",
+            transaction_date=date(2026, 1, 15),
+            transaction_type="BUY",
+            quantity=Decimal("20"),
+            price_per_unit=Decimal("50"),
+            amount=Decimal("1000"),
+            fees=Decimal("0"),
+        )
+
+    def test_portfolio_tree_endpoint(self):
+        response = self.client.get(
+            "/api/portfolio/tree/"
         )
 
         self.assertEqual(
-            result_a["quantity"],
-            Decimal("10"),
+            response.status_code,
+            200,
+        )
+
+        data = response.json()
+
+        self.assertTrue(
+            data["success"]
+        )
+
+        self.assertIn(
+            "families",
+            data,
+        )
+
+        family = next(
+            (
+                family
+                for family in data["families"]
+                if family["family_name"] == "Family API"
+            ),
+            None,
+        )
+
+        self.assertIsNotNone(family)
+
+        portfolio = next(
+            (
+                portfolio
+                for portfolio in family["portfolios"]
+                if portfolio["portfolio"] == "Portfolio API"
+            ),
+            None,
+        )
+
+        self.assertIsNotNone(portfolio)
+
+        asset_class = next(
+            (
+                asset_class
+                for asset_class in portfolio["asset_classes"]
+                if asset_class["asset_class"] == "Equity"
+            ),
+            None,
+        )
+
+        self.assertIsNotNone(asset_class)
+
+        sub_class = next(
+            (
+                sub_class
+                for sub_class in asset_class["sub_classes"]
+                if sub_class["sub_class"] == "Large Cap"
+            ),
+            None,
+        )
+
+        self.assertIsNotNone(sub_class)
+
+        asset = next(
+            (
+                asset
+                for asset in sub_class["assets"]
+                if asset["isin"] == "INE000TEST003"
+            ),
+            None,
+        )
+
+        self.assertIsNotNone(asset)
+
+        self.assertEqual(
+            asset["asset_name"],
+            "API Test Equity",
         )
 
         self.assertEqual(
-            result_a["invested_value"],
-            Decimal("1000"),
+            asset["quantity"],
+            20.0,
         )
 
         self.assertEqual(
-            result_b["quantity"],
-            Decimal("20"),
+            asset["invested_value"],
+            1000.0,
         )
 
-        self.assertEqual(
-            result_b["invested_value"],
-            Decimal("3000"),
+    def test_portfolio_tree_requires_authentication(self):
+        self.client.force_authenticate(
+            user=None
         )
 
-    def test_holding_is_rebuilt(self):
-
-        self.create_transaction(
-            TransactionType.BUY,
-            10,
-            1000,
+        response = self.client.get(
+            "/api/portfolio/tree/"
         )
 
-        holding = (
-            HoldingCalculationEngine
-            .rebuild_holding(
-                self.asset
-            )
-        )
-
-        self.assertEqual(
-            holding.owner,
-            self.user,
-        )
-
-        self.assertEqual(
-            holding.quantity,
-            Decimal("10"),
-        )
-
-        self.assertEqual(
-            holding.invested_value,
-            Decimal("1000"),
-        )
-
-    def test_empty_position(self):
-
-        result = (
-            HoldingCalculationEngine
-            .calculate_position(
-                self.asset
-            )
-        )
-
-        self.assertEqual(
-            result["quantity"],
-            Decimal("0"),
-        )
-
-        self.assertEqual(
-            result["invested_value"],
-            Decimal("0"),
-        )
-
-        self.assertEqual(
-            result["average_cost"],
-            Decimal("0"),
+        self.assertIn(
+            response.status_code,
+            [401, 403],
         )

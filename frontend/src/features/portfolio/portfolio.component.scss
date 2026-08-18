@@ -1,674 +1,195 @@
 .portfolio-page {
-  padding: 36px 42px;
-  max-width: 1600px;
-  margin: 0 auto;
+  padding: 24px;
 }
-
-// ==========================================================
-// PAGE HEADER
-// ==========================================================
-
-.page-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 28px;
-
-  .page-eyebrow {
-    font-size: 13px;
-    color: #7c8799;
-    margin-bottom: 3px;
-  }
-
-  h1 {
-    margin: 0;
-    font-size: 30px;
-    font-weight: 700;
-    color: #111827;
-    letter-spacing: -0.02em;
-  }
-
-  p {
-    margin: 7px 0 0;
-    color: #6b7280;
-    font-size: 15px;
-  }
-}
-
-// ==========================================================
-// REFRESH
-// ==========================================================
-
-.refresh-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-
-  border: 1px solid #e0e5eb;
-  background: #ffffff;
-
-  border-radius: 9px;
-
-  padding: 10px 17px;
-
-  color: #111827;
-
-  font-size: 13px;
-  font-weight: 600;
-
-  cursor: pointer;
-
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    box-shadow 0.15s ease;
-
-  &:hover:not(:disabled) {
-    background: #f8fafc;
-    border-color: #cbd5e1;
-    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
-  }
-
-  &:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-}
-
-.refresh-icon {
-  font-size: 17px;
-  line-height: 1;
-}
-
-// ==========================================================
-// FILTER CARD
-// ==========================================================
-
-.filter-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr);
-
-  gap: 28px;
-
-  padding: 26px 28px;
-
-  margin-bottom: 24px;
-
-  background: #ffffff;
-
-  border: 1px solid #e3e7ed;
-
-  border-radius: 12px;
-
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.02);
-}
-
-// ==========================================================
-// FILTER SECTION
-// ==========================================================
-
-.filter-section {
-  min-width: 0;
-}
-
-.filter-title {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-
-  margin-bottom: 17px;
-
-  color: #111827;
-
-  font-size: 15px;
-  font-weight: 650;
-}
-
-.filter-number {
-  font-weight: 700;
-}
-
-// ==========================================================
-// FILTER BUTTONS
-// ==========================================================
-
-.filter-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-// ==========================================================
-// FILTER BUTTON
-// ==========================================================
-
-.filter-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-
-  min-height: 40px;
-
-  padding: 9px 16px;
-
-  border: 1px solid #d9dee6;
-
-  border-radius: 9px;
-
-  background: #ffffff;
-
-  color: #263244;
-
-  font-size: 13px;
-  font-weight: 500;
-
-  cursor: pointer;
-
-  white-space: nowrap;
-
-  transition:
-    background 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease,
-    box-shadow 0.15s ease,
-    transform 0.15s ease;
-
-  &:hover {
-    border-color: #aeb8c7;
-    background: #f8fafc;
-  }
-
-  &:active {
-    transform: translateY(1px);
-  }
-
-  &.active {
-    background: #111c2f;
-    border-color: #111c2f;
-    color: #ffffff;
-    box-shadow: 0 2px 5px rgba(15, 23, 42, 0.12);
-  }
-}
-
-.filter-icon {
-  font-size: 14px;
-  line-height: 1;
-}
-
-// ==========================================================
-// FILTER COUNT
-// ==========================================================
-
-.filter-count {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-
-  margin-top: 16px;
-
-  color: #7a8493;
-
-  font-size: 12px;
-}
-
-.info-icon {
-  font-size: 13px;
-}
-
-// ==========================================================
-// DIVIDER
-// ==========================================================
-
-.filter-divider {
-  width: 1px;
-
-  background: #e5e9ef;
-
-  align-self: stretch;
-}
-
-// ==========================================================
-// PORTFOLIO CARD
-// ==========================================================
-
-.portfolio-card {
-  padding: 0 18px 18px;
-
-  background: #ffffff;
-
-  border: 1px solid #e3e7ed;
-
-  border-radius: 12px;
-
-  overflow: hidden;
-}
-
-// ==========================================================
-// PORTFOLIO HEADER
-// ==========================================================
 
 .portfolio-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  margin-bottom: 24px;
 
-  padding: 22px 2px 18px;
-
-  h2 {
-    margin: 0;
-
-    color: #111827;
-
-    font-size: 19px;
-    font-weight: 700;
-  }
-}
-
-.portfolio-count {
-  display: inline-flex;
-  align-items: center;
-
-  padding: 6px 11px;
-
-  border-radius: 999px;
-
-  background: #f1f4f8;
-
-  color: #596577;
-
-  font-size: 12px;
-  font-weight: 500;
-}
-
-// ==========================================================
-// PORTFOLIO ITEM
-// ==========================================================
-
-.portfolio-item {
-  margin-bottom: 10px;
-
-  border: 1px solid #e0e5eb;
-
-  border-radius: 9px;
-
-  overflow: hidden;
-
-  &:last-child {
-    margin-bottom: 0;
-  }
-}
-
-// ==========================================================
-// PORTFOLIO ROW
-// ==========================================================
-
-.portfolio-row {
-  width: 100%;
-
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-
-  gap: 20px;
-
-  min-height: 58px;
-
-  padding: 0 17px;
-
-  border: 0;
-
-  background: #ffffff;
-
-  color: #111827;
-
-  cursor: pointer;
-
-  text-align: left;
-
-  transition: background 0.15s ease;
-
-  &:hover {
-    background: #f8fafc;
-  }
-}
-
-.portfolio-row-left {
-  display: flex;
-  align-items: center;
-
-  gap: 12px;
-
-  min-width: 0;
-}
-
-.portfolio-folder {
-  width: 20px;
-
-  color: #657285;
-
-  font-size: 20px;
-
-  line-height: 1;
-}
-
-.portfolio-name {
-  font-size: 14px;
-  font-weight: 650;
-
-  color: #172033;
-}
-
-.portfolio-row-right {
-  display: flex;
-  align-items: center;
-
-  gap: 14px;
-}
-
-.asset-count {
-  padding: 6px 10px;
-
-  border-radius: 999px;
-
-  background: #f1f4f8;
-
-  color: #5e6978;
-
-  font-size: 12px;
-  font-weight: 500;
-
-  white-space: nowrap;
-}
-
-.portfolio-expand {
-  width: 18px;
-
-  color: #344054;
-
-  font-size: 20px;
-
-  line-height: 1;
-
-  text-align: center;
-}
-
-// ==========================================================
-// ASSET CONTAINER
-// ==========================================================
-
-.asset-container {
-  border-top: 1px solid #e4e8ee;
-
-  background: #ffffff;
-}
-
-.asset-header {
-  display: grid;
-
-  grid-template-columns:
-    minmax(220px, 1.35fr)
-    minmax(150px, 1fr)
-    minmax(90px, 0.55fr)
-    minmax(120px, 0.75fr)
-    minmax(90px, 0.55fr)
-    minmax(110px, 0.6fr)
-    30px;
-
-  align-items: center;
-
-  min-height: 43px;
-
-  padding: 0 17px 0 44px;
-
-  background: #fbfcfd;
-
-  border-bottom: 1px solid #e6e9ee;
-
-  color: #687386;
-
-  font-size: 11px;
-  font-weight: 600;
-
-  text-transform: uppercase;
-
-  letter-spacing: 0.035em;
-}
-
-.asset-row {
-  display: grid;
-
-  grid-template-columns:
-    minmax(220px, 1.35fr)
-    minmax(150px, 1fr)
-    minmax(90px, 0.55fr)
-    minmax(120px, 0.75fr)
-    minmax(90px, 0.55fr)
-    minmax(110px, 0.6fr)
-    30px;
-
-  align-items: center;
-
-  min-height: 58px;
-
-  padding: 0 17px 0 44px;
-
-  border-bottom: 1px solid #edf0f3;
-
-  &:last-child {
-    border-bottom: 0;
-  }
-
-  &:hover {
-    background: #fafbfd;
-  }
-}
-
-.asset-quantity {
-  color: #263244;
-
-  font-size: 13px;
-
-  font-variant-numeric: tabular-nums;
-}
-
-.asset-pnl,
-.asset-xirr {
-  font-size: 13px;
-}
-
-.asset-pnl small {
-  display: block;
-
-  margin-top: 2px;
-
-  font-size: 11px;
-
-  opacity: 0.7;
-}
-
-.asset-name {
-  color: #172033;
-
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.asset-isin {
-  color: #596577;
-
-  font-size: 13px;
-
-  font-variant-numeric: tabular-nums;
-}
-
-.asset-class {
-  color: #596577;
-
-  font-size: 13px;
-}
-
-.asset-arrow {
-  color: #475467;
-
-  font-size: 22px;
-
-  text-align: right;
-}
-
-// ==========================================================
-// NO RESULTS
-// ==========================================================
-
-.no-results {
-  padding: 60px 20px;
-
-  text-align: center;
-
-  border: 1px dashed #d8dee7;
-
-  border-radius: 9px;
-
-  margin-bottom: 2px;
-
-  color: #687386;
-
-  .no-results-icon {
-    font-size: 30px;
-    margin-bottom: 12px;
-  }
-
-  h3 {
+  h1 {
     margin: 0 0 6px;
-
-    color: #263244;
-
-    font-size: 16px;
+    font-size: 28px;
   }
 
   p {
     margin: 0;
-
-    font-size: 13px;
+    opacity: 0.7;
   }
 }
 
-// ==========================================================
-// LOADING / ERROR
-// ==========================================================
+.refresh-button {
+  padding: 9px 18px;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
 
-.loading-card,
-.error-card {
+.refresh-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.filter-section {
+  margin-bottom: 18px;
+}
+
+.filter-title {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  opacity: 0.65;
+}
+
+.filter-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.filter-button {
+  padding: 8px 14px;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.filter-button.active {
+  font-weight: 600;
+}
+
+.loading-state,
+.error-state,
+.empty-state {
+  padding: 24px;
+  text-align: center;
+}
+
+.error-state {
+  margin-top: 20px;
+}
+
+.family-group {
+  margin-top: 24px;
+}
+
+.family-heading {
+  padding: 12px 16px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.portfolio-card {
+  margin-bottom: 12px;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.portfolio-heading,
+.asset-class-heading,
+.sub-class-heading {
+  width: 100%;
   display: flex;
   align-items: center;
-
-  gap: 12px;
-
-  padding: 24px;
-
-  border: 1px solid #e3e7ed;
-
-  border-radius: 12px;
-
-  background: #ffffff;
+  justify-content: space-between;
+  text-align: left;
+  cursor: pointer;
+  border: 0;
 }
 
-.error-card {
-  color: #b42318;
+.portfolio-heading {
+  padding: 15px 18px;
+  font-size: 16px;
+  font-weight: 700;
 }
 
-.loading-spinner {
-  width: 18px;
-  height: 18px;
-
-  border: 3px solid #e1e6ed;
-
-  border-top-color: #111c2f;
-
-  border-radius: 50%;
-
-  animation: spin 0.8s linear infinite;
+.asset-class-heading {
+  padding: 12px 18px;
+  font-weight: 600;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
+.sub-class-heading {
+  padding: 10px 18px 10px 36px;
+  font-size: 14px;
+}
+
+.sub-class-heading.active {
+  font-weight: 700;
+}
+
+.asset-class-list {
+  border-top: 1px solid #ddd;
+}
+
+.asset-class-block {
+  border-bottom: 1px solid #ddd;
+}
+
+.sub-class-list {
+  border-top: 1px solid #ddd;
+}
+
+.asset-table-wrapper {
+  overflow-x: auto;
+  padding: 12px 18px 18px 54px;
+}
+
+.asset-table {
+  width: 100%;
+  min-width: 1100px;
+  border-collapse: collapse;
+  font-size: 13px;
+
+  th,
+  td {
+    padding: 10px 12px;
+    text-align: right;
+    border-bottom: 1px solid #e5e5e5;
+    white-space: nowrap;
+  }
+
+  th:first-child,
+  td:first-child {
+    text-align: left;
+  }
+
+  th:nth-child(2),
+  td:nth-child(2) {
+    text-align: left;
+  }
+
+  th {
+    font-weight: 600;
   }
 }
 
-// ==========================================================
-// RESPONSIVE
-// ==========================================================
-
-@media (max-width: 1050px) {
-  .filter-card {
-    grid-template-columns: 1fr;
-  }
-
-  .filter-divider {
-    width: 100%;
-    height: 1px;
-  }
+.positive {
+  font-weight: 600;
 }
 
-@media (max-width: 750px) {
+.negative {
+  font-weight: 600;
+}
+
+@media (max-width: 768px) {
   .portfolio-page {
-    padding: 22px 18px;
+    padding: 14px;
   }
 
-  .page-header {
+  .portfolio-header {
     align-items: flex-start;
-    flex-direction: column;
+    gap: 12px;
   }
 
-  .filter-card {
-    padding: 20px;
+  .portfolio-header h1 {
+    font-size: 22px;
   }
 
-  .asset-header,
-  .asset-row {
-    grid-template-columns:
-      minmax(180px, 1fr)
-      minmax(150px, 1fr)
-      minmax(100px, 0.7fr)
-      25px;
-
-    padding-left: 20px;
-  }
-}
-
-@media (max-width: 560px) {
-  .filter-button {
-    flex: 1 1 auto;
-    justify-content: center;
-  }
-
-  .portfolio-row {
-    padding: 0 12px;
-  }
-
-  .asset-header {
-    display: none;
-  }
-
-  .asset-row {
-    grid-template-columns: 1fr auto;
-
-    gap: 8px;
-
-    padding: 14px 16px;
-  }
-
-  .asset-isin {
-    grid-column: 1;
-  }
-
-  .asset-class {
-    display: none;
-  }
-
-  .asset-arrow {
-    grid-column: 2;
-    grid-row: 1 / span 2;
+  .asset-table-wrapper {
+    padding-left: 18px;
   }
 }

@@ -2,10 +2,6 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable, switchMap } from 'rxjs';
 
-// ==========================================================
-// SUMMARY
-// ==========================================================
-
 export interface PortfolioSummary {
   total_invested: number;
   total_current_value: number;
@@ -13,10 +9,6 @@ export interface PortfolioSummary {
   pnl_percentage: number;
   number_of_holdings: number;
 }
-
-// ==========================================================
-// HOLDING
-// ==========================================================
 
 export interface Holding {
   id: number;
@@ -35,10 +27,6 @@ export interface Holding {
   updated_at: string;
 }
 
-// ==========================================================
-// TRANSACTION
-// ==========================================================
-
 export interface Transaction {
   id: number;
   asset: number;
@@ -54,10 +42,6 @@ export interface Transaction {
   created_at: string;
 }
 
-// ==========================================================
-// ASSET
-// ==========================================================
-
 export interface PortfolioAsset {
   id: number;
   name: string;
@@ -72,18 +56,10 @@ export interface PortfolioAsset {
   updated_at: string;
 }
 
-// ==========================================================
-// API LIST RESPONSE
-// ==========================================================
-
 export interface ApiListResponse<T> {
   count: number;
   results: T[];
 }
-
-// ==========================================================
-// CREATE ASSET REQUEST
-// ==========================================================
 
 export interface CreateAssetRequest {
   name: string;
@@ -93,10 +69,6 @@ export interface CreateAssetRequest {
   institution?: string | null;
   currency?: string;
 }
-
-// ==========================================================
-// CREATE TRANSACTION REQUEST
-// ==========================================================
 
 export interface CreateTransactionRequest {
   asset: number;
@@ -109,55 +81,66 @@ export interface CreateTransactionRequest {
   notes?: string | null;
 }
 
-// ==========================================================
-// PORTFOLIO TREE
-// ==========================================================
+/* ==========================================================
+   PORTFOLIO TREE
+   Family
+      Portfolio
+         Asset Class
+            Sub Class
+               Asset
+   ========================================================== */
 
 export interface PortfolioAssetNode {
+  id: number;
   asset_name: string;
+  underlying: string;
   isin: string | null;
-  asset_class: string;
+  advisors: string;
 
   quantity: number;
-
   average_cost: number;
-
   invested_value: number;
 
   current_price: number;
-
   current_value: number;
 
   pnl: number;
-
   pnl_percentage: number;
-
   xirr: number | null;
+
+  sector: string | null;
+  cap_type: string | null;
 }
 
-export interface PortfolioNode {
-  portfolio: string;
+export interface SubClassNode {
+  sub_class: string;
   assets: PortfolioAssetNode[];
+  asset_count: number;
 }
 
 export interface AssetClassNode {
   asset_class: string;
-  portfolios: PortfolioNode[];
+  sub_classes: SubClassNode[];
+  sub_class_count: number;
+}
+
+export interface PortfolioNode {
+  portfolio: string;
+  asset_classes: AssetClassNode[];
+  asset_class_count: number;
 }
 
 export interface FamilyNode {
   family_name: string;
-  asset_classes: AssetClassNode[];
+  portfolios: PortfolioNode[];
+  portfolio_count: number;
 }
 
 export interface PortfolioTreeResponse {
   success: boolean;
-  results: FamilyNode[];
+  count: number;
+  families: FamilyNode[];
 }
-
-// ==========================================================
-// PORTFOLIO API SERVICE
-// ==========================================================
 
 @Injectable({
   providedIn: 'root',
@@ -165,25 +148,13 @@ export interface PortfolioTreeResponse {
 export class PortfolioApiService {
   private readonly http = inject(HttpClient);
 
-  // ========================================================
-  // API URL
-  // ========================================================
-
   private readonly baseUrl = 'http://localhost:8000/api/portfolio';
 
   private readonly csrfUrl = 'http://localhost:8000/api/health/';
 
-  // ========================================================
-  // REQUEST OPTIONS
-  // ========================================================
-
   private readonly requestOptions = {
     withCredentials: true,
   };
-
-  // ========================================================
-  // CSRF
-  // ========================================================
 
   private getCsrfToken(): Observable<any> {
     return this.http.get(this.csrfUrl, {
@@ -217,17 +188,9 @@ export class PortfolioApiService {
     return headers;
   }
 
-  // ========================================================
-  // SUMMARY
-  // ========================================================
-
   getSummary(): Observable<PortfolioSummary> {
     return this.http.get<PortfolioSummary>(`${this.baseUrl}/summary/`, this.requestOptions);
   }
-
-  // ========================================================
-  // HOLDINGS
-  // ========================================================
 
   getHoldings(): Observable<ApiListResponse<Holding>> {
     return this.http.get<ApiListResponse<Holding>>(
@@ -236,20 +199,12 @@ export class PortfolioApiService {
     );
   }
 
-  // ========================================================
-  // TRANSACTIONS
-  // ========================================================
-
   getTransactions(): Observable<ApiListResponse<Transaction>> {
     return this.http.get<ApiListResponse<Transaction>>(
       `${this.baseUrl}/transactions/`,
       this.requestOptions,
     );
   }
-
-  // ========================================================
-  // ASSETS
-  // ========================================================
 
   getAssets(): Observable<ApiListResponse<PortfolioAsset>> {
     return this.http.get<ApiListResponse<PortfolioAsset>>(
@@ -258,40 +213,26 @@ export class PortfolioApiService {
     );
   }
 
-  // ========================================================
-  // PORTFOLIO TREE
-  // ========================================================
-
   getPortfolioTree(): Observable<PortfolioTreeResponse> {
     return this.http.get<PortfolioTreeResponse>(`${this.baseUrl}/tree/`, this.requestOptions);
   }
-
-  // ========================================================
-  // CREATE ASSET
-  // ========================================================
 
   createAsset(payload: CreateAssetRequest): Observable<PortfolioAsset> {
     return this.getCsrfToken().pipe(
       switchMap(() =>
         this.http.post<PortfolioAsset>(`${this.baseUrl}/assets/`, payload, {
           headers: this.getCsrfHeaders(),
-
           withCredentials: true,
         }),
       ),
     );
   }
 
-  // ========================================================
-  // CREATE TRANSACTION
-  // ========================================================
-
   createTransaction(payload: CreateTransactionRequest): Observable<Transaction> {
     return this.getCsrfToken().pipe(
       switchMap(() =>
         this.http.post<Transaction>(`${this.baseUrl}/transactions/`, payload, {
           headers: this.getCsrfHeaders(),
-
           withCredentials: true,
         }),
       ),
