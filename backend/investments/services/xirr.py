@@ -1,6 +1,4 @@
 from datetime import date
-from decimal import Decimal
-
 import math
 
 
@@ -14,10 +12,8 @@ class XIRRCalculator:
     Negative cash flow:
         Money invested by the investor.
 
-    For a current holding:
-        BUY / SIP     -> negative
-        SELL          -> positive
-        Current value -> positive
+    Uses Newton-Raphson with a bisection fallback.
+    No external scipy dependency is required.
     """
 
     @staticmethod
@@ -34,6 +30,9 @@ class XIRRCalculator:
         rate: float,
         cash_flows,
     ) -> float:
+
+        if rate <= -1:
+            return float("inf")
 
         start_date = cash_flows[0][0]
 
@@ -65,7 +64,7 @@ class XIRRCalculator:
         Return XIRR as a percentage.
 
         Example:
-            12.45 means 12.45%
+            12.45 means 12.45%.
 
         Returns None if a valid XIRR
         cannot be calculated.
@@ -76,6 +75,11 @@ class XIRRCalculator:
 
         if len(cash_flows) < 2:
             return None
+
+        cash_flows = sorted(
+            cash_flows,
+            key=lambda item: item[0],
+        )
 
         has_positive = any(
             amount > 0
@@ -90,11 +94,6 @@ class XIRRCalculator:
         if not has_positive or not has_negative:
             return None
 
-        cash_flows = sorted(
-            cash_flows,
-            key=lambda item: item[0],
-        )
-
         # --------------------------------------------------
         # Newton-Raphson
         # --------------------------------------------------
@@ -106,7 +105,6 @@ class XIRRCalculator:
             start_date = cash_flows[0][0]
 
             npv = 0.0
-
             derivative = 0.0
 
             for flow_date, amount in cash_flows:
@@ -119,8 +117,13 @@ class XIRRCalculator:
                     )
                 )
 
+                base = 1.0 + rate
+
+                if base <= 0:
+                    break
+
                 denominator = (
-                    (1.0 + rate) ** years
+                    base ** years
                 )
 
                 npv += (
@@ -128,47 +131,50 @@ class XIRRCalculator:
                     / denominator
                 )
 
-                if rate != -1:
+                derivative -= (
+                    years
+                    * float(amount)
+                    / (
+                        base
+                        ** (years + 1)
+                    )
+                )
 
-                    derivative -= (
-                        years
-                        * float(amount)
-                        / (
-                            (1.0 + rate)
-                            ** (years + 1)
-                        )
+            else:
+
+                if abs(npv) < 1e-8:
+                    return round(
+                        rate * 100,
+                        2,
                     )
 
-            if abs(npv) < 1e-8:
-                return round(
-                    rate * 100,
-                    2,
-                )
+                if derivative != 0:
 
-            if derivative == 0:
-                break
+                    new_rate = (
+                        rate
+                        - npv / derivative
+                    )
 
-            new_rate = (
-                rate
-                - npv / derivative
-            )
+                    if (
+                        not math.isnan(new_rate)
+                        and not math.isinf(new_rate)
+                        and new_rate > -0.999999
+                        and new_rate <= 1000000
+                    ):
 
-            if (
-                math.isnan(new_rate)
-                or math.isinf(new_rate)
-                or new_rate <= -0.999999
-                or new_rate > 1000000
-            ):
-                break
+                        if abs(
+                            new_rate - rate
+                        ) < 1e-10:
 
-            if abs(new_rate - rate) < 1e-10:
+                            return round(
+                                new_rate * 100,
+                                2,
+                            )
 
-                return round(
-                    new_rate * 100,
-                    2,
-                )
+                        rate = new_rate
+                        continue
 
-            rate = new_rate
+            break
 
         # --------------------------------------------------
         # Bisection fallback
