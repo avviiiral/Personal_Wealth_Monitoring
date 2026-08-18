@@ -1,13 +1,18 @@
 from datetime import timedelta
 
-from django.db import transaction
 from django.utils import timezone
 
 from investments.models import Asset
 from market_data.models import MarketPrice, DataSource
-from market_data.services.security_resolver import SecurityResolver
-from market_data.services.yahoo_finance import YahooFinanceService
-from portfolio.services.holding_engine import HoldingCalculationEngine
+from market_data.services.security_resolver import (
+    SecurityResolver,
+)
+from market_data.services.yahoo_finance import (
+    YahooFinanceService,
+)
+from portfolio.services.holding_engine import (
+    HoldingCalculationEngine,
+)
 
 
 class MarketDataManager:
@@ -15,6 +20,8 @@ class MarketDataManager:
     Coordinates:
 
     Asset
+      ↓
+    ISIN
       ↓
     SecurityResolver
       ↓
@@ -48,6 +55,27 @@ class MarketDataManager:
         return latest.date
 
     @staticmethod
+    def resolve_asset_symbol(asset):
+        """
+        Resolve the Yahoo Finance symbol for an Asset.
+
+        Priority:
+
+            1. ISIN
+            2. Explicit asset.symbol
+            3. Asset name
+
+        The ISIN is preferred because the Excel source
+        provides ISIN as the security identifier.
+        """
+
+        return SecurityResolver.resolve_yahoo_symbol(
+            symbol=asset.symbol,
+            isin=asset.isin,
+            name=asset.name,
+        )
+
+    @staticmethod
     def fetch_and_rebuild(
         asset,
         period="1y",
@@ -63,7 +91,11 @@ class MarketDataManager:
             market date.
         """
 
-        if asset.category not in ["STOCK", "ETF"]:
+        if asset.category not in [
+            "STOCK",
+            "ETF",
+        ]:
+
             return {
                 "success": False,
                 "skipped": True,
@@ -73,24 +105,46 @@ class MarketDataManager:
                 ),
             }
 
-        yahoo_symbol = (
-            SecurityResolver.resolve_yahoo_symbol(
-                asset.symbol or asset.name
+        # ======================================================
+        # RESOLVE SYMBOL
+        # ======================================================
+
+        try:
+
+            yahoo_symbol = (
+                MarketDataManager
+                .resolve_asset_symbol(asset)
             )
-        )
+
+        except Exception as exc:
+
+            return {
+                "success": False,
+                "skipped": True,
+                "reason": str(exc),
+                "symbol": None,
+            }
 
         if not yahoo_symbol:
+
             return {
                 "success": False,
                 "skipped": True,
                 "reason": (
-                    f"Unable to resolve Yahoo Finance symbol "
-                    f"for {asset.name}."
+                    f"Unable to resolve Yahoo Finance "
+                    f"symbol for {asset.name} "
+                    f"(ISIN: {asset.isin or 'N/A'})."
                 ),
+                "symbol": None,
             }
 
+        # ======================================================
+        # LATEST STORED MARKET DATE
+        # ======================================================
+
         latest_date = (
-            MarketDataManager.get_latest_market_date(asset)
+            MarketDataManager
+            .get_latest_market_date(asset)
         )
 
         try:
@@ -101,10 +155,13 @@ class MarketDataManager:
 
             if latest_date is None:
 
-                records = YahooFinanceService.save_history(
-                    asset=asset,
-                    symbol=yahoo_symbol,
-                    period=period,
+                records = (
+                    YahooFinanceService
+                    .save_history(
+                        asset=asset,
+                        symbol=yahoo_symbol,
+                        period=period,
+                    )
                 )
 
                 fetch_type = "initial"
@@ -115,12 +172,17 @@ class MarketDataManager:
 
             else:
 
-                start_date = latest_date + timedelta(days=1)
+                start_date = (
+                    latest_date
+                    + timedelta(days=1)
+                )
 
-                today = timezone.localdate()
+                today = (
+                    timezone.localdate()
+                )
 
-                # No need to contact Yahoo if we already have
-                # today's market date.
+                # No need to contact Yahoo if we already
+                # have today's market date.
                 if start_date > today:
 
                     holding = (
@@ -132,7 +194,8 @@ class MarketDataManager:
                         "success": True,
                         "skipped": True,
                         "reason": (
-                            "Market data is already up to date."
+                            "Market data is already "
+                            "up to date."
                         ),
                         "symbol": yahoo_symbol,
                         "records": 0,
@@ -142,22 +205,32 @@ class MarketDataManager:
                             else None
                         ),
                         "current_price": (
-                            str(holding.current_price)
+                            str(
+                                holding.current_price
+                            )
                             if holding
                             else "0"
                         ),
                         "current_value": (
-                            str(holding.current_value)
+                            str(
+                                holding.current_value
+                            )
                             if holding
                             else "0"
                         ),
                     }
 
-                records = YahooFinanceService.save_history(
-                    asset=asset,
-                    symbol=yahoo_symbol,
-                    start=start_date,
-                    end=today + timedelta(days=1),
+                records = (
+                    YahooFinanceService
+                    .save_history(
+                        asset=asset,
+                        symbol=yahoo_symbol,
+                        start=start_date,
+                        end=(
+                            today
+                            + timedelta(days=1)
+                        ),
+                    )
                 )
 
                 fetch_type = "incremental"
@@ -172,14 +245,15 @@ class MarketDataManager:
             )
 
             if holding is None:
+
                 return {
                     "success": False,
                     "skipped": False,
                     "symbol": yahoo_symbol,
                     "records": records,
                     "error": (
-                        "Market data was stored, but no holding "
-                        "could be rebuilt."
+                        "Market data was stored, "
+                        "but no holding could be rebuilt."
                     ),
                 }
 
