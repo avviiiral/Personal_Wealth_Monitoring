@@ -1,9 +1,14 @@
 from rest_framework import serializers
 
-from investments.models import Asset, Holding, Transaction
+from investments.models import (
+    Asset,
+    Holding,
+    Transaction,
+)
 
 
 class AssetSerializer(serializers.ModelSerializer):
+
     category_display = serializers.CharField(
         source="get_category_display",
         read_only=True,
@@ -55,6 +60,7 @@ class AssetSerializer(serializers.ModelSerializer):
 
 
 class HoldingSerializer(serializers.ModelSerializer):
+
     asset_name = serializers.CharField(
         source="asset.name",
         read_only=True,
@@ -113,6 +119,7 @@ class HoldingSerializer(serializers.ModelSerializer):
 
 
 class TransactionSerializer(serializers.ModelSerializer):
+
     asset_name = serializers.CharField(
         source="asset.name",
         read_only=True,
@@ -128,8 +135,14 @@ class TransactionSerializer(serializers.ModelSerializer):
 
         fields = [
             "id",
-            "asset",
+            "family_name",
+            "portfolio",
+            "asset_class",
+            "sub_class",
             "asset_name",
+            "underlying",
+            "advisors",
+            "asset",
             "transaction_type",
             "transaction_type_display",
             "transaction_date",
@@ -138,6 +151,8 @@ class TransactionSerializer(serializers.ModelSerializer):
             "amount",
             "fees",
             "notes",
+            "source",
+            "source_key",
             "created_at",
         ]
 
@@ -145,18 +160,18 @@ class TransactionSerializer(serializers.ModelSerializer):
             "id",
             "asset_name",
             "transaction_type_display",
+            "source",
+            "source_key",
             "created_at",
         ]
 
     def validate_asset(self, asset):
-        """
-        A transaction may only reference an asset owned
-        by the currently authenticated user.
-        """
-
         request = self.context.get("request")
 
-        if request is None or not request.user.is_authenticated:
+        if (
+            request is None
+            or not request.user.is_authenticated
+        ):
             raise serializers.ValidationError(
                 "Authentication is required."
             )
@@ -168,7 +183,8 @@ class TransactionSerializer(serializers.ModelSerializer):
 
         if not asset.is_active:
             raise serializers.ValidationError(
-                "Cannot create or update a transaction for an inactive asset."
+                "Cannot create or update a transaction "
+                "for an inactive asset."
             )
 
         return asset

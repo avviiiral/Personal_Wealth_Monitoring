@@ -1,5 +1,4 @@
 import traceback
-
 from decimal import Decimal
 
 from django.db import transaction
@@ -23,14 +22,29 @@ from investments.services.xirr import (
     XIRRCalculator,
 )
 
-from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
+from investments.services.portfolio_metrics import (
+    PortfolioMetricsService,
+)
+
+from market_data.services.market_data_manager import (
+    MarketDataManager,
+)
 
 from portfolio.services.holding_engine import (
     HoldingCalculationEngine,
 )
+
+from portfolio.services.portfolio_position_engine import (
+    PortfolioPositionEngine,
+)
+
+from rest_framework import status
+from rest_framework.decorators import (
+    api_view,
+    permission_classes,
+)
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 
 from .serializers import (
     AssetSerializer,
@@ -38,37 +52,25 @@ from .serializers import (
     TransactionSerializer,
 )
 
-from market_data.services.market_data_manager import (
-    MarketDataManager,
-)
-
-from investments.services.portfolio_metrics import (
-    PortfolioMetricsService,
-)
-
 
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def portfolio_assets(request):
-    """
-    List or create assets belonging to the logged-in user.
-    """
 
     if request.method == "GET":
+
         assets = (
             Asset.objects
             .filter(owner=request.user)
             .order_by("name")
         )
 
-        serializer = AssetSerializer(
-            assets,
-            many=True,
-        )
-
         return Response({
             "count": assets.count(),
-            "results": serializer.data,
+            "results": AssetSerializer(
+                assets,
+                many=True,
+            ).data,
         })
 
     serializer = AssetSerializer(
@@ -76,6 +78,7 @@ def portfolio_assets(request):
     )
 
     if not serializer.is_valid():
+
         return Response(
             serializer.errors,
             status=status.HTTP_400_BAD_REQUEST,
@@ -92,13 +95,19 @@ def portfolio_assets(request):
     }
 
     if asset.category in ["STOCK", "ETF"]:
+
         try:
-            market_data = MarketDataManager.fetch_and_rebuild(
-                asset,
-                period="1y",
+
+            market_data = (
+                MarketDataManager
+                .fetch_and_rebuild(
+                    asset,
+                    period="1y",
+                )
             )
 
         except Exception as exc:
+
             market_data = {
                 "success": False,
                 "skipped": False,
@@ -116,19 +125,20 @@ def portfolio_assets(request):
 
 @api_view(["GET", "PUT", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
-def portfolio_asset_detail(request, asset_id):
-    """
-    Retrieve, update, partially update, or deactivate
-    an asset belonging to the logged-in user.
-    """
+def portfolio_asset_detail(
+    request,
+    asset_id,
+):
 
     try:
+
         asset = Asset.objects.get(
             id=asset_id,
             owner=request.user,
         )
 
     except Asset.DoesNotExist:
+
         return Response(
             {
                 "detail": "Asset not found."
@@ -137,80 +147,66 @@ def portfolio_asset_detail(request, asset_id):
         )
 
     if request.method == "GET":
-        serializer = AssetSerializer(asset)
-
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
-        )
-
-    if request.method == "PUT":
-        serializer = AssetSerializer(
-            asset,
-            data=request.data,
-        )
-
-        if not serializer.is_valid():
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        asset = serializer.save()
 
         return Response(
             AssetSerializer(asset).data,
             status=status.HTTP_200_OK,
         )
 
-    if request.method == "PATCH":
+    if request.method == "PUT":
+
+        serializer = AssetSerializer(
+            asset,
+            data=request.data,
+        )
+
+    elif request.method == "PATCH":
+
         serializer = AssetSerializer(
             asset,
             data=request.data,
             partial=True,
         )
 
-        if not serializer.is_valid():
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+    else:
 
-        asset = serializer.save()
+        asset.is_active = False
 
-        return Response(
-            AssetSerializer(asset).data,
-            status=status.HTTP_200_OK,
+        asset.save(
+            update_fields=[
+                "is_active",
+                "updated_at",
+            ]
         )
 
-    asset.is_active = False
+        return Response(
+            status=status.HTTP_204_NO_CONTENT,
+        )
 
-    asset.save(
-        update_fields=[
-            "is_active",
-            "updated_at",
-        ]
-    )
+    if not serializer.is_valid():
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    asset = serializer.save()
 
     return Response(
-        status=status.HTTP_204_NO_CONTENT,
+        AssetSerializer(asset).data,
+        status=status.HTTP_200_OK,
     )
 
 
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def portfolio_transactions(request):
-    """
-    List or create transactions belonging to the
-    logged-in user.
-    """
 
     if request.method == "GET":
+
         transactions = (
             Transaction.objects
-            .filter(
-                owner=request.user,
-            )
+            .filter(owner=request.user)
             .select_related("asset")
             .order_by(
                 "-transaction_date",
@@ -218,14 +214,12 @@ def portfolio_transactions(request):
             )
         )
 
-        serializer = TransactionSerializer(
-            transactions,
-            many=True,
-        )
-
         return Response({
             "count": transactions.count(),
-            "results": serializer.data,
+            "results": TransactionSerializer(
+                transactions,
+                many=True,
+            ).data,
         })
 
     serializer = TransactionSerializer(
@@ -236,6 +230,7 @@ def portfolio_transactions(request):
     )
 
     if not serializer.is_valid():
+
         return Response(
             serializer.errors,
             status=status.HTTP_400_BAD_REQUEST,
@@ -251,21 +246,27 @@ def portfolio_transactions(request):
             transaction_obj.asset
         )
 
+        PortfolioPositionEngine.rebuild_all_for_user(
+            request.user
+        )
+
     return Response(
-        TransactionSerializer(transaction_obj).data,
+        TransactionSerializer(
+            transaction_obj
+        ).data,
         status=status.HTTP_201_CREATED,
     )
 
 
 @api_view(["GET", "PUT", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
-def portfolio_transaction_detail(request, transaction_id):
-    """
-    Retrieve, update, or delete a transaction belonging
-    to the logged-in user.
-    """
+def portfolio_transaction_detail(
+    request,
+    transaction_id,
+):
 
     try:
+
         transaction_obj = (
             Transaction.objects
             .select_related("asset")
@@ -276,6 +277,7 @@ def portfolio_transaction_detail(request, transaction_id):
         )
 
     except Transaction.DoesNotExist:
+
         return Response(
             {
                 "detail": "Transaction not found."
@@ -285,118 +287,89 @@ def portfolio_transaction_detail(request, transaction_id):
 
     if request.method == "GET":
 
-        serializer = TransactionSerializer(
-            transaction_obj,
-        )
-
         return Response(
-            serializer.data,
+            TransactionSerializer(
+                transaction_obj
+            ).data,
             status=status.HTTP_200_OK,
         )
 
-    if request.method == "PUT":
+    if request.method == "DELETE":
 
         old_asset = transaction_obj.asset
 
-        serializer = TransactionSerializer(
-            transaction_obj,
-            data=request.data,
-            context={
-                "request": request,
-            },
-        )
-
-        if not serializer.is_valid():
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         with transaction.atomic():
 
-            transaction_obj = serializer.save()
-
-            new_asset = transaction_obj.asset
+            transaction_obj.delete()
 
             HoldingCalculationEngine.rebuild_holding(
                 old_asset
             )
 
-            HoldingCalculationEngine.rebuild_holding(
-                new_asset
+            PortfolioPositionEngine.rebuild_all_for_user(
+                request.user
             )
 
         return Response(
-            TransactionSerializer(transaction_obj).data,
-            status=status.HTTP_200_OK,
+            status=status.HTTP_204_NO_CONTENT,
         )
 
-    if request.method == "PATCH":
+    serializer = TransactionSerializer(
+        transaction_obj,
+        data=request.data,
+        partial=request.method == "PATCH",
+        context={
+            "request": request,
+        },
+    )
 
-        old_asset = transaction_obj.asset
-
-        serializer = TransactionSerializer(
-            transaction_obj,
-            data=request.data,
-            partial=True,
-            context={
-                "request": request,
-            },
-        )
-
-        if not serializer.is_valid():
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        with transaction.atomic():
-
-            transaction_obj = serializer.save()
-
-            new_asset = transaction_obj.asset
-
-            HoldingCalculationEngine.rebuild_holding(
-                old_asset
-            )
-
-            if new_asset.id != old_asset.id:
-
-                HoldingCalculationEngine.rebuild_holding(
-                    new_asset
-                )
+    if not serializer.is_valid():
 
         return Response(
-            TransactionSerializer(transaction_obj).data,
-            status=status.HTTP_200_OK,
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
     old_asset = transaction_obj.asset
 
     with transaction.atomic():
 
-        transaction_obj.delete()
+        transaction_obj = serializer.save()
+
+        new_asset = transaction_obj.asset
 
         HoldingCalculationEngine.rebuild_holding(
             old_asset
         )
 
+        if new_asset.id != old_asset.id:
+
+            HoldingCalculationEngine.rebuild_holding(
+                new_asset
+            )
+
+        PortfolioPositionEngine.rebuild_all_for_user(
+            request.user
+        )
+
     return Response(
-        status=status.HTTP_204_NO_CONTENT,
+        TransactionSerializer(
+            transaction_obj
+        ).data,
+        status=status.HTTP_200_OK,
     )
 
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def portfolio_summary(request):
-    """
-    Return the high-level portfolio summary for the
-    logged-in user.
-    """
 
-    holdings = Holding.objects.filter(
-        owner=request.user,
-        asset__is_active=True,
+    holdings = (
+        Holding.objects
+        .filter(
+            owner=request.user,
+            asset__is_active=True,
+        )
     )
 
     total_invested = (
@@ -422,7 +395,7 @@ def portfolio_summary(request):
         (
             total_unrealized_pnl
             / total_invested
-        ) * 100
+        ) * Decimal("100")
         if total_invested
         else Decimal("0")
     )
@@ -442,9 +415,6 @@ def portfolio_summary(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def portfolio_holdings(request):
-    """
-    Return all current holdings for the logged-in user.
-    """
 
     holdings = (
         Holding.objects
@@ -456,33 +426,18 @@ def portfolio_holdings(request):
         .order_by("-current_value")
     )
 
-    serializer = HoldingSerializer(
-        holdings,
-        many=True,
-    )
-
     return Response({
         "count": holdings.count(),
-        "results": serializer.data,
+        "results": HoldingSerializer(
+            holdings,
+            many=True,
+        ).data,
     })
 
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def portfolio_tree(request):
-    """
-    Return portfolio hierarchy:
-
-        Family
-            -> Asset Class
-                -> Portfolio
-                    -> Asset
-                        -> Holding Metrics
-    """
-
-    # ======================================================
-    # EXCEL SYNCHRONIZATION
-    # ======================================================
 
     try:
 
@@ -502,25 +457,7 @@ def portfolio_tree(request):
 
     except Exception as exc:
 
-        print(
-            "\n"
-            + "=" * 80
-        )
-
-        print(
-            "[PORTFOLIO TREE] Excel synchronization failed:"
-        )
-
-        print(
-            str(exc)
-        )
-
         traceback.print_exc()
-
-        print(
-            "=" * 80
-            + "\n"
-        )
 
         return Response(
             {
@@ -534,19 +471,11 @@ def portfolio_tree(request):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
-
     families = {}
-
-
-    # ======================================================
-    # INVESTMENTS
-    # ======================================================
 
     investment_transactions = (
         Transaction.objects
-        .filter(
-            owner=request.user,
-        )
+        .filter(owner=request.user)
         .select_related("asset")
         .order_by(
             "family_name",
@@ -554,7 +483,6 @@ def portfolio_tree(request):
             "asset__name",
         )
     )
-
 
     for tx in investment_transactions:
 
@@ -571,15 +499,14 @@ def portfolio_tree(request):
         asset = tx.asset
 
         asset_class = (
-            asset.get_category_display()
+            tx.asset_class
+            or asset.get_category_display()
         )
-
 
         family = families.setdefault(
             family_name,
             {},
         )
-
 
         asset_class_data = (
             family.setdefault(
@@ -588,26 +515,19 @@ def portfolio_tree(request):
             )
         )
 
-
         portfolio_data = (
             asset_class_data.setdefault(
                 portfolio_name,
                 {
-                    "portfolio":
-                        portfolio_name,
+                    "portfolio": portfolio_name,
                     "assets": {},
                 },
             )
         )
 
-
         asset_key = asset.id
 
-
-        if (
-            asset_key
-            not in portfolio_data["assets"]
-        ):
+        if asset_key not in portfolio_data["assets"]:
 
             metrics = (
                 PortfolioMetricsService
@@ -619,69 +539,43 @@ def portfolio_tree(request):
                 )
             )
 
-
-            portfolio_data[
-                "assets"
-            ][asset_key] = {
-
-                "asset_name":
-                    asset.name,
-
-                "isin":
-                    asset.isin,
-
-                "asset_class":
-                    asset_class,
-
-                "quantity":
-                    float(
-                        metrics["quantity"]
-                    ),
-
-                "average_cost":
-                    float(
-                        metrics["average_cost"]
-                    ),
-
-                "invested_value":
-                    float(
-                        metrics["invested_value"]
-                    ),
-
-                "current_price":
-                    float(
-                        metrics["current_price"]
-                    ),
-
-                "current_value":
-                    float(
-                        metrics["current_value"]
-                    ),
-
-                "pnl":
-                    float(
-                        metrics["pnl"]
-                    ),
-
-                "pnl_percentage":
-                    metrics[
-                        "pnl_percentage"
-                    ],
-
-                "xirr":
-                    metrics["xirr"],
+            portfolio_data["assets"][asset_key] = {
+                "asset_name": (
+                    tx.asset_name
+                    or asset.name
+                ),
+                "isin": asset.isin,
+                "asset_class": asset_class,
+                "sub_class": tx.sub_class,
+                "underlying": tx.underlying,
+                "advisors": tx.advisors,
+                "quantity": float(
+                    metrics["quantity"]
+                ),
+                "average_cost": float(
+                    metrics["average_cost"]
+                ),
+                "invested_value": float(
+                    metrics["invested_value"]
+                ),
+                "current_price": float(
+                    metrics["current_price"]
+                ),
+                "current_value": float(
+                    metrics["current_value"]
+                ),
+                "pnl": float(
+                    metrics["pnl"]
+                ),
+                "pnl_percentage": metrics[
+                    "pnl_percentage"
+                ],
+                "xirr": metrics["xirr"],
             }
-
-
-    # ======================================================
-    # MUTUAL FUNDS
-    # ======================================================
 
     mutual_fund_transactions = (
         MutualFundTransaction.objects
-        .filter(
-            owner=request.user,
-        )
+        .filter(owner=request.user)
         .select_related("scheme")
         .order_by(
             "family_name",
@@ -689,7 +583,6 @@ def portfolio_tree(request):
             "scheme__scheme_name",
         )
     )
-
 
     for tx in mutual_fund_transactions:
 
@@ -705,12 +598,10 @@ def portfolio_tree(request):
 
         asset_class = "Mutual Fund"
 
-
         family = families.setdefault(
             family_name,
             {},
         )
-
 
         asset_class_data = (
             family.setdefault(
@@ -719,33 +610,21 @@ def portfolio_tree(request):
             )
         )
 
-
         portfolio_data = (
             asset_class_data.setdefault(
                 portfolio_name,
                 {
-                    "portfolio":
-                        portfolio_name,
+                    "portfolio": portfolio_name,
                     "assets": {},
                 },
             )
         )
 
-
         scheme_key = tx.scheme.id
 
-
-        if (
-            scheme_key
-            not in portfolio_data["assets"]
-        ):
-
-            # ----------------------------------------------
-            # Mutual fund calculations
-            # ----------------------------------------------
+        if scheme_key not in portfolio_data["assets"]:
 
             units = Decimal("0")
-
             invested_value = Decimal("0")
 
             transactions_for_scheme = (
@@ -763,10 +642,7 @@ def portfolio_tree(request):
                 )
             )
 
-
-            for mf_tx in (
-                transactions_for_scheme
-            ):
+            for mf_tx in transactions_for_scheme:
 
                 tx_units = (
                     mf_tx.units
@@ -778,18 +654,13 @@ def portfolio_tree(request):
                     or Decimal("0")
                 )
 
-
                 if mf_tx.transaction_type in (
                     "PURCHASE",
                     "SIP",
                 ):
 
                     units += tx_units
-
-                    invested_value += (
-                        tx_amount
-                    )
-
+                    invested_value += tx_amount
 
                 elif (
                     mf_tx.transaction_type
@@ -803,33 +674,30 @@ def portfolio_tree(request):
                             / units
                         )
 
-                        units -= (
-                            tx_units
+                        redemption_units = min(
+                            tx_units,
+                            units,
                         )
+
+                        units -= redemption_units
 
                         invested_value -= (
                             average_cost
-                            * tx_units
+                            * redemption_units
                         )
 
                         if units <= 0:
 
                             units = Decimal("0")
-
-                            invested_value = (
-                                Decimal("0")
-                            )
-
+                            invested_value = Decimal("0")
 
             current_nav = Decimal("0")
-
 
             latest_nav = (
                 tx.scheme.nav_history
                 .order_by("-date")
                 .first()
             )
-
 
             if latest_nav:
 
@@ -838,43 +706,34 @@ def portfolio_tree(request):
                     or Decimal("0")
                 )
 
-
             current_value = (
                 units
                 * current_nav
             )
-
 
             pnl = (
                 current_value
                 - invested_value
             )
 
-
-            if invested_value > 0:
-
-                pnl_percentage = (
+            pnl_percentage = (
+                (
                     pnl
                     / invested_value
-                ) * Decimal("100")
-
-            else:
-
-                pnl_percentage = Decimal("0")
-
+                )
+                * Decimal("100")
+                if invested_value > 0
+                else Decimal("0")
+            )
 
             cash_flows = []
 
-
-            for mf_tx in (
-                transactions_for_scheme
-            ):
+            for mf_tx in transactions_for_scheme:
 
                 amount = (
                     mf_tx.amount
                     or Decimal("0")
                 )
-
 
                 if (
                     mf_tx.notes
@@ -882,7 +741,7 @@ def portfolio_tree(request):
                 ):
                     continue
 
-                elif mf_tx.transaction_type in (
+                if mf_tx.transaction_type in (
                     "PURCHASE",
                     "SIP",
                 ):
@@ -893,7 +752,6 @@ def portfolio_tree(request):
                             -float(amount),
                         )
                     )
-
 
                 elif (
                     mf_tx.transaction_type
@@ -906,7 +764,6 @@ def portfolio_tree(request):
                             float(amount),
                         )
                     )
-
 
             if (
                 units > 0
@@ -922,7 +779,6 @@ def portfolio_tree(request):
                     )
                 )
 
-
             xirr = (
                 XIRRCalculator.calculate(
                     cash_flows
@@ -930,7 +786,6 @@ def portfolio_tree(request):
                 if cash_flows
                 else None
             )
-
 
             average_nav = (
                 (
@@ -941,85 +796,51 @@ def portfolio_tree(request):
                 else Decimal("0")
             )
 
-
-            portfolio_data[
-                "assets"
-            ][scheme_key] = {
-
+            portfolio_data["assets"][
+                scheme_key
+            ] = {
                 "asset_name":
                     tx.scheme.scheme_name,
-
                 "isin":
                     tx.scheme.isin_growth,
-
                 "asset_class":
                     asset_class,
-
                 "quantity":
                     float(units),
-
                 "average_cost":
                     float(average_nav),
-
                 "invested_value":
                     float(invested_value),
-
                 "current_price":
                     float(current_nav),
-
                 "current_value":
                     float(current_value),
-
                 "pnl":
                     float(pnl),
-
                 "pnl_percentage":
                     round(
-                        float(
-                            pnl_percentage
-                        ),
+                        float(pnl_percentage),
                         2,
                     ),
-
                 "xirr":
                     xirr,
             }
 
-
-    # ======================================================
-    # RESPONSE
-    # ======================================================
-
     response_data = []
 
-
-    for (
-        family_name,
-        asset_classes,
-    ) in families.items():
+    for family_name, asset_classes in families.items():
 
         family_data = {
-
-            "family_name":
-                family_name,
-
+            "family_name": family_name,
             "asset_classes": [],
         }
 
-
-        for (
-            asset_class,
-            portfolios,
-        ) in asset_classes.items():
+        for asset_class, portfolios in asset_classes.items():
 
             asset_class_data = {
-
-                "asset_class":
-                    asset_class,
-
+                "asset_class": asset_class,
                 "portfolios": [],
             }
-
 
             for (
                 portfolio_name,
@@ -1032,17 +853,12 @@ def portfolio_tree(request):
                     ].values()
                 )
 
-
                 assets.sort(
-                    key=lambda item:
-                        (
-                            item[
-                                "asset_name"
-                            ]
-                            or ""
-                        ).lower()
+                    key=lambda item: (
+                        item["asset_name"]
+                        or ""
+                    ).lower()
                 )
-
 
                 asset_class_data[
                     "portfolios"
@@ -1050,23 +866,19 @@ def portfolio_tree(request):
                     {
                         "portfolio":
                             portfolio_name,
-
                         "assets":
                             assets,
                     }
                 )
 
-
             asset_class_data[
                 "portfolios"
             ].sort(
-                key=lambda item:
-                    (
-                        item["portfolio"]
-                        or ""
-                    ).lower()
+                key=lambda item: (
+                    item["portfolio"]
+                    or ""
+                ).lower()
             )
-
 
             family_data[
                 "asset_classes"
@@ -1074,31 +886,25 @@ def portfolio_tree(request):
                 asset_class_data
             )
 
-
         family_data[
             "asset_classes"
         ].sort(
-            key=lambda item:
-                (
-                    item["asset_class"]
-                    or ""
-                ).lower()
+            key=lambda item: (
+                item["asset_class"]
+                or ""
+            ).lower()
         )
-
 
         response_data.append(
             family_data
         )
 
-
     response_data.sort(
-        key=lambda item:
-            (
-                item["family_name"]
-                or ""
-            ).lower()
+        key=lambda item: (
+            item["family_name"]
+            or ""
+        ).lower()
     )
-
 
     return Response(
         {

@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 from investments.models import (
@@ -13,22 +14,45 @@ from investments.services.xirr import (
     XIRRCalculator,
 )
 
+from market_data.models import MarketPrice
+
 
 class PortfolioMetricsService:
 
     ZERO = Decimal("0")
 
     @staticmethod
+    def get_current_price(asset):
+
+        latest_price = (
+            MarketPrice.objects
+            .filter(asset=asset)
+            .order_by("-date")
+            .first()
+        )
+
+        if not latest_price:
+            return PortfolioMetricsService.ZERO
+
+        return (
+            latest_price.close_price
+            or PortfolioMetricsService.ZERO
+        )
+
+    @classmethod
     def calculate_asset_metrics(
+        cls,
         owner,
         family_name,
         portfolio,
         asset,
     ):
         """
-        Calculate metrics for one:
+        Calculate metrics for:
 
-            Family + Portfolio + Asset
+            Family
+                -> Portfolio
+                    -> Asset
         """
 
         position = (
@@ -49,17 +73,31 @@ class PortfolioMetricsService:
             position["invested_value"]
         )
 
-        current_value = (
-            position["current_value"]
+        average_cost = (
+            position["average_cost"]
         )
+
+        # --------------------------------------------------
+        # Current market value
+        # --------------------------------------------------
+
+        current_price = cls.get_current_price(
+            asset
+        )
+
+        current_value = (
+            quantity
+            * current_price
+        )
+
+        # --------------------------------------------------
+        # P&L
+        # --------------------------------------------------
 
         gain = (
-            position["gain"]
+            current_value
+            - invested_value
         )
-
-        # --------------------------------------------------
-        # P&L percentage
-        # --------------------------------------------------
 
         if invested_value > 0:
 
@@ -70,9 +108,7 @@ class PortfolioMetricsService:
 
         else:
 
-            pnl_percentage = (
-                PortfolioMetricsService.ZERO
-            )
+            pnl_percentage = cls.ZERO
 
         # --------------------------------------------------
         # XIRR cash flows
@@ -99,11 +135,11 @@ class PortfolioMetricsService:
 
             amount = (
                 tx.amount
-                or PortfolioMetricsService.ZERO
+                or cls.ZERO
             )
 
-            # Dividend reinvestment increases the holding,
-            # but does not represent fresh external cash.
+            # Dividend reinvestment is not
+            # fresh external cash.
             if (
                 tx.notes
                 == "DIVIDEND REINVESTMENT"
@@ -134,16 +170,13 @@ class PortfolioMetricsService:
                 )
 
         # --------------------------------------------------
-        # Current holding value is treated as
-        # cash received today
+        # Current value as terminal cash flow
         # --------------------------------------------------
 
         if (
             quantity > 0
             and current_value > 0
         ):
-
-            from datetime import date
 
             cash_flows.append(
                 (
@@ -156,28 +189,27 @@ class PortfolioMetricsService:
             XIRRCalculator.calculate(
                 cash_flows
             )
-            if cash_flows
+            if len(cash_flows) >= 2
             else None
         )
 
         return {
             "quantity": quantity,
-            "average_cost": (
-                position["average_cost"]
-            ),
-            "invested_value": (
-                invested_value
-            ),
-            "current_price": (
-                position["current_price"]
-            ),
-            "current_value": (
-                current_value
-            ),
+
+            "average_cost": average_cost,
+
+            "invested_value": invested_value,
+
+            "current_price": current_price,
+
+            "current_value": current_value,
+
             "pnl": gain,
+
             "pnl_percentage": round(
                 float(pnl_percentage),
                 2,
             ),
+
             "xirr": xirr,
         }
