@@ -4,7 +4,6 @@ import time
 from django.db import transaction
 from django.db.utils import OperationalError
 
-from investments.models import PortfolioPosition
 from investments.services.transaction_import import (
     TransactionImporter,
 )
@@ -26,19 +25,24 @@ class FileTransactionSyncService:
 
     @staticmethod
     def get_file():
+
         if not TRANSACTION_FILE.exists():
+
             raise FileNotFoundError(
-                f"Transaction file not found: {TRANSACTION_FILE}"
+                f"Transaction file not found: "
+                f"{TRANSACTION_FILE}"
             )
 
         return TRANSACTION_FILE
 
     @classmethod
     def get_file_version(cls):
+
         return cls.get_file().stat().st_mtime_ns
 
     @classmethod
     def has_changed(cls):
+
         return (
             cls._last_synced_mtime_ns
             != cls.get_file_version()
@@ -53,10 +57,15 @@ class FileTransactionSyncService:
             file_path.stat().st_mtime_ns
         )
 
+        # --------------------------------------------------
+        # Nothing changed since the previous successful sync
+        # --------------------------------------------------
+
         if (
             cls._last_synced_mtime_ns
             == current_version
         ):
+
             return {
                 "success": True,
                 "changed": False,
@@ -67,6 +76,10 @@ class FileTransactionSyncService:
             }
 
         last_error = None
+
+        # --------------------------------------------------
+        # Import with retry protection
+        # --------------------------------------------------
 
         for attempt in range(
             1,
@@ -90,10 +103,8 @@ class FileTransactionSyncService:
                             )
                         )
 
-                    PortfolioPosition.objects.filter(
-                        owner=owner
-                    ).delete()
-
+                # Only mark the file as synchronized
+                # after the database transaction succeeds.
                 cls._last_synced_mtime_ns = (
                     current_version
                 )
@@ -119,8 +130,30 @@ class FileTransactionSyncService:
                     raise
 
                 if attempt < cls.MAX_RETRIES:
+
                     time.sleep(
                         cls.RETRY_DELAY_SECONDS
                     )
 
-        raise last_error
+            except (
+                PermissionError,
+                OSError,
+            ) as exc:
+
+                last_error = exc
+
+                if attempt < cls.MAX_RETRIES:
+
+                    time.sleep(
+                        cls.RETRY_DELAY_SECONDS
+                    )
+
+                else:
+                    raise
+
+        if last_error is not None:
+            raise last_error
+
+        raise RuntimeError(
+            "Transaction file synchronization failed."
+        )
