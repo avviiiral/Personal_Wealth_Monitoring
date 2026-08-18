@@ -118,7 +118,7 @@
                       <table class="asset-table">
                         <thead>
                           <tr>
-                            <th>Asset Name</th>
+                            <th>Underlying</th>
                             <th>ISIN</th>
                             <th>Quantity</th>
                             <th>Avg. Cost</th>
@@ -134,7 +134,7 @@
                         <tbody>
                           <tr *ngFor="let asset of summary.assets">
                             <td class="asset-name">
-                              {{ asset.asset_name }}
+                              {{ asset.underlying || '-' }}
                             </td>
 
                             <td class="isin">
