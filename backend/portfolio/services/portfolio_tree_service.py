@@ -14,7 +14,6 @@ class PortfolioTreeService:
             return default
 
         value = str(value).strip()
-
         return value or default
 
     @staticmethod
@@ -50,15 +49,8 @@ class PortfolioTreeService:
         invested_value = Decimal("0")
 
         for tx in transactions:
-            tx_quantity = (
-                tx.quantity
-                or Decimal("0")
-            )
-
-            tx_amount = (
-                tx.amount
-                or Decimal("0")
-            )
+            tx_quantity = tx.quantity or Decimal("0")
+            tx_amount = tx.amount or Decimal("0")
 
             transaction_type = (
                 str(tx.transaction_type)
@@ -66,18 +58,12 @@ class PortfolioTreeService:
                 .upper()
             )
 
-            if transaction_type in (
-                "BUY",
-                "SIP",
-            ):
+            if transaction_type in ("BUY", "SIP"):
                 quantity += tx_quantity
                 invested_value += tx_amount
 
             elif transaction_type == "SELL":
-                if (
-                    tx_quantity <= 0
-                    or quantity <= 0
-                ):
+                if tx_quantity <= 0 or quantity <= 0:
                     continue
 
                 average_cost = (
@@ -92,7 +78,6 @@ class PortfolioTreeService:
                 )
 
                 quantity -= sell_quantity
-
                 invested_value -= (
                     average_cost * sell_quantity
                 )
@@ -101,13 +86,7 @@ class PortfolioTreeService:
                     quantity = Decimal("0")
                     invested_value = Decimal("0")
 
-            elif transaction_type == "BONUS":
-                quantity += max(
-                    tx_quantity,
-                    Decimal("0"),
-                )
-
-            elif transaction_type == "SPLIT":
+            elif transaction_type in ("BONUS", "SPLIT"):
                 quantity += max(
                     tx_quantity,
                     Decimal("0"),
@@ -138,31 +117,19 @@ class PortfolioTreeService:
         invested_value = position["invested_value"]
         average_cost = position["average_cost"]
 
-        security_master = (
+        security_master = getattr(
+            asset,
+            "security_master",
+            None,
+        )
+
+        asset_name = cls._clean(
+            first.asset_name,
             getattr(
                 asset,
-                "security_master",
-                None,
-            )
-            if asset
-            else None
-        )
-
-        asset_name = (
-            cls._clean(
-                first.asset_name,
-                getattr(
-                    asset,
-                    "name",
-                    "Unassigned",
-                ),
-            )
-        )
-
-        isin = getattr(
-            asset,
-            "isin",
-            None,
+                "name",
+                "Unassigned",
+            ),
         )
 
         return {
@@ -172,7 +139,11 @@ class PortfolioTreeService:
                 first.underlying,
                 "",
             ),
-            "isin": isin,
+            "isin": getattr(
+                asset,
+                "isin",
+                None,
+            ),
             "advisors": cls._clean(
                 first.advisors,
                 "",
@@ -218,25 +189,13 @@ class PortfolioTreeService:
         )
 
         tree = {}
-
         grouped = {}
 
         for tx in transactions:
-            family = cls._clean(
-                tx.family_name
-            )
-
-            portfolio = cls._clean(
-                tx.portfolio
-            )
-
-            asset_class = cls._clean(
-                tx.asset_class
-            )
-
-            sub_class = cls._clean(
-                tx.sub_class
-            )
+            family = cls._clean(tx.family_name)
+            portfolio = cls._clean(tx.portfolio)
+            asset_class = cls._clean(tx.asset_class)
+            sub_class = cls._clean(tx.sub_class)
 
             group_key = (
                 family,
@@ -330,9 +289,7 @@ class PortfolioTreeService:
                             "sub_classes"
                         ].values()
                     ):
-                        sub_class_data[
-                            "assets"
-                        ].sort(
+                        sub_class_data["assets"].sort(
                             key=lambda item: (
                                 item["asset_name"]
                                 or ""
@@ -394,17 +351,12 @@ class PortfolioTreeService:
                 ).lower()
             )
 
-            family_data[
-                "portfolios"
-            ] = portfolios
-
-            family_data[
-                "portfolio_count"
-            ] = len(portfolios)
-
-            families.append(
-                family_data
+            family_data["portfolios"] = portfolios
+            family_data["portfolio_count"] = len(
+                portfolios
             )
+
+            families.append(family_data)
 
         families.sort(
             key=lambda item: (

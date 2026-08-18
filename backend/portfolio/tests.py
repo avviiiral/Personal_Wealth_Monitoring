@@ -50,24 +50,28 @@ class PortfolioTreeServiceTests(TestCase):
         self.assertEqual(result["count"], 1)
 
         family = result["families"][0]
+
         self.assertEqual(
             family["family_name"],
             "Family A",
         )
 
         portfolio = family["portfolios"][0]
+
         self.assertEqual(
             portfolio["portfolio"],
             "Portfolio A",
         )
 
         asset_class = portfolio["asset_classes"][0]
+
         self.assertEqual(
             asset_class["asset_class"],
             "Equity",
         )
 
         sub_class = asset_class["sub_classes"][0]
+
         self.assertEqual(
             sub_class["sub_class"],
             "Large Cap",
@@ -96,11 +100,16 @@ class PortfolioTreeServiceTests(TestCase):
             ["assets"][0]
         )
 
-        self.assertEqual(asset["quantity"], 10.0)
+        self.assertEqual(
+            asset["quantity"],
+            10.0,
+        )
+
         self.assertEqual(
             asset["invested_value"],
             1000.0,
         )
+
         self.assertEqual(
             asset["average_cost"],
             100.0,
@@ -171,11 +180,16 @@ class PortfolioTreeServiceTests(TestCase):
             ["assets"][0]
         )
 
-        self.assertEqual(asset["quantity"], 6.0)
+        self.assertEqual(
+            asset["quantity"],
+            6.0,
+        )
+
         self.assertEqual(
             asset["invested_value"],
             600.0,
         )
+
         self.assertEqual(
             asset["average_cost"],
             100.0,
@@ -183,7 +197,7 @@ class PortfolioTreeServiceTests(TestCase):
 
 
 class PortfolioTreeAPITests(TestCase):
-    
+
     def setUp(self):
         User = get_user_model()
 
@@ -233,14 +247,8 @@ class PortfolioTreeAPITests(TestCase):
 
         data = response.json()
 
-        self.assertTrue(
-            data["success"]
-        )
-
-        self.assertIn(
-            "families",
-            data,
-        )
+        self.assertTrue(data["success"])
+        self.assertIn("families", data)
 
         family = next(
             (
