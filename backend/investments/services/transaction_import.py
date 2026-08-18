@@ -11,6 +11,10 @@ from investments.models import (
     TransactionType,
 )
 
+from investments.services.security_master import (
+    SecurityMasterService,
+)
+
 from mutual_funds.models import (
     MutualFundScheme,
     MutualFundTransaction,
@@ -95,25 +99,10 @@ MUTUAL_FUND_TRANSACTION_MAP = {
 
 
 class TransactionImportError(Exception):
-    """Raised when the transaction Excel/CSV cannot be imported."""
+    """Raised when an Excel/CSV transaction import is invalid."""
 
 
 class TransactionImporter:
-    """
-    Imports the PWMS wealth-report Excel structure.
-
-    Excel hierarchy is preserved on investment transactions:
-
-        Family Name
-        Asset Class
-        Sub Class
-        Asset Name
-        Underlying
-        Advisors
-        ISIN
-
-    source/source_key are populated for safe Excel reconciliation.
-    """
 
     @staticmethod
     def _clean_string(value):
@@ -132,7 +121,11 @@ class TransactionImporter:
         )
 
     @staticmethod
-    def _to_decimal(value, field_name, row_number):
+    def _to_decimal(
+        value,
+        field_name,
+        row_number,
+    ):
         if pd.isna(value):
             return Decimal("0")
 
@@ -175,14 +168,6 @@ class TransactionImporter:
         price,
         amount,
     ):
-        """
-        Build a deterministic key for an Excel transaction row.
-
-        The key is based on the complete transaction identity rather
-        than the Excel row number, so moving rows does not create
-        duplicate transactions.
-        """
-
         values = [
             family_name,
             asset_class,
@@ -209,12 +194,15 @@ class TransactionImporter:
 
     @staticmethod
     def _read_excel(file):
-        filename = getattr(file, "name", "")
+        filename = getattr(
+            file,
+            "name",
+            "",
+        )
 
         if not filename.lower().endswith(".xlsx"):
             raise TransactionImportError(
-                "The current wealth-report importer "
-                "requires an .xlsx file."
+                "The Excel importer requires an .xlsx file."
             )
 
         try:
@@ -242,7 +230,13 @@ class TransactionImporter:
 
     @staticmethod
     def _read_csv(file):
-        dataframe = pd.read_csv(file)
+        try:
+            dataframe = pd.read_csv(file)
+        except Exception as exc:
+            raise TransactionImportError(
+                "Unable to read the CSV transaction file."
+            ) from exc
+
         return dataframe, None
 
     @staticmethod
@@ -273,7 +267,7 @@ class TransactionImporter:
 
         if missing_columns:
             raise TransactionImportError(
-                "Missing required Transactions columns: "
+                "Missing required transaction columns: "
                 + ", ".join(missing_columns)
             )
 
@@ -295,7 +289,26 @@ class TransactionImporter:
             )
 
     @staticmethod
-    def _normalize_transaction_type(value, row_number):
+    def _validate_dataframe(dataframe):
+        if dataframe is None:
+            raise TransactionImportError(
+                "No transaction data was found."
+            )
+
+        if dataframe.empty:
+            raise TransactionImportError(
+                "The transaction file contains no data."
+            )
+
+        TransactionImporter._validate_transaction_columns(
+            dataframe
+        )
+
+    @staticmethod
+    def _normalize_transaction_type(
+        value,
+        row_number,
+    ):
         transaction_type = (
             TransactionImporter
             ._clean_string(value)
@@ -332,11 +345,14 @@ class TransactionImporter:
         )
 
         lookup_name = TransactionImporter._normalize(
-            underlying if underlying else asset_name
+            underlying
+            if underlying
+            else asset_name
         )
 
-        normalized_isin = TransactionImporter._normalize(
-            isin
+        normalized_isin = (
+            TransactionImporter
+            ._normalize(isin)
         )
 
         candidates = summary.copy()
@@ -407,8 +423,11 @@ class TransactionImporter:
                 filtered = name_filtered
 
         if not filtered.empty:
-            portfolio = TransactionImporter._clean_string(
-                filtered.iloc[0]["Portfolio Name"]
+            portfolio = (
+                TransactionImporter
+                ._clean_string(
+                    filtered.iloc[0]["Portfolio Name"]
+                )
             )
 
             if portfolio:
@@ -429,8 +448,11 @@ class TransactionImporter:
             ]
 
         if not filtered.empty:
-            portfolio = TransactionImporter._clean_string(
-                filtered.iloc[0]["Portfolio Name"]
+            portfolio = (
+                TransactionImporter
+                ._clean_string(
+                    filtered.iloc[0]["Portfolio Name"]
+                )
             )
 
             if portfolio:
@@ -438,8 +460,13 @@ class TransactionImporter:
 
         if normalized_isin:
             filtered = candidates[
-                (candidates["_family"] == family)
-                & (candidates["_isin"] == normalized_isin)
+                (
+                    candidates["_family"] == family
+                )
+                & (
+                    candidates["_isin"]
+                    == normalized_isin
+                )
             ]
 
             if not filtered.empty:
@@ -451,37 +478,15 @@ class TransactionImporter:
                     if not advisor_filtered.empty:
                         filtered = advisor_filtered
 
-                portfolio = TransactionImporter._clean_string(
-                    filtered.iloc[0]["Portfolio Name"]
+                portfolio = (
+                    TransactionImporter
+                    ._clean_string(
+                        filtered.iloc[0]["Portfolio Name"]
+                    )
                 )
 
                 if portfolio:
                     return portfolio
-
-        filtered = candidates[
-            candidates["_family"] == family
-        ]
-
-        if lookup_name:
-            filtered = filtered[
-                filtered["_asset_name"] == lookup_name
-            ]
-
-        if not filtered.empty:
-            if advisor:
-                advisor_filtered = filtered[
-                    filtered["_advisor"] == advisor
-                ]
-
-                if not advisor_filtered.empty:
-                    filtered = advisor_filtered
-
-            portfolio = TransactionImporter._clean_string(
-                filtered.iloc[0]["Portfolio Name"]
-            )
-
-            if portfolio:
-                return portfolio
 
         return None
 
@@ -492,8 +497,9 @@ class TransactionImporter:
         asset_name,
         underlying,
     ):
-        subclass = TransactionImporter._normalize(
-            sub_class
+        subclass = (
+            TransactionImporter
+            ._normalize(sub_class)
         )
 
         if subclass in {
@@ -527,7 +533,8 @@ class TransactionImporter:
 
         if category is None:
             raise TransactionImportError(
-                f"Unsupported Asset Class: {asset_class}"
+                f"Unsupported Asset Class: "
+                f"{asset_class}"
             )
 
         asset = None
@@ -558,7 +565,10 @@ class TransactionImporter:
                 owner=owner,
                 name=asset_name,
                 category=category,
-                isin=normalized_isin or None,
+                isin=(
+                    normalized_isin
+                    or None
+                ),
                 currency="INR",
                 is_active=True,
             )
@@ -583,6 +593,11 @@ class TransactionImporter:
 
             if changed:
                 asset.save()
+
+        SecurityMasterService.get_or_create(
+            owner=owner,
+            asset=asset,
+        )
 
         return asset
 
@@ -617,11 +632,16 @@ class TransactionImporter:
             )
 
         if scheme is None:
-            scheme = MutualFundScheme.objects.create(
-                owner=owner,
-                scheme_name=asset_name,
-                isin_growth=normalized_isin or None,
-                is_active=True,
+            scheme = (
+                MutualFundScheme.objects.create(
+                    owner=owner,
+                    scheme_name=asset_name,
+                    isin_growth=(
+                        normalized_isin
+                        or None
+                    ),
+                    is_active=True,
+                )
             )
 
         else:
@@ -629,9 +649,12 @@ class TransactionImporter:
 
             if (
                 normalized_isin
-                and scheme.isin_growth != normalized_isin
+                and scheme.isin_growth
+                != normalized_isin
             ):
-                scheme.isin_growth = normalized_isin
+                scheme.isin_growth = (
+                    normalized_isin
+                )
                 changed = True
 
             if changed:
@@ -640,15 +663,222 @@ class TransactionImporter:
         return scheme
 
     @staticmethod
-    def _transaction_asset_name(
-        asset_name,
-        underlying,
-        sub_class,
+    def _find_existing_investment_transaction(
+        owner,
+        source_key,
     ):
-        if underlying:
-            return underlying
+        return (
+            Transaction.objects
+            .filter(
+                owner=owner,
+                source="EXCEL",
+                source_key=source_key,
+            )
+            .first()
+        )
 
-        return asset_name
+    @staticmethod
+    def _find_existing_mutual_fund_transaction(
+        owner,
+        family_name,
+        portfolio,
+        scheme,
+        transaction_type,
+        transaction_date,
+        quantity,
+        price,
+        amount,
+    ):
+        return (
+            MutualFundTransaction.objects
+            .filter(
+                owner=owner,
+                family_name=family_name,
+                portfolio=portfolio,
+                scheme=scheme,
+                transaction_type=transaction_type,
+                transaction_date=transaction_date,
+                units=quantity,
+                nav=price,
+                amount=amount,
+            )
+            .first()
+        )
+
+    @staticmethod
+    def _validate_row(
+        row,
+        row_number,
+    ):
+        family_name = (
+            TransactionImporter
+            ._clean_string(
+                row["Family Name"]
+            )
+        )
+
+        asset_class = (
+            TransactionImporter
+            ._clean_string(
+                row["Asset Class"]
+            )
+        )
+
+        sub_class = (
+            TransactionImporter
+            ._clean_string(
+                row["Sub Class"]
+            )
+        )
+
+        asset_name = (
+            TransactionImporter
+            ._clean_string(
+                row["Asset Name"]
+            )
+        )
+
+        underlying = (
+            TransactionImporter
+            ._clean_string(
+                row["Underlying"]
+            )
+        )
+
+        advisors = (
+            TransactionImporter
+            ._clean_string(
+                row["Advisors"]
+            )
+        )
+
+        isin = (
+            TransactionImporter
+            ._clean_string(
+                row["ISIN"]
+            )
+        )
+
+        if not family_name:
+            raise TransactionImportError(
+                "Family Name is empty at "
+                f"Excel row {row_number}."
+            )
+
+        if not asset_class:
+            raise TransactionImportError(
+                "Asset Class is empty at "
+                f"Excel row {row_number}."
+            )
+
+        if not asset_name:
+            raise TransactionImportError(
+                "Asset Name is empty at "
+                f"Excel row {row_number}."
+            )
+
+        if not isin:
+            raise TransactionImportError(
+                "ISIN is empty at "
+                f"Excel row {row_number}."
+            )
+
+        if asset_class.upper() not in ASSET_CLASS_MAP:
+            raise TransactionImportError(
+                "Unsupported Asset Class at "
+                f"Excel row {row_number}: "
+                f"{asset_class}"
+            )
+
+        raw_date = row["Date"]
+
+        if pd.isna(raw_date):
+            raise TransactionImportError(
+                "Date is empty at "
+                f"Excel row {row_number}."
+            )
+
+        transaction_date = pd.to_datetime(
+            raw_date,
+            errors="coerce",
+        )
+
+        if pd.isna(transaction_date):
+            raise TransactionImportError(
+                "Invalid Date at "
+                f"Excel row {row_number}: "
+                f"{raw_date}"
+            )
+
+        transaction_date = transaction_date.date()
+
+        transaction_type = (
+            TransactionImporter
+            ._normalize_transaction_type(
+                row["Trans. Type"],
+                row_number,
+            )
+        )
+
+        quantity = (
+            TransactionImporter
+            ._to_decimal(
+                row["Quantity"],
+                "Quantity",
+                row_number,
+            )
+        )
+
+        price = (
+            TransactionImporter
+            ._to_decimal(
+                row["Price"],
+                "Price",
+                row_number,
+            )
+        )
+
+        amount = (
+            TransactionImporter
+            ._to_decimal(
+                row["Amount"],
+                "Amount",
+                row_number,
+            )
+        )
+
+        if quantity < 0:
+            raise TransactionImportError(
+                "Quantity cannot be negative at "
+                f"Excel row {row_number}."
+            )
+
+        if price < 0:
+            raise TransactionImportError(
+                "Price cannot be negative at "
+                f"Excel row {row_number}."
+            )
+
+        if amount < 0:
+            raise TransactionImportError(
+                "Amount cannot be negative at "
+                f"Excel row {row_number}."
+            )
+
+        return {
+            "family_name": family_name,
+            "asset_class": asset_class,
+            "sub_class": sub_class,
+            "asset_name": asset_name,
+            "underlying": underlying,
+            "advisors": advisors,
+            "isin": isin,
+            "transaction_date": transaction_date,
+            "transaction_type": transaction_type,
+            "quantity": quantity,
+            "price": price,
+            "amount": amount,
+        }
 
     @staticmethod
     @db_transaction.atomic
@@ -658,7 +888,7 @@ class TransactionImporter:
             ._read_file(file)
         )
 
-        TransactionImporter._validate_transaction_columns(
+        TransactionImporter._validate_dataframe(
             dataframe
         )
 
@@ -666,113 +896,32 @@ class TransactionImporter:
             summary
         )
 
-        imported_investments = 0
-        imported_mutual_funds = 0
-
+        rows = []
         errors = []
 
-        for excel_row_number, (_, row) in enumerate(
+        for row_number, (_, row) in enumerate(
             dataframe.iterrows(),
             start=2,
         ):
             try:
-                family_name = TransactionImporter._clean_string(
-                    row["Family Name"]
-                )
-
-                asset_class = TransactionImporter._clean_string(
-                    row["Asset Class"]
-                )
-
-                sub_class = TransactionImporter._clean_string(
-                    row["Sub Class"]
-                )
-
-                asset_name = TransactionImporter._clean_string(
-                    row["Asset Name"]
-                )
-
-                underlying = TransactionImporter._clean_string(
-                    row["Underlying"]
-                )
-
-                advisors = TransactionImporter._clean_string(
-                    row["Advisors"]
-                )
-
-                isin = TransactionImporter._clean_string(
-                    row["ISIN"]
-                )
-
-                raw_date = row["Date"]
-
-                if pd.isna(raw_date):
-                    raise TransactionImportError(
-                        f"Date is empty at Excel row "
-                        f"{excel_row_number}."
-                    )
-
-                transaction_date = pd.to_datetime(
-                    raw_date,
-                    errors="coerce",
-                )
-
-                if pd.isna(transaction_date):
-                    raise TransactionImportError(
-                        f"Invalid Date at Excel row "
-                        f"{excel_row_number}: {raw_date}"
-                    )
-
-                transaction_date = transaction_date.date()
-
-                transaction_type = (
+                parsed = (
                     TransactionImporter
-                    ._normalize_transaction_type(
-                        row["Trans. Type"],
-                        excel_row_number,
+                    ._validate_row(
+                        row,
+                        row_number,
                     )
                 )
-
-                quantity = TransactionImporter._to_decimal(
-                    row["Quantity"],
-                    "Quantity",
-                    excel_row_number,
-                )
-
-                price = TransactionImporter._to_decimal(
-                    row["Price"],
-                    "Price",
-                    excel_row_number,
-                )
-
-                amount = TransactionImporter._to_decimal(
-                    row["Amount"],
-                    "Amount",
-                    excel_row_number,
-                )
-
-                if not asset_name:
-                    raise TransactionImportError(
-                        f"Asset Name is empty at Excel row "
-                        f"{excel_row_number}."
-                    )
-
-                if not family_name:
-                    raise TransactionImportError(
-                        f"Family Name is empty at Excel row "
-                        f"{excel_row_number}."
-                    )
 
                 portfolio = (
                     TransactionImporter
                     ._resolve_portfolio_from_summary(
                         summary=summary,
-                        family_name=family_name,
-                        asset_class=asset_class,
-                        asset_name=asset_name,
-                        underlying=underlying,
-                        advisors=advisors,
-                        isin=isin,
+                        family_name=parsed["family_name"],
+                        asset_class=parsed["asset_class"],
+                        asset_name=parsed["asset_name"],
+                        underlying=parsed["underlying"],
+                        advisors=parsed["advisors"],
+                        isin=parsed["isin"],
                     )
                 )
 
@@ -780,191 +929,222 @@ class TransactionImporter:
                     portfolio = (
                         TransactionImporter
                         ._fallback_portfolio(
-                            asset_class=asset_class,
-                            sub_class=sub_class,
-                            asset_name=asset_name,
-                            underlying=underlying,
+                            asset_class=parsed["asset_class"],
+                            sub_class=parsed["sub_class"],
+                            asset_name=parsed["asset_name"],
+                            underlying=parsed["underlying"],
                         )
                     )
 
-                source_key = (
+                parsed["portfolio"] = portfolio
+
+                parsed["source_key"] = (
                     TransactionImporter
                     ._build_source_key(
-                        family_name=family_name,
-                        asset_class=asset_class,
-                        sub_class=sub_class,
-                        asset_name=asset_name,
-                        underlying=underlying,
-                        advisors=advisors,
-                        isin=isin,
-                        transaction_date=transaction_date,
-                        transaction_type=transaction_type,
-                        quantity=quantity,
-                        price=price,
-                        amount=amount,
+                        family_name=parsed["family_name"],
+                        asset_class=parsed["asset_class"],
+                        sub_class=parsed["sub_class"],
+                        asset_name=parsed["asset_name"],
+                        underlying=parsed["underlying"],
+                        advisors=parsed["advisors"],
+                        isin=parsed["isin"],
+                        transaction_date=parsed["transaction_date"],
+                        transaction_type=parsed["transaction_type"],
+                        quantity=parsed["quantity"],
+                        price=parsed["price"],
+                        amount=parsed["amount"],
                     )
                 )
 
-                mapped_asset_class = ASSET_CLASS_MAP.get(
-                    asset_class.upper()
-                )
-
-                if mapped_asset_class is None:
-                    raise TransactionImportError(
-                        f"Unsupported Asset Class at Excel row "
-                        f"{excel_row_number}: {asset_class}"
-                    )
-
-                if (
-                    mapped_asset_class
-                    == AssetCategory.MUTUAL_FUND
-                ):
-                    mapped_type = (
-                        MUTUAL_FUND_TRANSACTION_MAP.get(
-                            transaction_type
-                        )
-                    )
-
-                    if mapped_type is None:
-                        raise TransactionImportError(
-                            "Unsupported Mutual Fund transaction "
-                            f"type at Excel row "
-                            f"{excel_row_number}: "
-                            f"{transaction_type}"
-                        )
-
-                    scheme = (
-                        TransactionImporter
-                        ._get_or_create_mutual_fund_scheme(
-                            owner=owner,
-                            asset_name=asset_name,
-                            isin=isin,
-                        )
-                    )
-
-                    existing = (
-                        MutualFundTransaction.objects
-                        .filter(
-                            owner=owner,
-                            source="EXCEL",
-                            source_key=source_key,
-                        )
-                        .first()
-                    )
-
-                    if existing is None:
-                        MutualFundTransaction.objects.create(
-                            owner=owner,
-                            scheme=scheme,
-                            transaction_type=mapped_type,
-                            transaction_date=transaction_date,
-                            units=quantity,
-                            nav=price,
-                            amount=amount,
-                            source="EXCEL",
-                            source_key=source_key,
-                        )
-                        imported_mutual_funds += 1
-
-                    continue
-
-                asset = (
-                    TransactionImporter
-                    ._get_or_create_asset(
-                        owner=owner,
-                        asset_name=(
-                            TransactionImporter
-                            ._transaction_asset_name(
-                                asset_name=asset_name,
-                                underlying=underlying,
-                                sub_class=sub_class,
-                            )
-                        ),
-                        isin=isin,
-                        asset_class=asset_class,
-                    )
-                )
-
-                existing = (
-                    Transaction.objects
-                    .filter(
-                        owner=owner,
-                        source="EXCEL",
-                        source_key=source_key,
-                    )
-                    .first()
-                )
-
-                if existing is not None:
-                    continue
-
-                mapped_transaction_type = (
-                    INVESTMENT_TRANSACTION_MAP.get(
-                        transaction_type
-                    )
-                )
-
-                if mapped_transaction_type is None:
-                    raise TransactionImportError(
-                        "Unsupported investment transaction "
-                        f"type at Excel row "
-                        f"{excel_row_number}: "
-                        f"{transaction_type}"
-                    )
-
-                Transaction.objects.create(
-                    owner=owner,
-                    family_name=family_name,
-                    portfolio=portfolio,
-                    asset_class=asset_class,
-                    sub_class=sub_class,
-                    asset_name=asset_name,
-                    underlying=underlying,
-                    advisors=advisors,
-                    asset=asset,
-                    transaction_type=mapped_transaction_type,
-                    transaction_date=transaction_date,
-                    quantity=quantity,
-                    price_per_unit=price,
-                    amount=amount,
-                    fees=Decimal("0"),
-                    source="EXCEL",
-                    source_key=source_key,
-                )
-
-                imported_investments += 1
+                rows.append(parsed)
 
             except TransactionImportError as exc:
                 errors.append(
                     {
-                        "row": excel_row_number,
+                        "row": row_number,
                         "message": str(exc),
-                    }
-                )
-
-            except Exception as exc:
-                errors.append(
-                    {
-                        "row": excel_row_number,
-                        "message": (
-                            "Unexpected import error: "
-                            f"{exc}"
-                        ),
                     }
                 )
 
         if errors:
             raise TransactionImportError(
-                "Transaction import failed for one or more rows: "
+                "Transaction import failed: "
                 + "; ".join(
-                    f"Row {error['row']}: {error['message']}"
+                    (
+                        f"Row {error['row']}: "
+                        f"{error['message']}"
+                    )
                     for error in errors
                 )
             )
 
+        imported_investments = 0
+        imported_mutual_funds = 0
+        skipped_duplicates = 0
+
+        seen_source_keys = set()
+        seen_mutual_fund_keys = set()
+
+        for parsed in rows:
+            source_key = parsed["source_key"]
+
+            mapped_asset_class = ASSET_CLASS_MAP[
+                parsed["asset_class"].upper()
+            ]
+
+            if (
+                mapped_asset_class
+                == AssetCategory.MUTUAL_FUND
+            ):
+                mapped_type = (
+                    MUTUAL_FUND_TRANSACTION_MAP.get(
+                        parsed["transaction_type"]
+                    )
+                )
+
+                if mapped_type is None:
+                    raise TransactionImportError(
+                        "Unsupported Mutual Fund "
+                        "transaction type: "
+                        f"{parsed['transaction_type']}"
+                    )
+
+                scheme = (
+                    TransactionImporter
+                    ._get_or_create_mutual_fund_scheme(
+                        owner=owner,
+                        asset_name=parsed["asset_name"],
+                        isin=parsed["isin"],
+                    )
+                )
+
+                duplicate_key = (
+                    parsed["family_name"],
+                    parsed["portfolio"],
+                    scheme.id,
+                    mapped_type,
+                    parsed["transaction_date"],
+                    parsed["quantity"],
+                    parsed["price"],
+                    parsed["amount"],
+                )
+
+                if duplicate_key in seen_mutual_fund_keys:
+                    skipped_duplicates += 1
+                    continue
+
+                existing = (
+                    TransactionImporter
+                    ._find_existing_mutual_fund_transaction(
+                        owner=owner,
+                        family_name=parsed["family_name"],
+                        portfolio=parsed["portfolio"],
+                        scheme=scheme,
+                        transaction_type=mapped_type,
+                        transaction_date=parsed["transaction_date"],
+                        quantity=parsed["quantity"],
+                        price=parsed["price"],
+                        amount=parsed["amount"],
+                    )
+                )
+
+                if existing is not None:
+                    skipped_duplicates += 1
+                    seen_mutual_fund_keys.add(
+                        duplicate_key
+                    )
+                    continue
+
+                MutualFundTransaction.objects.create(
+                    owner=owner,
+                    family_name=parsed["family_name"],
+                    portfolio=parsed["portfolio"],
+                    scheme=scheme,
+                    transaction_type=mapped_type,
+                    transaction_date=parsed["transaction_date"],
+                    units=parsed["quantity"],
+                    nav=parsed["price"],
+                    amount=parsed["amount"],
+                    fees=Decimal("0"),
+                )
+
+                seen_mutual_fund_keys.add(
+                    duplicate_key
+                )
+
+                imported_mutual_funds += 1
+                continue
+
+            if source_key in seen_source_keys:
+                skipped_duplicates += 1
+                continue
+
+            existing = (
+                TransactionImporter
+                ._find_existing_investment_transaction(
+                    owner=owner,
+                    source_key=source_key,
+                )
+            )
+
+            if existing is not None:
+                skipped_duplicates += 1
+                seen_source_keys.add(source_key)
+                continue
+
+            asset = (
+                TransactionImporter
+                ._get_or_create_asset(
+                    owner=owner,
+                    asset_name=(
+                        parsed["underlying"]
+                        or parsed["asset_name"]
+                    ),
+                    isin=parsed["isin"],
+                    asset_class=parsed["asset_class"],
+                )
+            )
+
+            mapped_transaction_type = (
+                INVESTMENT_TRANSACTION_MAP.get(
+                    parsed["transaction_type"]
+                )
+            )
+
+            if mapped_transaction_type is None:
+                raise TransactionImportError(
+                    "Unsupported investment "
+                    "transaction type: "
+                    f"{parsed['transaction_type']}"
+                )
+
+            Transaction.objects.create(
+                owner=owner,
+                family_name=parsed["family_name"],
+                portfolio=parsed["portfolio"],
+                asset_class=parsed["asset_class"],
+                sub_class=parsed["sub_class"],
+                asset_name=parsed["asset_name"],
+                underlying=parsed["underlying"],
+                advisors=parsed["advisors"],
+                asset=asset,
+                transaction_type=mapped_transaction_type,
+                transaction_date=parsed["transaction_date"],
+                quantity=parsed["quantity"],
+                price_per_unit=parsed["price"],
+                amount=parsed["amount"],
+                fees=Decimal("0"),
+                source="EXCEL",
+                source_key=source_key,
+            )
+
+            seen_source_keys.add(source_key)
+            imported_investments += 1
+
         return {
             "imported_investments": imported_investments,
             "imported_mutual_funds": imported_mutual_funds,
+            "skipped_duplicates": skipped_duplicates,
             "total_imported": (
                 imported_investments
                 + imported_mutual_funds
