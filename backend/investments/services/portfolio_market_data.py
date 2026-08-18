@@ -4,10 +4,6 @@ from .current_price_service import CurrentPriceService
 
 
 class PortfolioMarketDataService:
-    """
-    Enriches portfolio assets with current market prices.
-    """
-
     @classmethod
     def enrich_asset(cls, asset):
         symbol = cls._get_symbol(asset)
@@ -40,19 +36,10 @@ class PortfolioMarketDataService:
             else Decimal("0")
         )
 
-        asset["current_price"] = float(
-            current_price
-        )
-
-        asset["current_value"] = float(
-            current_value
-        )
-
+        asset["current_price"] = float(current_price)
+        asset["current_value"] = float(current_value)
         asset["pnl"] = float(pnl)
-
-        asset["pnl_percentage"] = float(
-            pnl_percentage
-        )
+        asset["pnl_percentage"] = float(pnl_percentage)
 
         return asset
 
@@ -104,13 +91,10 @@ class PortfolioMarketDataService:
             asset["current_price"] = float(
                 current_price
             )
-
             asset["current_value"] = float(
                 current_value
             )
-
             asset["pnl"] = float(pnl)
-
             asset["pnl_percentage"] = float(
                 pnl_percentage
             )

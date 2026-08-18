@@ -144,6 +144,11 @@ class PortfolioTreeService:
                 "isin",
                 None,
             ),
+            "symbol": getattr(
+                asset,
+                "symbol",
+                None,
+            ),
             "advisors": cls._clean(
                 first.advisors,
                 "",
