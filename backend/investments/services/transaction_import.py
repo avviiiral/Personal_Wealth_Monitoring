@@ -981,6 +981,37 @@ class TransactionImporter:
 
         for parsed in rows:
             source_key = parsed["source_key"]
+            
+            # Correct existing Indian mutual-fund assets even when
+            # the transaction itself is already present and will
+            # therefore be skipped as a duplicate.
+            normalized_isin = (
+                parsed["isin"]
+                .strip()
+                .upper()
+            )
+
+            if normalized_isin.startswith("INF"):
+                existing_asset = (
+                    Asset.objects
+                    .filter(
+                        owner=owner,
+                        isin=normalized_isin,
+                    )
+                    .first()
+                )
+
+                if (
+                    existing_asset is not None
+                    and existing_asset.category
+                    != AssetCategory.MUTUAL_FUND
+                ):
+                    existing_asset.category = (
+                        AssetCategory.MUTUAL_FUND
+                    )
+                    existing_asset.save(
+                        update_fields=["category"]
+                    )
 
             mapped_asset_class = ASSET_CLASS_MAP[
                 parsed["asset_class"].upper()

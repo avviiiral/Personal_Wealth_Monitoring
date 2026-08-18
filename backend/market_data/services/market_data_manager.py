@@ -10,6 +10,9 @@ from market_data.services.security_resolver import (
 from market_data.services.yahoo_finance import (
     YahooFinanceService,
 )
+from market_data.services.mutual_fund_nav_service import (
+    MutualFundNAVService,
+)
 from portfolio.services.holding_engine import (
     HoldingCalculationEngine,
 )
@@ -17,34 +20,54 @@ from portfolio.services.holding_engine import (
 
 class MarketDataManager:
     """
-    Coordinates:
+    Coordinates market-data collection.
 
-    Asset
-      ↓
-    ISIN
-      ↓
-    SecurityResolver
-      ↓
-    Yahoo Finance
-      ↓
-    MarketPrice
-      ↓
-    HoldingCalculationEngine
+    STOCK / ETF
+        Asset
+          ↓
+        ISIN
+          ↓
+        SecurityResolver
+          ↓
+        Yahoo Finance
+          ↓
+        MarketPrice
+
+    MUTUAL_FUND
+        Asset
+          ↓
+        ISIN
+          ↓
+        AMFI
+          ↓
+        NAV
+          ↓
+        MarketPrice
     """
 
     @staticmethod
-    def get_latest_market_date(asset):
+    def get_latest_market_date(
+        asset,
+        source=None,
+    ):
         """
-        Return the latest Yahoo Finance market date stored
+        Return the latest stored market date
         for the asset.
+
+        If source is supplied, only that source is checked.
         """
 
-        latest = (
-            MarketPrice.objects
-            .filter(
-                asset=asset,
-                source=DataSource.YAHOO_FINANCE,
+        queryset = MarketPrice.objects.filter(
+            asset=asset,
+        )
+
+        if source is not None:
+            queryset = queryset.filter(
+                source=source,
             )
+
+        latest = (
+            queryset
             .order_by("-date")
             .first()
         )
@@ -57,16 +80,9 @@ class MarketDataManager:
     @staticmethod
     def resolve_asset_symbol(asset):
         """
-        Resolve the Yahoo Finance symbol for an Asset.
+        Resolve Yahoo Finance symbol for an asset.
 
-        Priority:
-
-            1. ISIN
-            2. Explicit asset.symbol
-            3. Asset name
-
-        The ISIN is preferred because the Excel source
-        provides ISIN as the security identifier.
+        This is used only for STOCK and ETF assets.
         """
 
         return SecurityResolver.resolve_yahoo_symbol(
@@ -76,20 +92,154 @@ class MarketDataManager:
         )
 
     @staticmethod
+    def _rebuild_holding(asset):
+        return (
+            HoldingCalculationEngine
+            .rebuild_holding(asset)
+        )
+
+    @classmethod
+    def _fetch_mutual_fund(
+        cls,
+        asset,
+    ):
+        """
+        Fetch and store the latest AMFI NAV
+        for a mutual fund.
+        """
+
+        if not asset.isin:
+
+            return {
+                "success": False,
+                "skipped": True,
+                "reason": (
+                    "Mutual fund has no ISIN."
+                ),
+            }
+
+        try:
+
+            nav_record = (
+                MutualFundNAVService
+                .get_latest_nav(
+                    asset.isin
+                )
+            )
+
+        except Exception as exc:
+
+            return {
+                "success": False,
+                "skipped": False,
+                "source": "AMFI",
+                "error": str(exc),
+            }
+
+        if nav_record is None:
+
+            return {
+                "success": False,
+                "skipped": True,
+                "source": "AMFI",
+                "reason": (
+                    "No AMFI NAV found for "
+                    f"ISIN {asset.isin}."
+                ),
+            }
+
+        nav = nav_record["nav"]
+        nav_date = nav_record["date"]
+
+        if nav_date is None:
+
+            return {
+                "success": False,
+                "skipped": True,
+                "source": "AMFI",
+                "reason": (
+                    "AMFI returned NAV without "
+                    "a valid NAV date."
+                ),
+            }
+
+        MarketPrice.objects.update_or_create(
+            asset=asset,
+            date=nav_date,
+            source=DataSource.AMFI,
+            defaults={
+                "open_price": None,
+                "high_price": None,
+                "low_price": None,
+                "close_price": nav,
+                "adjusted_close": nav,
+                "volume": None,
+            },
+        )
+
+        holding = cls._rebuild_holding(
+            asset
+        )
+
+        return {
+            "success": True,
+            "skipped": False,
+            "source": "AMFI",
+            "scheme_code": (
+                nav_record["scheme_code"]
+            ),
+            "scheme_name": (
+                nav_record["scheme_name"]
+            ),
+            "nav": str(nav),
+            "date": str(nav_date),
+            "holding_id": (
+                holding.id
+                if holding
+                else None
+            ),
+            "current_price": (
+                str(holding.current_price)
+                if holding
+                else str(nav)
+            ),
+            "current_value": (
+                str(holding.current_value)
+                if holding
+                else "0"
+            ),
+        }
+
+    @classmethod
     def fetch_and_rebuild(
+        cls,
         asset,
         period="1y",
     ):
         """
-        Fetch market data for an asset and rebuild its holding.
+        Fetch market data for an asset and
+        rebuild its holding.
 
-        First fetch:
-            Download 1 year of history.
+        STOCK / ETF:
+            Yahoo Finance
 
-        Subsequent fetch:
-            Download only data after the latest stored
-            market date.
+        MUTUAL_FUND:
+            AMFI NAV
         """
+
+        # ======================================================
+        # MUTUAL FUND
+        # ======================================================
+
+        if asset.category == "MUTUAL_FUND":
+
+            return cls._fetch_mutual_fund(
+                asset
+            )
+
+        # ======================================================
+        # STOCK / ETF
+        # ======================================================
 
         if asset.category not in [
             "STOCK",
@@ -101,7 +251,7 @@ class MarketDataManager:
                 "skipped": True,
                 "reason": (
                     "Market refresh currently supports "
-                    "STOCK and ETF assets only."
+                    "STOCK, ETF and MUTUAL_FUND assets."
                 ),
             }
 
@@ -112,8 +262,9 @@ class MarketDataManager:
         try:
 
             yahoo_symbol = (
-                MarketDataManager
-                .resolve_asset_symbol(asset)
+                cls.resolve_asset_symbol(
+                    asset
+                )
             )
 
         except Exception as exc:
@@ -133,7 +284,8 @@ class MarketDataManager:
                 "reason": (
                     f"Unable to resolve Yahoo Finance "
                     f"symbol for {asset.name} "
-                    f"(ISIN: {asset.isin or 'N/A'})."
+                    f"(ISIN: "
+                    f"{asset.isin or 'N/A'})."
                 ),
                 "symbol": None,
             }
@@ -143,8 +295,10 @@ class MarketDataManager:
         # ======================================================
 
         latest_date = (
-            MarketDataManager
-            .get_latest_market_date(asset)
+            cls.get_latest_market_date(
+                asset,
+                source=DataSource.YAHOO_FINANCE,
+            )
         )
 
         try:
@@ -181,13 +335,12 @@ class MarketDataManager:
                     timezone.localdate()
                 )
 
-                # No need to contact Yahoo if we already
-                # have today's market date.
                 if start_date > today:
 
                     holding = (
-                        HoldingCalculationEngine
-                        .rebuild_holding(asset)
+                        cls._rebuild_holding(
+                            asset
+                        )
                     )
 
                     return {
@@ -240,8 +393,9 @@ class MarketDataManager:
             # ==================================================
 
             holding = (
-                HoldingCalculationEngine
-                .rebuild_holding(asset)
+                cls._rebuild_holding(
+                    asset
+                )
             )
 
             if holding is None:
