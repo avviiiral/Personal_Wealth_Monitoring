@@ -1,81 +1,55 @@
 import re
+from pathlib import Path
+
+from django.conf import settings
 
 
 class SecurityResolver:
     """
     Resolve Indian securities to Yahoo Finance symbols.
 
-    Priority:
-        1. Explicit Yahoo symbol
-        2. ISIN mapping
-        3. Known asset-name mapping
-        4. Existing symbol-like value
+    Resolution priority:
+        1. Security Master Excel ISIN mapping
+        2. Existing hard-coded ISIN mapping
+        3. Explicit Yahoo/exchange symbol
+        4. Security Master Excel name mapping
+        5. Existing hard-coded name mapping
+        6. Generic symbol + exchange suffix
+
+    The Security Master is optional. If it is unavailable, the existing
+    resolver behaviour remains available as a fallback.
     """
 
     NSE_SUFFIX = ".NS"
     BSE_SUFFIX = ".BO"
 
+    SECURITY_MASTER_FILENAME = "security_master.xlsx"
+
     # ==========================================================
-    # ISIN -> Yahoo Finance symbol
-    #
-    # ISIN is the preferred identifier because the same security
-    # can have different names/symbol representations.
+    # Existing fallback ISIN -> Yahoo Finance symbol mapping
     # ==========================================================
 
     ISIN_TO_YAHOO = {
-        # Asian Paints
         "INE021A01026": "ASIANPAINT.NS",
-
-        # Bharti Airtel
         "INE397D01024": "BHARTIARTL.NS",
-
-        # HCL Technologies
         "INE860A01027": "HCLTECH.NS",
-
-        # HDFC Bank
         "INE040A01034": "HDFCBANK.NS",
-
-        # Hindustan Unilever
         "INE030A01027": "HINDUNILVR.NS",
-
-        # ICICI Bank
         "INE090A01021": "ICICIBANK.NS",
-
-        # ITC
         "INE154A01025": "ITC.NS",
-
-        # Infosys
         "INE009A01021": "INFY.NS",
-
-        # Larsen & Toubro
         "INE018A01030": "LT.NS",
-
-        # Mahindra & Mahindra
         "INE101A01026": "M&M.NS",
-
-        # Maruti Suzuki
         "INE585B01010": "MARUTI.NS",
-
-        # Reliance Industries
         "INE002A01018": "RELIANCE.NS",
-
-        # State Bank of India
         "INE062A01020": "SBIN.NS",
-
-        # Sun Pharmaceutical Industries
         "INE044A01036": "SUNPHARMA.NS",
-
-        # Tata Consultancy Services
         "INE467B01029": "TCS.NS",
-
-        # Tata Motors
         "INE155A01022": "TATAMOTORS.NS",
     }
 
     # ==========================================================
-    # Asset name -> Yahoo symbol
-    #
-    # This is a fallback for assets where ISIN is missing.
+    # Existing fallback asset-name mapping
     # ==========================================================
 
     NAME_TO_YAHOO = {
@@ -130,22 +104,22 @@ class SecurityResolver:
         "STATE BANK OF INDIA LTD": "SBIN.NS",
         "STATE BANK OF INDIA LIMITED": "SBIN.NS",
 
-        "SUN PHARMACEUTICAL INDUSTRIES LTD":
-            "SUNPHARMA.NS",
-        "SUN PHARMACEUTICAL INDUSTRIES LIMITED":
-            "SUNPHARMA.NS",
+        "SUN PHARMACEUTICAL INDUSTRIES LTD": "SUNPHARMA.NS",
+        "SUN PHARMACEUTICAL INDUSTRIES LIMITED": "SUNPHARMA.NS",
         "SUN PHARMA": "SUNPHARMA.NS",
 
-        "TATA CONSULTANCY SERVICES LTD":
-            "TCS.NS",
-        "TATA CONSULTANCY SERVICES LIMITED":
-            "TCS.NS",
+        "TATA CONSULTANCY SERVICES LTD": "TCS.NS",
+        "TATA CONSULTANCY SERVICES LIMITED": "TCS.NS",
         "TCS": "TCS.NS",
 
         "TATA MOTORS LTD": "TATAMOTORS.NS",
         "TATA MOTORS LIMITED": "TATAMOTORS.NS",
         "TATA MOTORS": "TATAMOTORS.NS",
     }
+
+    _security_master_loaded = False
+    _security_master_isin = {}
+    _security_master_name = {}
 
     @staticmethod
     def clean_symbol(symbol):
@@ -193,15 +167,180 @@ class SecurityResolver:
         return value
 
     @classmethod
+    def _security_master_path(cls):
+        """
+        Locate security_master.xlsx.
+
+        Preferred location:
+            backend/data/security_master.xlsx
+
+        settings.BASE_DIR points to the backend directory in the
+        current Django project.
+        """
+
+        base_dir = Path(settings.BASE_DIR)
+
+        candidates = [
+            base_dir / "data" / cls.SECURITY_MASTER_FILENAME,
+            base_dir.parent / "data" / cls.SECURITY_MASTER_FILENAME,
+        ]
+
+        for path in candidates:
+            if path.exists():
+                return path
+
+        return None
+
+    @classmethod
+    def _load_security_master(cls):
+        """
+        Load Security Master Excel once per process.
+
+        The workbook is optional. If it is missing or unreadable,
+        the resolver continues using its existing mappings.
+        """
+
+        if cls._security_master_loaded:
+            return
+
+        cls._security_master_loaded = True
+
+        path = cls._security_master_path()
+
+        if path is None:
+            return
+
+        try:
+            import openpyxl
+
+            workbook = openpyxl.load_workbook(
+                path,
+                read_only=True,
+                data_only=True,
+            )
+
+            worksheet = workbook.active
+
+            headers = next(
+                worksheet.iter_rows(
+                    min_row=1,
+                    max_row=1,
+                    values_only=True,
+                ),
+                (),
+            )
+
+            normalized_headers = {}
+
+            for index, header in enumerate(headers):
+                if header is None:
+                    continue
+
+                normalized_headers[
+                    str(header).strip().upper()
+                ] = index
+
+            isin_index = normalized_headers.get("ISIN")
+            yahoo_index = normalized_headers.get("YAHOO SYMBOL")
+            name_index = normalized_headers.get("SECURITY NAME")
+
+            if isin_index is None:
+                workbook.close()
+                return
+
+            for row in worksheet.iter_rows(
+                min_row=2,
+                values_only=True,
+            ):
+                if not row:
+                    continue
+
+                isin_value = (
+                    row[isin_index]
+                    if isin_index < len(row)
+                    else None
+                )
+
+                yahoo_value = (
+                    row[yahoo_index]
+                    if yahoo_index is not None
+                    and yahoo_index < len(row)
+                    else None
+                )
+
+                name_value = (
+                    row[name_index]
+                    if name_index is not None
+                    and name_index < len(row)
+                    else None
+                )
+
+                cleaned_isin = cls.clean_isin(isin_value)
+                cleaned_yahoo = cls.clean_symbol(yahoo_value)
+                cleaned_name = cls.clean_name(name_value)
+
+                if (
+                    cleaned_isin
+                    and cleaned_yahoo
+                ):
+                    cls._security_master_isin[
+                        cleaned_isin
+                    ] = cleaned_yahoo
+
+                if (
+                    cleaned_name
+                    and cleaned_yahoo
+                ):
+                    cls._security_master_name[
+                        cleaned_name
+                    ] = cleaned_yahoo
+
+            workbook.close()
+
+        except Exception:
+            # Security Master must not break the existing price
+            # resolution system if the Excel file is unavailable,
+            # malformed, or openpyxl is not installed.
+            cls._security_master_isin = {}
+            cls._security_master_name = {}
+
+    @classmethod
+    def reload_security_master(cls):
+        """
+        Force the Security Master to be loaded again.
+
+        Useful after security_master.xlsx has been edited while
+        the Django process is still running.
+        """
+
+        cls._security_master_loaded = False
+        cls._security_master_isin = {}
+        cls._security_master_name = {}
+
+        cls._load_security_master()
+
+    @classmethod
     def resolve_from_isin(cls, isin):
         """
         Resolve Yahoo symbol directly from ISIN.
+
+        Security Master is checked first, followed by the existing
+        hard-coded mapping.
         """
 
         cleaned_isin = cls.clean_isin(isin)
 
         if not cleaned_isin:
             return None
+
+        cls._load_security_master()
+
+        yahoo_from_master = cls._security_master_isin.get(
+            cleaned_isin
+        )
+
+        if yahoo_from_master:
+            return yahoo_from_master
 
         return cls.ISIN_TO_YAHOO.get(
             cleaned_isin
@@ -211,12 +350,24 @@ class SecurityResolver:
     def resolve_from_name(cls, name):
         """
         Resolve Yahoo symbol from a known asset name.
+
+        Security Master is checked first, followed by the existing
+        hard-coded mapping.
         """
 
         cleaned_name = cls.clean_name(name)
 
         if not cleaned_name:
             return None
+
+        cls._load_security_master()
+
+        yahoo_from_master = cls._security_master_name.get(
+            cleaned_name
+        )
+
+        if yahoo_from_master:
+            return yahoo_from_master
 
         return cls.NAME_TO_YAHOO.get(
             cleaned_name
@@ -235,15 +386,13 @@ class SecurityResolver:
 
         Priority:
 
-            1. ISIN
-            2. Explicit Yahoo/exchange symbol
-            3. Known asset name
-            4. Generic symbol + exchange suffix
+            1. ISIN through Security Master
+            2. Existing ISIN mapping
+            3. Explicit symbol
+            4. Security Master name mapping
+            5. Existing name mapping
+            6. Generic symbol + exchange suffix
         """
-
-        # ======================================================
-        # 1. ISIN
-        # ======================================================
 
         yahoo_from_isin = cls.resolve_from_isin(
             isin
@@ -251,10 +400,6 @@ class SecurityResolver:
 
         if yahoo_from_isin:
             return yahoo_from_isin
-
-        # ======================================================
-        # 2. Explicit symbol
-        # ======================================================
 
         cleaned_symbol = cls.clean_symbol(
             symbol
@@ -272,10 +417,6 @@ class SecurityResolver:
             ):
                 return cleaned_symbol
 
-        # ======================================================
-        # 3. Known asset name
-        # ======================================================
-
         yahoo_from_name = cls.resolve_from_name(
             name
         )
@@ -283,12 +424,7 @@ class SecurityResolver:
         if yahoo_from_name:
             return yahoo_from_name
 
-        # ======================================================
-        # 4. Generic fallback
-        # ======================================================
-
         if not cleaned_symbol:
-
             raise ValueError(
                 "Unable to resolve security symbol. "
                 "ISIN, symbol and asset name are all missing "
@@ -300,7 +436,6 @@ class SecurityResolver:
         ).strip().upper()
 
         if exchange == "BSE":
-
             return (
                 f"{cleaned_symbol}"
                 f"{cls.BSE_SUFFIX}"
@@ -322,46 +457,31 @@ class SecurityResolver:
         """
         Return possible Yahoo symbols.
 
-        ISIN and known name mappings are preferred.
+        Security Master and ISIN mappings are preferred.
         """
 
         candidates = []
 
-        # ------------------------------------------------------
-        # ISIN mapping
-        # ------------------------------------------------------
-
-        yahoo_from_isin = (
-            cls.resolve_from_isin(isin)
+        yahoo_from_isin = cls.resolve_from_isin(
+            isin
         )
 
         if yahoo_from_isin:
-
             candidates.append(
                 yahoo_from_isin
             )
 
-        # ------------------------------------------------------
-        # Name mapping
-        # ------------------------------------------------------
-
-        yahoo_from_name = (
-            cls.resolve_from_name(name)
+        yahoo_from_name = cls.resolve_from_name(
+            name
         )
 
         if (
             yahoo_from_name
-            and yahoo_from_name
-            not in candidates
+            and yahoo_from_name not in candidates
         ):
-
             candidates.append(
                 yahoo_from_name
             )
-
-        # ------------------------------------------------------
-        # Explicit symbol
-        # ------------------------------------------------------
 
         cleaned = cls.clean_symbol(
             symbol
@@ -390,23 +510,17 @@ class SecurityResolver:
                 ).strip().upper()
 
                 if exchange == "BSE":
-
                     candidate = (
                         f"{cleaned}"
                         f"{cls.BSE_SUFFIX}"
                     )
-
                 else:
-
                     candidate = (
                         f"{cleaned}"
                         f"{cls.NSE_SUFFIX}"
                     )
 
                 if candidate not in candidates:
-
-                    candidates.append(
-                        candidate
-                    )
+                    candidates.append(candidate)
 
         return candidates
