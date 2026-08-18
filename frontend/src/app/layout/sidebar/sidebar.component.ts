@@ -25,7 +25,6 @@ import { RouterLink, RouterLinkActive } from '@angular/router';
     LucideCircleDollarSign,
     LucideChartPie,
     LucideSettings,
-    LucidePlus,
   ],
   templateUrl: './sidebar.component.html',
   styleUrl: './sidebar.component.scss',
