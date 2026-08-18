@@ -17,16 +17,6 @@ class SecurityMasterService:
         owner,
         asset,
     ):
-        """
-        Return the SecurityMaster record for an Asset.
-
-        If an ISIN exists, ISIN is used as the primary
-        lookup key.
-
-        Assets without an ISIN are supported but are
-        not treated as globally identifiable securities.
-        """
-
         isin = (
             asset.isin.strip()
             if asset.isin
@@ -44,6 +34,7 @@ class SecurityMasterService:
             )
 
             if security:
+
                 changed = False
 
                 if security.asset_name != asset.name:
@@ -66,7 +57,6 @@ class SecurityMasterService:
                 asset_name=asset.name,
             )
 
-        # Assets without ISIN.
         security = (
             SecurityMaster.objects
             .filter(
@@ -91,10 +81,6 @@ class SecurityMasterService:
         owner,
         asset,
     ):
-        """
-        Return the Security Master record for an Asset.
-        """
-
         isin = (
             asset.isin.strip()
             if asset.isin
@@ -128,10 +114,6 @@ class SecurityMasterService:
         sector=None,
         cap_type=None,
     ):
-        """
-        Update Sector and Cap Type for a Security Master record.
-        """
-
         security = (
             SecurityMaster.objects
             .filter(
@@ -147,10 +129,14 @@ class SecurityMasterService:
             )
 
         if sector is not None:
-            security.sector = sector.strip()
+            security.sector = str(
+                sector
+            ).strip()
 
         if cap_type is not None:
-            security.cap_type = cap_type.strip()
+            security.cap_type = str(
+                cap_type
+            ).strip()
 
         security.save()
 

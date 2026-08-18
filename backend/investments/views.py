@@ -5,9 +5,15 @@ from rest_framework.decorators import (
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from .models import SecurityMaster
+
 from .services.transaction_import import (
     TransactionImportError,
     TransactionImporter,
+)
+
+from .services.security_master import (
+    SecurityMasterService,
 )
 
 
@@ -88,4 +94,171 @@ def import_transactions(request):
             "data": result,
         },
         status=201,
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def security_master_list(request):
+    """
+    Return Security Master records belonging to
+    the authenticated user.
+    """
+
+    securities = (
+        SecurityMaster.objects
+        .filter(owner=request.user)
+        .order_by("asset_name")
+    )
+
+    results = []
+
+    for security in securities:
+        results.append(
+            {
+                "id": security.id,
+                "isin": security.isin,
+                "asset_name": security.asset_name,
+                "sector": security.sector,
+                "cap_type": security.cap_type,
+                "manual_nav_enabled": (
+                    security.manual_nav_enabled
+                ),
+                "manual_nav": (
+                    str(security.manual_nav)
+                    if security.manual_nav is not None
+                    else None
+                ),
+            }
+        )
+
+    return Response(
+        {
+            "success": True,
+            "count": len(results),
+            "results": results,
+        }
+    )
+
+
+@api_view(["GET", "PATCH"])
+@permission_classes([IsAuthenticated])
+def security_master_detail(
+    request,
+    security_id,
+):
+    """
+    Retrieve or update a user's Security Master
+    classification.
+    """
+
+    security = (
+        SecurityMaster.objects
+        .filter(
+            id=security_id,
+            owner=request.user,
+        )
+        .first()
+    )
+
+    if security is None:
+        return Response(
+            {
+                "success": False,
+                "message": (
+                    "Security Master record not found."
+                ),
+            },
+            status=404,
+        )
+
+    if request.method == "GET":
+        return Response(
+            {
+                "success": True,
+                "data": {
+                    "id": security.id,
+                    "isin": security.isin,
+                    "asset_name": security.asset_name,
+                    "sector": security.sector,
+                    "cap_type": security.cap_type,
+                    "manual_nav_enabled": (
+                        security.manual_nav_enabled
+                    ),
+                    "manual_nav": (
+                        str(security.manual_nav)
+                        if security.manual_nav is not None
+                        else None
+                    ),
+                },
+            }
+        )
+
+    data = request.data
+
+    if "sector" in data:
+        security.sector = (
+            str(data["sector"]).strip()
+        )
+
+    if "cap_type" in data:
+        security.cap_type = (
+            str(data["cap_type"]).strip()
+        )
+
+    if "manual_nav_enabled" in data:
+        security.manual_nav_enabled = bool(
+            data["manual_nav_enabled"]
+        )
+
+    if "manual_nav" in data:
+
+        value = data["manual_nav"]
+
+        if value in ("", None):
+            security.manual_nav = None
+        else:
+            try:
+                from decimal import Decimal
+
+                security.manual_nav = Decimal(
+                    str(value)
+                )
+
+            except Exception:
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            "manual_nav must be a "
+                            "valid numeric value."
+                        ),
+                    },
+                    status=400,
+                )
+
+    security.save()
+
+    return Response(
+        {
+            "success": True,
+            "message": (
+                "Security Master updated successfully."
+            ),
+            "data": {
+                "id": security.id,
+                "isin": security.isin,
+                "asset_name": security.asset_name,
+                "sector": security.sector,
+                "cap_type": security.cap_type,
+                "manual_nav_enabled": (
+                    security.manual_nav_enabled
+                ),
+                "manual_nav": (
+                    str(security.manual_nav)
+                    if security.manual_nav is not None
+                    else None
+                ),
+            },
+        }
     )

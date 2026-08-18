@@ -21,57 +21,79 @@ class HoldingCalculationEngine:
 
     @staticmethod
     def get_transactions(asset):
-        """
-        Return all transactions for the asset in chronological order.
-        """
-
-        return Transaction.objects.filter(
-            asset=asset
-        ).order_by(
-            "transaction_date",
-            "created_at",
-            "id",
+        return (
+            Transaction.objects
+            .filter(asset=asset)
+            .order_by(
+                "transaction_date",
+                "created_at",
+                "id",
+            )
         )
 
     @staticmethod
     def calculate_position(asset):
         """
-        Calculate quantity and invested value from transactions.
+        Calculate the current position.
 
-        BUY and SIP:
+        BUY / SIP:
             Increase quantity and invested value.
 
         SELL:
-            Reduce quantity.
+            Reduce quantity and remove the corresponding
+            cost basis using the current average cost.
 
-        Dividend / Interest / Deposit / Withdrawal:
-            Do not change the security quantity.
+        BONUS:
+            Increase quantity without increasing cost basis.
 
-        Returns:
-            quantity
-            invested_value
-            average_cost
+        SPLIT:
+            Apply the quantity adjustment without changing
+            total cost basis.
+
+        DIVIDEND / INTEREST / DEPOSIT / WITHDRAWAL:
+            Do not change security quantity or cost basis.
         """
 
         quantity = HoldingCalculationEngine.ZERO
         invested_value = HoldingCalculationEngine.ZERO
 
-        transactions = HoldingCalculationEngine.get_transactions(asset)
+        transactions = (
+            HoldingCalculationEngine
+            .get_transactions(asset)
+        )
 
-        for transaction in transactions:
+        for tx in transactions:
 
-            tx_type = transaction.transaction_type
+            tx_type = tx.transaction_type
 
-            tx_quantity = transaction.quantity or HoldingCalculationEngine.ZERO
-            tx_amount = transaction.amount or HoldingCalculationEngine.ZERO
+            tx_quantity = (
+                tx.quantity
+                or HoldingCalculationEngine.ZERO
+            )
+
+            tx_amount = (
+                tx.amount
+                or HoldingCalculationEngine.ZERO
+            )
+
+            # --------------------------------------------------
+            # BUY / SIP
+            # --------------------------------------------------
 
             if tx_type in (
                 TransactionType.BUY,
                 TransactionType.SIP,
             ):
 
-                quantity += tx_quantity
-                invested_value += tx_amount
+                if tx_quantity > 0:
+                    quantity += tx_quantity
+
+                if tx_amount > 0:
+                    invested_value += tx_amount
+
+            # --------------------------------------------------
+            # SELL
+            # --------------------------------------------------
 
             elif tx_type == TransactionType.SELL:
 
@@ -81,22 +103,61 @@ class HoldingCalculationEngine:
                 if quantity <= 0:
                     continue
 
-                # Reduce invested value proportionally
                 average_cost = (
                     invested_value / quantity
                     if quantity > 0
                     else HoldingCalculationEngine.ZERO
                 )
 
-                quantity -= tx_quantity
+                sell_quantity = min(
+                    tx_quantity,
+                    quantity,
+                )
+
+                quantity -= sell_quantity
 
                 invested_value -= (
-                    average_cost * tx_quantity
+                    average_cost * sell_quantity
                 )
 
                 if quantity <= 0:
-                    quantity = HoldingCalculationEngine.ZERO
-                    invested_value = HoldingCalculationEngine.ZERO
+                    quantity = (
+                        HoldingCalculationEngine.ZERO
+                    )
+                    invested_value = (
+                        HoldingCalculationEngine.ZERO
+                    )
+
+            # --------------------------------------------------
+            # BONUS
+            # --------------------------------------------------
+
+            elif tx_type == TransactionType.BONUS:
+
+                if tx_quantity > 0:
+                    quantity += tx_quantity
+
+            # --------------------------------------------------
+            # SPLIT
+            # --------------------------------------------------
+
+            elif tx_type == TransactionType.SPLIT:
+
+                if tx_quantity > 0:
+                    quantity += tx_quantity
+
+            # --------------------------------------------------
+            # Other transaction types
+            # --------------------------------------------------
+
+            elif tx_type in (
+                TransactionType.DIVIDEND,
+                TransactionType.INTEREST,
+                TransactionType.DEPOSIT,
+                TransactionType.WITHDRAWAL,
+                TransactionType.OTHER,
+            ):
+                continue
 
         average_cost = (
             invested_value / quantity
@@ -112,10 +173,6 @@ class HoldingCalculationEngine:
 
     @staticmethod
     def get_latest_price(asset):
-        """
-        Return the latest stored market price for the asset.
-        """
-
         return (
             MarketPrice.objects
             .filter(asset=asset)
@@ -126,10 +183,6 @@ class HoldingCalculationEngine:
     @staticmethod
     @transaction.atomic
     def rebuild_holding(asset):
-        """
-        Recalculate and save the Holding record for an asset.
-        """
-
         position = (
             HoldingCalculationEngine
             .calculate_position(asset)
@@ -147,7 +200,9 @@ class HoldingCalculationEngine:
         if latest_price:
             current_price = latest_price.close_price
         else:
-            current_price = HoldingCalculationEngine.ZERO
+            current_price = (
+                HoldingCalculationEngine.ZERO
+            )
 
         current_value = (
             quantity * current_price
@@ -174,19 +229,18 @@ class HoldingCalculationEngine:
 
     @staticmethod
     def rebuild_all_for_user(user):
-        """
-        Recalculate holdings for every active asset belonging
-        to a user.
-        """
-
-        assets = Asset.objects.filter(
-            owner=user,
-            is_active=True,
+        assets = (
+            Asset.objects
+            .filter(
+                owner=user,
+                is_active=True,
+            )
         )
 
         holdings = []
 
         for asset in assets:
+
             holding = (
                 HoldingCalculationEngine
                 .rebuild_holding(asset)

@@ -1,18 +1,43 @@
+import traceback
 from decimal import Decimal
+from typing import cast
 
 from django.db import transaction
 from django.db.models import Sum
 
-from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
+from investments.models import (
+    Asset,
+    Holding,
+    Transaction,
+)
 
-from investments.models import Asset, Holding, Transaction
+from investments.services.file_transaction_sync import (
+    FileTransactionSyncService,
+)
+
+from investments.services.portfolio_metrics import (
+    PortfolioMetricsService,
+)
+
+from market_data.services.market_data_manager import (
+    MarketDataManager,
+)
 
 from portfolio.services.holding_engine import (
     HoldingCalculationEngine,
 )
+
+from portfolio.services.portfolio_position_engine import (
+    PortfolioPositionEngine,
+)
+
+from rest_framework import status
+from rest_framework.decorators import (
+    api_view,
+    permission_classes,
+)
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 
 from .serializers import (
     AssetSerializer,
@@ -20,32 +45,25 @@ from .serializers import (
     TransactionSerializer,
 )
 
-from market_data.services.market_data_manager import (
-    MarketDataManager,
-)
 
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def portfolio_assets(request):
-    """
-    List or create assets belonging to the logged-in user.
-    """
 
     if request.method == "GET":
+
         assets = (
             Asset.objects
             .filter(owner=request.user)
             .order_by("name")
         )
 
-        serializer = AssetSerializer(
-            assets,
-            many=True,
-        )
-
         return Response({
             "count": assets.count(),
-            "results": serializer.data,
+            "results": AssetSerializer(
+                assets,
+                many=True,
+            ).data,
         })
 
     serializer = AssetSerializer(
@@ -53,13 +71,17 @@ def portfolio_assets(request):
     )
 
     if not serializer.is_valid():
+
         return Response(
             serializer.errors,
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    asset = serializer.save(
-        owner=request.user,
+    asset = cast(
+        Asset,
+        serializer.save(
+            owner=request.user,
+        ),
     )
 
     market_data = {
@@ -69,42 +91,53 @@ def portfolio_assets(request):
     }
 
     if asset.category in ["STOCK", "ETF"]:
+
         try:
-            market_data = MarketDataManager.fetch_and_rebuild(
-                asset,
-                period="1y",
+
+            market_data = (
+                MarketDataManager
+                .fetch_and_rebuild(
+                    asset,
+                    period="1y",
+                )
             )
 
         except Exception as exc:
+
             market_data = {
                 "success": False,
                 "skipped": False,
                 "error": str(exc),
             }
 
+    asset_data = dict(
+        AssetSerializer(asset).data
+    )
+
+    asset_data["market_data"] = market_data
+
     return Response(
-        {
-            **AssetSerializer(asset).data,
-            "market_data": market_data,
-        },
+        asset_data,
         status=status.HTTP_201_CREATED,
     )
 
 
 @api_view(["GET", "PUT", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
-def portfolio_asset_detail(request, asset_id):
-    """
-    Retrieve, update, partially update, or deactivate
-    an asset belonging to the logged-in user.
-    """
+def portfolio_asset_detail(
+    request,
+    asset_id,
+):
 
     try:
+
         asset = Asset.objects.get(
             id=asset_id,
             owner=request.user,
         )
+
     except Asset.DoesNotExist:
+
         return Response(
             {
                 "detail": "Asset not found."
@@ -113,79 +146,69 @@ def portfolio_asset_detail(request, asset_id):
         )
 
     if request.method == "GET":
-        serializer = AssetSerializer(asset)
-
-        return Response(
-            serializer.data,
-            status=status.HTTP_200_OK,
-        )
-
-    if request.method == "PUT":
-        serializer = AssetSerializer(
-            asset,
-            data=request.data,
-        )
-
-        if not serializer.is_valid():
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        asset = serializer.save()
 
         return Response(
             AssetSerializer(asset).data,
             status=status.HTTP_200_OK,
         )
 
-    if request.method == "PATCH":
+    if request.method == "PUT":
+
+        serializer = AssetSerializer(
+            asset,
+            data=request.data,
+        )
+
+    elif request.method == "PATCH":
+
         serializer = AssetSerializer(
             asset,
             data=request.data,
             partial=True,
         )
 
-        if not serializer.is_valid():
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+    else:
 
-        asset = serializer.save()
+        asset.is_active = False
 
-        return Response(
-            AssetSerializer(asset).data,
-            status=status.HTTP_200_OK,
+        asset.save(
+            update_fields=[
+                "is_active",
+                "updated_at",
+            ]
         )
 
-    asset.is_active = False
-    asset.save(
-        update_fields=[
-            "is_active",
-            "updated_at",
-        ]
+        return Response(
+            status=status.HTTP_204_NO_CONTENT,
+        )
+
+    if not serializer.is_valid():
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    asset = cast(
+        Asset,
+        serializer.save(),
     )
 
     return Response(
-        status=status.HTTP_204_NO_CONTENT,
+        AssetSerializer(asset).data,
+        status=status.HTTP_200_OK,
     )
 
 
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def portfolio_transactions(request):
-    """
-    List or create transactions belonging to the
-    logged-in user.
-    """
 
     if request.method == "GET":
+
         transactions = (
             Transaction.objects
-            .filter(
-                owner=request.user,
-            )
+            .filter(owner=request.user)
             .select_related("asset")
             .order_by(
                 "-transaction_date",
@@ -193,14 +216,12 @@ def portfolio_transactions(request):
             )
         )
 
-        serializer = TransactionSerializer(
-            transactions,
-            many=True,
-        )
-
         return Response({
             "count": transactions.count(),
-            "results": serializer.data,
+            "results": TransactionSerializer(
+                transactions,
+                many=True,
+            ).data,
         })
 
     serializer = TransactionSerializer(
@@ -211,34 +232,46 @@ def portfolio_transactions(request):
     )
 
     if not serializer.is_valid():
+
         return Response(
             serializer.errors,
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     with transaction.atomic():
-        transaction_obj = serializer.save(
-            owner=request.user,
+
+        transaction_obj = cast(
+            Transaction,
+            serializer.save(
+                owner=request.user,
+            ),
         )
 
         HoldingCalculationEngine.rebuild_holding(
             transaction_obj.asset
         )
 
+        PortfolioPositionEngine.rebuild_all_for_user(
+            request.user
+        )
+
     return Response(
-        TransactionSerializer(transaction_obj).data,
+        TransactionSerializer(
+            transaction_obj
+        ).data,
         status=status.HTTP_201_CREATED,
     )
 
+
 @api_view(["GET", "PUT", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
-def portfolio_transaction_detail(request, transaction_id):
-    """
-    Retrieve, update, or delete a transaction belonging
-    to the logged-in user.
-    """
+def portfolio_transaction_detail(
+    request,
+    transaction_id,
+):
 
     try:
+
         transaction_obj = (
             Transaction.objects
             .select_related("asset")
@@ -247,7 +280,9 @@ def portfolio_transaction_detail(request, transaction_id):
                 owner=request.user,
             )
         )
+
     except Transaction.DoesNotExist:
+
         return Response(
             {
                 "detail": "Transaction not found."
@@ -256,111 +291,93 @@ def portfolio_transaction_detail(request, transaction_id):
         )
 
     if request.method == "GET":
-        serializer = TransactionSerializer(
-            transaction_obj,
-        )
 
         return Response(
-            serializer.data,
+            TransactionSerializer(
+                transaction_obj
+            ).data,
             status=status.HTTP_200_OK,
         )
 
-    if request.method == "PUT":
+    if request.method == "DELETE":
+
         old_asset = transaction_obj.asset
 
-        serializer = TransactionSerializer(
-            transaction_obj,
-            data=request.data,
-            context={
-                "request": request,
-            },
-        )
-
-        if not serializer.is_valid():
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         with transaction.atomic():
-            transaction_obj = serializer.save()
 
-            new_asset = transaction_obj.asset
+            transaction_obj.delete()
 
             HoldingCalculationEngine.rebuild_holding(
                 old_asset
             )
 
-            HoldingCalculationEngine.rebuild_holding(
-                new_asset
+            PortfolioPositionEngine.rebuild_all_for_user(
+                request.user
             )
 
         return Response(
-            TransactionSerializer(transaction_obj).data,
-            status=status.HTTP_200_OK,
+            status=status.HTTP_204_NO_CONTENT,
         )
 
-    if request.method == "PATCH":
-        old_asset = transaction_obj.asset
+    serializer = TransactionSerializer(
+        transaction_obj,
+        data=request.data,
+        partial=request.method == "PATCH",
+        context={
+            "request": request,
+        },
+    )
 
-        serializer = TransactionSerializer(
-            transaction_obj,
-            data=request.data,
-            partial=True,
-            context={
-                "request": request,
-            },
-        )
-
-        if not serializer.is_valid():
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        with transaction.atomic():
-            transaction_obj = serializer.save()
-
-            new_asset = transaction_obj.asset
-
-            HoldingCalculationEngine.rebuild_holding(
-                old_asset
-            )
-
-            if new_asset.id != old_asset.id:
-                HoldingCalculationEngine.rebuild_holding(
-                    new_asset
-                )
+    if not serializer.is_valid():
 
         return Response(
-            TransactionSerializer(transaction_obj).data,
-            status=status.HTTP_200_OK,
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST,
         )
 
     old_asset = transaction_obj.asset
 
     with transaction.atomic():
-        transaction_obj.delete()
+
+        transaction_obj = cast(
+            Transaction,
+            serializer.save(),
+        )
+
+        new_asset = transaction_obj.asset
 
         HoldingCalculationEngine.rebuild_holding(
             old_asset
         )
 
+        if new_asset.id != old_asset.id:
+
+            HoldingCalculationEngine.rebuild_holding(
+                new_asset
+            )
+
+        PortfolioPositionEngine.rebuild_all_for_user(
+            request.user
+        )
+
     return Response(
-        status=status.HTTP_204_NO_CONTENT,
+        TransactionSerializer(
+            transaction_obj
+        ).data,
+        status=status.HTTP_200_OK,
     )
 
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def portfolio_summary(request):
-    """
-    Return the high-level portfolio summary for the logged-in user.
-    """
 
-    holdings = Holding.objects.filter(
-        owner=request.user,
-        asset__is_active=True,
+    holdings = (
+        Holding.objects
+        .filter(
+            owner=request.user,
+            asset__is_active=True,
+        )
     )
 
     total_invested = (
@@ -386,7 +403,7 @@ def portfolio_summary(request):
         (
             total_unrealized_pnl
             / total_invested
-        ) * 100
+        ) * Decimal("100")
         if total_invested
         else Decimal("0")
     )
@@ -406,9 +423,6 @@ def portfolio_summary(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def portfolio_holdings(request):
-    """
-    Return all current holdings for the logged-in user.
-    """
 
     holdings = (
         Holding.objects
@@ -420,12 +434,60 @@ def portfolio_holdings(request):
         .order_by("-current_value")
     )
 
-    serializer = HoldingSerializer(
-        holdings,
-        many=True,
-    )
-
     return Response({
         "count": holdings.count(),
-        "results": serializer.data,
+        "results": HoldingSerializer(
+            holdings,
+            many=True,
+        ).data,
     })
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def portfolio_tree(request):
+
+    try:
+        FileTransactionSyncService.sync(
+            owner=request.user
+        )
+
+    except FileNotFoundError as exc:
+        return Response(
+            {
+                "success": False,
+                "message": str(exc),
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    except Exception as exc:
+        traceback.print_exc()
+
+        return Response(
+            {
+                "success": False,
+                "message": (
+                    "Unable to synchronize "
+                    "transaction file."
+                ),
+                "error": str(exc),
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    from portfolio.services.portfolio_tree_service import (
+        PortfolioTreeService,
+    )
+
+    tree = PortfolioTreeService.build(
+        owner=request.user
+    )
+
+    return Response(
+        {
+            "success": True,
+            **tree,
+        },
+        status=status.HTTP_200_OK,
+    )

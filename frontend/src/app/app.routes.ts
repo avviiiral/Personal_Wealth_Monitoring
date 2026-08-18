@@ -10,7 +10,6 @@ import { MutualFundsComponent } from '../features/mutual-funds/mutual-funds.comp
 import { SipsComponent } from '../features/sips/sips.component';
 import { AnalyticsComponent } from '../features/analytics/analytics.component';
 import { SettingsComponent } from '../features/settings/settings.component';
-import { AddInvestmentComponent } from '../features/add-investment/add-investment.component';
 
 import { PagePlaceholderComponent } from '../shared/components/page-placeholder.component';
 
@@ -71,11 +70,6 @@ export const routes: Routes = [
       {
         path: 'analytics',
         component: AnalyticsComponent,
-      },
-
-      {
-        path: 'add-investment',
-        component: AddInvestmentComponent,
       },
 
       {

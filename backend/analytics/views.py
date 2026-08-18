@@ -7,7 +7,6 @@ from rest_framework.response import Response
 from .services.portfolio_analytics import PortfolioAnalytics
 from .services.unified_wealth import UnifiedWealthAnalytics
 
-from datetime import date, timedelta
 
 # ==========================================================
 # EXISTING ANALYTICS ENDPOINTS
@@ -84,7 +83,6 @@ def analytics_historical(request):
     current_date = start_date
 
     while current_date <= end_date:
-
         result = (
             PortfolioAnalytics
             .calculate_historical_value(
@@ -184,7 +182,8 @@ def wealth_xirr(request):
     return Response({
         "xirr_percentage": data
     })
-    
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def wealth_historical(request):

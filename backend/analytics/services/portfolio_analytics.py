@@ -1,18 +1,7 @@
 from datetime import date
-
-from .xirr import XIRRCalculator
-
 from decimal import Decimal
 
 from django.db.models import Sum
-
-from investments.models import (
-    Holding,
-    Transaction,
-    TransactionType,
-)
-
-from datetime import date, timedelta
 
 from investments.models import (
     Asset,
@@ -20,25 +9,17 @@ from investments.models import (
     Transaction,
     TransactionType,
 )
-
 from market_data.models import MarketPrice
+
+from .xirr import XIRRCalculator
+
 
 class PortfolioAnalytics:
 
     ZERO = Decimal("0")
+
     @staticmethod
     def calculate_xirr(user):
-        """
-        Calculate portfolio-level XIRR.
-
-        Investment transactions are negative cash flows.
-
-        Sell/dividend/interest transactions are positive cash flows.
-
-        Current portfolio value is added as a positive cash flow
-        on today's date.
-        """
-
         transactions = (
             Transaction.objects
             .filter(owner=user)
@@ -52,30 +33,17 @@ class PortfolioAnalytics:
         cash_flows = []
 
         for tx in transactions:
-
-            amount = (
-                tx.amount
-                or PortfolioAnalytics.ZERO
-            )
-
-            fees = (
-                tx.fees
-                or PortfolioAnalytics.ZERO
-            )
-
-            transaction_date = (
-                tx.transaction_date
-            )
+            amount = tx.amount or PortfolioAnalytics.ZERO
+            fees = tx.fees or PortfolioAnalytics.ZERO
 
             if tx.transaction_type in (
                 TransactionType.BUY,
                 TransactionType.SIP,
                 TransactionType.DEPOSIT,
             ):
-
                 cash_flows.append(
                     (
-                        transaction_date,
+                        tx.transaction_date,
                         -(amount + fees),
                     )
                 )
@@ -86,16 +54,13 @@ class PortfolioAnalytics:
                 TransactionType.INTEREST,
                 TransactionType.WITHDRAWAL,
             ):
-
                 cash_flows.append(
                     (
-                        transaction_date,
+                        tx.transaction_date,
                         amount - fees,
                     )
                 )
 
-        # Current portfolio value is treated as
-        # the terminal positive cash flow.
         holdings = PortfolioAnalytics.get_holdings(user)
 
         current_value = sum(
@@ -107,7 +72,6 @@ class PortfolioAnalytics:
         )
 
         if current_value > 0:
-
             cash_flows.append(
                 (
                     date.today(),
@@ -115,23 +79,15 @@ class PortfolioAnalytics:
                 )
             )
 
-        xirr = XIRRCalculator.calculate(
-            cash_flows
-        )
+        xirr = XIRRCalculator.calculate(cash_flows)
 
         if xirr is None:
             return None
 
-        return round(
-            xirr * 100,
-            2,
-        )
+        return round(xirr * 100, 2)
+
     @staticmethod
     def get_holdings(user):
-        """
-        Return all active holdings belonging to the user.
-        """
-
         return (
             Holding.objects
             .filter(
@@ -143,10 +99,6 @@ class PortfolioAnalytics:
 
     @staticmethod
     def calculate_unrealized_pnl(user):
-        """
-        Calculate total unrealized P&L.
-        """
-
         result = (
             PortfolioAnalytics
             .get_holdings(user)
@@ -170,26 +122,6 @@ class PortfolioAnalytics:
 
     @staticmethod
     def calculate_realized_pnl(user):
-        """
-        Calculate realized P&L from SELL transactions.
-
-        Uses average-cost methodology.
-
-        Example:
-
-        BUY 100 @ 100
-        SELL 40 @ 150
-
-        Cost of sold quantity:
-            40 × 100 = 4000
-
-        Sale value:
-            40 × 150 = 6000
-
-        Realized P&L:
-            6000 - 4000 = 2000
-        """
-
         transactions = (
             Transaction.objects
             .filter(owner=user)
@@ -203,12 +135,10 @@ class PortfolioAnalytics:
         )
 
         positions = {}
-
         realized_pnl = PortfolioAnalytics.ZERO
 
         for tx in transactions:
-
-            asset_id = tx.asset_id
+            asset_id = tx.asset.id
 
             if asset_id not in positions:
                 positions[asset_id] = {
@@ -228,16 +158,21 @@ class PortfolioAnalytics:
                 or PortfolioAnalytics.ZERO
             )
 
+            fees = (
+                tx.fees
+                or PortfolioAnalytics.ZERO
+            )
+
             if tx.transaction_type in (
                 TransactionType.BUY,
                 TransactionType.SIP,
             ):
-
                 position["quantity"] += quantity
-                position["invested_value"] += amount
+                position["invested_value"] += (
+                    amount + fees
+                )
 
             elif tx.transaction_type == TransactionType.SELL:
-
                 if (
                     position["quantity"] <= 0
                     or quantity <= 0
@@ -254,27 +189,26 @@ class PortfolioAnalytics:
                 )
 
                 realized_pnl += (
-                    amount - cost_of_sale - (
-                        tx.fees
-                        or PortfolioAnalytics.ZERO
-                    )
+                    amount
+                    - fees
+                    - cost_of_sale
                 )
 
                 position["quantity"] -= quantity
                 position["invested_value"] -= cost_of_sale
 
                 if position["quantity"] <= 0:
-                    position["quantity"] = PortfolioAnalytics.ZERO
-                    position["invested_value"] = PortfolioAnalytics.ZERO
+                    position["quantity"] = (
+                        PortfolioAnalytics.ZERO
+                    )
+                    position["invested_value"] = (
+                        PortfolioAnalytics.ZERO
+                    )
 
         return realized_pnl
 
     @staticmethod
     def calculate_summary(user):
-        """
-        Calculate complete portfolio summary.
-        """
-
         holdings = PortfolioAnalytics.get_holdings(user)
 
         totals = holdings.aggregate(
@@ -309,17 +243,12 @@ class PortfolioAnalytics:
         )
 
         return_percentage = (
-            (
-                total_pnl
-                / total_invested
-            ) * 100
+            (total_pnl / total_invested) * 100
             if total_invested
             else PortfolioAnalytics.ZERO
         )
 
-        xirr = PortfolioAnalytics.calculate_xirr(
-            user
-        )
+        xirr = PortfolioAnalytics.calculate_xirr(user)
 
         return {
             "total_invested": total_invested,
@@ -337,10 +266,6 @@ class PortfolioAnalytics:
 
     @staticmethod
     def calculate_allocation(user):
-        """
-        Calculate portfolio allocation by asset category.
-        """
-
         holdings = PortfolioAnalytics.get_holdings(user)
 
         total_value = sum(
@@ -354,10 +279,7 @@ class PortfolioAnalytics:
         allocation = {}
 
         for holding in holdings:
-
-            category = (
-                holding.asset.category
-            )
+            category = holding.asset.category
 
             value = (
                 holding.current_value
@@ -374,14 +296,10 @@ class PortfolioAnalytics:
             allocation[category]["value"] += value
 
         for category in allocation:
-
             value = allocation[category]["value"]
 
             percentage = (
-                (
-                    value
-                    / total_value
-                ) * 100
+                (value / total_value) * 100
                 if total_value
                 else PortfolioAnalytics.ZERO
             )
@@ -391,16 +309,10 @@ class PortfolioAnalytics:
                 2,
             )
 
-        return list(
-            allocation.values()
-        )
+        return list(allocation.values())
 
     @staticmethod
     def get_performance_ranking(user):
-        """
-        Rank holdings by unrealized P&L percentage.
-        """
-
         holdings = list(
             PortfolioAnalytics.get_holdings(user)
         )
@@ -408,40 +320,39 @@ class PortfolioAnalytics:
         results = []
 
         for holding in holdings:
-
             if holding.invested_value:
-
                 pnl_percentage = (
                     holding.unrealized_pnl
                     / holding.invested_value
                 ) * 100
-
             else:
                 pnl_percentage = PortfolioAnalytics.ZERO
 
-            results.append({
-                "asset_id": holding.asset_id,
-                "asset_name": holding.asset.name,
-                "symbol": holding.asset.symbol,
-                "current_value": holding.current_value,
-                "unrealized_pnl": holding.unrealized_pnl,
-                "pnl_percentage": round(
-                    pnl_percentage,
-                    2,
-                ),
-            })
+            results.append(
+                {
+                    "asset_id": holding.asset.id,
+                    "asset_name": holding.asset.name,
+                    "symbol": holding.asset.symbol,
+                    "current_value": holding.current_value,
+                    "unrealized_pnl": holding.unrealized_pnl,
+                    "pnl_percentage": round(
+                        pnl_percentage,
+                        2,
+                    ),
+                }
+            )
 
         return sorted(
             results,
             key=lambda item: item["pnl_percentage"],
             reverse=True,
         )
-    @staticmethod
-    def calculate_position_as_of(asset, target_date):
-        """
-        Calculate an asset position as it existed on a historical date.
-        """
 
+    @staticmethod
+    def calculate_position_as_of(
+        asset,
+        target_date,
+    ):
         transactions = (
             Transaction.objects
             .filter(
@@ -460,7 +371,6 @@ class PortfolioAnalytics:
         invested_value = PortfolioAnalytics.ZERO
 
         for tx in transactions:
-
             tx_quantity = (
                 tx.quantity
                 or PortfolioAnalytics.ZERO
@@ -471,16 +381,19 @@ class PortfolioAnalytics:
                 or PortfolioAnalytics.ZERO
             )
 
+            fees = (
+                tx.fees
+                or PortfolioAnalytics.ZERO
+            )
+
             if tx.transaction_type in (
                 TransactionType.BUY,
                 TransactionType.SIP,
             ):
-
                 quantity += tx_quantity
-                invested_value += amount
+                invested_value += amount + fees
 
             elif tx.transaction_type == TransactionType.SELL:
-
                 if quantity <= 0:
                     continue
 
@@ -493,12 +406,10 @@ class PortfolioAnalytics:
                 quantity -= tx_quantity
 
                 invested_value -= (
-                    average_cost
-                    * tx_quantity
+                    average_cost * tx_quantity
                 )
 
                 if quantity <= 0:
-
                     quantity = PortfolioAnalytics.ZERO
                     invested_value = PortfolioAnalytics.ZERO
 
@@ -506,16 +417,12 @@ class PortfolioAnalytics:
             "quantity": quantity,
             "invested_value": invested_value,
         }
-        
+
     @staticmethod
     def calculate_historical_value(
         user,
         target_date,
     ):
-        """
-        Calculate portfolio value on a historical date.
-        """
-
         assets = (
             Asset.objects
             .filter(
@@ -528,7 +435,6 @@ class PortfolioAnalytics:
         total_invested = PortfolioAnalytics.ZERO
 
         for asset in assets:
-
             position = (
                 PortfolioAnalytics
                 .calculate_position_as_of(
@@ -538,10 +444,7 @@ class PortfolioAnalytics:
             )
 
             quantity = position["quantity"]
-
-            invested_value = (
-                position["invested_value"]
-            )
+            invested_value = position["invested_value"]
 
             if quantity <= 0:
                 continue
@@ -559,9 +462,7 @@ class PortfolioAnalytics:
             if not price_record:
                 continue
 
-            current_price = (
-                price_record.close_price
-            )
+            current_price = price_record.close_price
 
             current_value = (
                 quantity * current_price
