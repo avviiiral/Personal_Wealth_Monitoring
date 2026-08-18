@@ -132,45 +132,47 @@
                         </thead>
 
                         <tbody>
-                          <tr *ngFor="let asset of summary.assets">
-                            <td class="asset-name">
-                              {{ asset.underlying || '-' }}
-                            </td>
+                          <ng-container *ngFor="let asset of summary.assets">
+                            <tr *ngIf="asset.quantity !== 0">
+                              <td class="asset-name">
+                                {{ asset.underlying || asset.asset_name || '-' }}
+                              </td>
 
-                            <td class="isin">
-                              {{ asset.isin || '-' }}
-                            </td>
+                              <td class="isin">
+                                {{ asset.isin || '-' }}
+                              </td>
 
-                            <td>
-                              {{ formatNumber(asset.quantity) }}
-                            </td>
+                              <td>
+                                {{ formatNumber(asset.quantity) }}
+                              </td>
 
-                            <td>₹{{ formatDecimal(asset.average_cost) }}</td>
+                              <td>₹{{ formatDecimal(asset.average_cost) }}</td>
 
-                            <td>₹{{ formatCurrency(asset.invested_value) }}</td>
+                              <td>₹{{ formatCurrency(asset.invested_value) }}</td>
 
-                            <td>₹{{ formatDecimal(asset.current_price) }}</td>
+                              <td>₹{{ formatDecimal(asset.current_price) }}</td>
 
-                            <td>₹{{ formatCurrency(asset.current_value) }}</td>
+                              <td>₹{{ formatCurrency(asset.current_value) }}</td>
 
-                            <td [class.positive]="asset.pnl > 0" [class.negative]="asset.pnl < 0">
-                              ₹{{ formatCurrency(asset.pnl) }}
-                            </td>
+                              <td [class.positive]="asset.pnl > 0" [class.negative]="asset.pnl < 0">
+                                ₹{{ formatCurrency(asset.pnl) }}
+                              </td>
 
-                            <td
-                              [class.positive]="asset.pnl_percentage > 0"
-                              [class.negative]="asset.pnl_percentage < 0"
-                            >
-                              {{ formatPercentage(asset.pnl_percentage) }}
-                            </td>
+                              <td
+                                [class.positive]="asset.pnl_percentage > 0"
+                                [class.negative]="asset.pnl_percentage < 0"
+                              >
+                                {{ formatPercentage(asset.pnl_percentage) }}
+                              </td>
 
-                            <td
-                              [class.positive]="(asset.xirr ?? 0) > 0"
-                              [class.negative]="(asset.xirr ?? 0) < 0"
-                            >
-                              {{ formatPercentage(asset.xirr) }}
-                            </td>
-                          </tr>
+                              <td
+                                [class.positive]="(asset.xirr ?? 0) > 0"
+                                [class.negative]="(asset.xirr ?? 0) < 0"
+                              >
+                                {{ formatPercentage(asset.xirr) }}
+                              </td>
+                            </tr>
+                          </ng-container>
                         </tbody>
                       </table>
                     </div>
