@@ -18,46 +18,54 @@ class AssetCategory(models.TextChoices):
 class Asset(models.Model):
     """
     Master record for an investment/financial asset.
+
+    Asset represents the actual security/investment instrument.
+    Excel portfolio classification is stored separately on
+    Transaction so the original Excel hierarchy is preserved.
     """
 
     owner = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
-        related_name="assets"
+        related_name="assets",
     )
 
-    name = models.CharField(max_length=255)
+    name = models.CharField(
+        max_length=255,
+    )
 
     category = models.CharField(
         max_length=30,
-        choices=AssetCategory.choices
+        choices=AssetCategory.choices,
     )
 
     symbol = models.CharField(
         max_length=50,
         blank=True,
-        null=True
+        null=True,
     )
 
     isin = models.CharField(
         max_length=20,
         blank=True,
-        null=True
+        null=True,
     )
 
     institution = models.CharField(
         max_length=255,
         blank=True,
-        null=True
+        null=True,
     )
 
     currency = models.CharField(
         max_length=10,
-        default="INR"
+        default="INR",
     )
 
-    is_active = models.BooleanField(default=True)
-    
+    is_active = models.BooleanField(
+        default=True,
+    )
+
     security_master = models.ForeignKey(
         "SecurityMaster",
         on_delete=models.SET_NULL,
@@ -66,9 +74,13 @@ class Asset(models.Model):
         related_name="assets",
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
 
-    updated_at = models.DateTimeField(auto_now=True)
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
 
     class Meta:
         ordering = ["name"]
@@ -90,15 +102,37 @@ class TransactionType(models.TextChoices):
     OTHER = "OTHER", "Other"
 
 
+class TransactionSource(models.TextChoices):
+    EXCEL = "EXCEL", "Excel"
+    MANUAL = "MANUAL", "Manual"
+    OTHER = "OTHER", "Other"
+
+
 class Transaction(models.Model):
     """
     Every financial transaction affecting an asset.
+
+    Transaction stores both:
+        1. Financial transaction data.
+        2. The original Excel portfolio classification.
+
+    Excel hierarchy:
+
+        Family Name
+        Asset Class
+        Sub Class
+        Asset Name
+        Underlying
+        Advisors
+
+    is intentionally preserved here instead of reconstructing
+    the hierarchy from Asset.category.
     """
 
     owner = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
-        related_name="transactions"
+        related_name="transactions",
     )
 
     family_name = models.CharField(
@@ -113,15 +147,57 @@ class Transaction(models.Model):
         null=True,
     )
 
+    # ==========================================================
+    # ORIGINAL EXCEL PORTFOLIO CLASSIFICATION
+    # ==========================================================
+
+    asset_class = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+    )
+
+    sub_class = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+    )
+
+    asset_name = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+    )
+
+    underlying = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+    )
+
+    advisors = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+    )
+
+    # ==========================================================
+    # SECURITY
+    # ==========================================================
+
     asset = models.ForeignKey(
         Asset,
         on_delete=models.CASCADE,
-        related_name="transactions"
+        related_name="transactions",
     )
+
+    # ==========================================================
+    # TRANSACTION
+    # ==========================================================
 
     transaction_type = models.CharField(
         max_length=20,
-        choices=TransactionType.choices
+        choices=TransactionType.choices,
     )
 
     transaction_date = models.DateField()
@@ -129,35 +205,90 @@ class Transaction(models.Model):
     quantity = models.DecimalField(
         max_digits=20,
         decimal_places=6,
-        default=0
+        default=0,
     )
 
     price_per_unit = models.DecimalField(
         max_digits=20,
         decimal_places=6,
-        default=0
+        default=0,
     )
 
     amount = models.DecimalField(
         max_digits=20,
-        decimal_places=2
+        decimal_places=2,
     )
 
     fees = models.DecimalField(
         max_digits=20,
         decimal_places=2,
-        default=0
+        default=0,
     )
 
     notes = models.TextField(
         blank=True,
-        null=True
+        null=True,
     )
 
-    created_at = models.DateTimeField(auto_now_add=True)
+    # ==========================================================
+    # SOURCE / RECONCILIATION
+    # ==========================================================
+
+    source = models.CharField(
+        max_length=20,
+        choices=TransactionSource.choices,
+        default=TransactionSource.MANUAL,
+    )
+
+    source_key = models.CharField(
+        max_length=64,
+        blank=True,
+        null=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
 
     class Meta:
-        ordering = ["-transaction_date", "-created_at"]
+        ordering = [
+            "-transaction_date",
+            "-created_at",
+        ]
+
+        indexes = [
+            models.Index(
+                fields=[
+                    "owner",
+                    "source",
+                    "source_key",
+                ],
+                name="transaction_source_key_idx",
+            ),
+            models.Index(
+                fields=[
+                    "owner",
+                    "family_name",
+                    "asset_class",
+                    "sub_class",
+                ],
+                name="transaction_hierarchy_idx",
+            ),
+        ]
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "owner",
+                    "source",
+                    "source_key",
+                ],
+                condition=models.Q(
+                    source_key__isnull=False,
+                ),
+                name="unique_transaction_source_key",
+            ),
+        ]
 
     def __str__(self):
         return (
@@ -177,59 +308,62 @@ class Holding(models.Model):
     owner = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
-        related_name="holdings"
+        related_name="holdings",
     )
 
     asset = models.OneToOneField(
         Asset,
         on_delete=models.CASCADE,
-        related_name="holding"
+        related_name="holding",
     )
 
     quantity = models.DecimalField(
         max_digits=20,
         decimal_places=6,
-        default=0
+        default=0,
     )
 
     average_cost = models.DecimalField(
         max_digits=20,
         decimal_places=6,
-        default=0
+        default=0,
     )
 
     invested_value = models.DecimalField(
         max_digits=20,
         decimal_places=2,
-        default=0
+        default=0,
     )
 
     current_price = models.DecimalField(
         max_digits=20,
         decimal_places=6,
-        default=0
+        default=0,
     )
 
     current_value = models.DecimalField(
         max_digits=20,
         decimal_places=2,
-        default=0
+        default=0,
     )
 
     unrealized_pnl = models.DecimalField(
         max_digits=20,
         decimal_places=2,
-        default=0
+        default=0,
     )
 
-    updated_at = models.DateTimeField(auto_now=True)
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
 
     class Meta:
         ordering = ["asset__name"]
 
     def __str__(self):
         return f"{self.asset.name} - {self.quantity}"
-    
+
+
 class PortfolioPosition(models.Model):
     """
     Current calculated position of an asset inside a
@@ -323,7 +457,8 @@ class PortfolioPosition(models.Model):
             f"{self.portfolio} - "
             f"{self.asset.name}"
         )
-        
+
+
 class SecurityMaster(models.Model):
     """
     Master classification data for a security.
