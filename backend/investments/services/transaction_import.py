@@ -777,12 +777,6 @@ class TransactionImporter:
                 f"Excel row {row_number}."
             )
 
-        if not isin:
-            raise TransactionImportError(
-                "ISIN is empty at "
-                f"Excel row {row_number}."
-            )
-
         if asset_class.upper() not in ASSET_CLASS_MAP:
             raise TransactionImportError(
                 "Unsupported Asset Class at "

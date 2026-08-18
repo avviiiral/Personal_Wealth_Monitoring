@@ -1,26 +1,28 @@
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 import { ChangeDetectorRef, Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { Subscription, timer } from 'rxjs';
 
 import {
   AssetClassNode,
   FamilyNode,
-  PortfolioNode,
-  SubClassNode,
   PortfolioApiService,
+  PortfolioAssetNode,
+  SubClassNode,
 } from '../../core/services/portfolio-api.service';
 
-interface PortfolioGroup {
-  family_name: string;
-  portfolio: string;
-  asset_classes: AssetClassNode[];
+interface SubClassSummary {
+  sub_class: string;
+  current_value: number;
+  pnl: number;
+  quantity: number;
+  xirr: number | null;
+  assets: PortfolioAssetNode[];
 }
 
 @Component({
   selector: 'app-portfolio',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule],
   templateUrl: './portfolio.component.html',
   styleUrl: './portfolio.component.scss',
 })
@@ -33,13 +35,9 @@ export class PortfolioComponent implements OnInit, OnDestroy {
   families: FamilyNode[] = [];
 
   selectedFamily = '';
-  selectedPortfolio = '';
   selectedAssetClass = '';
-  selectedSubClass = '';
 
-  expandedPortfolio: string | null = null;
-  expandedAssetClass: string | null = null;
-  expandedSubClass: string | null = null;
+  expandedSubClass = '';
 
   loading = true;
   error = '';
@@ -100,50 +98,20 @@ export class PortfolioComponent implements OnInit, OnDestroy {
       .sort((a, b) => a.localeCompare(b));
   }
 
-  get selectedFamilyData(): FamilyNode | null {
-    if (!this.selectedFamily) {
-      return null;
-    }
-
-    return this.families.find((family) => family.family_name === this.selectedFamily) ?? null;
-  }
-
-  get portfolioOptions(): PortfolioNode[] {
-    const portfolios: PortfolioNode[] = [];
+  get assetClassOptions(): string[] {
+    const classes = new Set<string>();
 
     for (const family of this.filteredFamilies) {
-      portfolios.push(...family.portfolios);
-    }
-
-    return this.uniquePortfolios(portfolios);
-  }
-
-  get availableAssetClasses(): AssetClassNode[] {
-    const map = new Map<string, AssetClassNode>();
-
-    for (const portfolio of this.portfolioOptions) {
-      for (const assetClass of portfolio.asset_classes) {
-        if (!map.has(assetClass.asset_class)) {
-          map.set(assetClass.asset_class, assetClass);
+      for (const portfolio of family.portfolios) {
+        for (const assetClass of portfolio.asset_classes) {
+          if (assetClass.asset_class) {
+            classes.add(assetClass.asset_class);
+          }
         }
       }
     }
 
-    return Array.from(map.values()).sort((a, b) => a.asset_class.localeCompare(b.asset_class));
-  }
-
-  get availableSubClasses(): SubClassNode[] {
-    const map = new Map<string, SubClassNode>();
-
-    for (const assetClass of this.filteredAssetClasses) {
-      for (const subClass of assetClass.sub_classes) {
-        if (!map.has(subClass.sub_class)) {
-          map.set(subClass.sub_class, subClass);
-        }
-      }
-    }
-
-    return Array.from(map.values()).sort((a, b) => a.sub_class.localeCompare(b.sub_class));
+    return Array.from(classes).sort((a, b) => a.localeCompare(b));
   }
 
   get filteredFamilies(): FamilyNode[] {
@@ -154,212 +122,175 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     return this.families.filter((family) => family.family_name === this.selectedFamily);
   }
 
-  get filteredPortfolios(): PortfolioNode[] {
-    let portfolios = this.portfolioOptions;
-
-    if (this.selectedPortfolio) {
-      portfolios = portfolios.filter((portfolio) => portfolio.portfolio === this.selectedPortfolio);
-    }
-
-    return portfolios;
-  }
-
-  get filteredAssetClasses(): AssetClassNode[] {
-    const map = new Map<string, AssetClassNode>();
-
-    for (const portfolio of this.filteredPortfolios) {
-      for (const assetClass of portfolio.asset_classes) {
-        if (this.selectedAssetClass && assetClass.asset_class !== this.selectedAssetClass) {
-          continue;
-        }
-
-        map.set(assetClass.asset_class, assetClass);
-      }
-    }
-
-    return Array.from(map.values());
-  }
-
-  get portfolioGroups(): PortfolioGroup[] {
-    const groups: PortfolioGroup[] = [];
+  get subClassSummaries(): SubClassSummary[] {
+    const summaryMap = new Map<string, SubClassSummary>();
 
     for (const family of this.filteredFamilies) {
       for (const portfolio of family.portfolios) {
-        if (this.selectedPortfolio && portfolio.portfolio !== this.selectedPortfolio) {
-          continue;
-        }
-
-        const assetClasses = portfolio.asset_classes.filter((assetClass) => {
+        for (const assetClass of portfolio.asset_classes) {
           if (this.selectedAssetClass && assetClass.asset_class !== this.selectedAssetClass) {
-            return false;
+            continue;
           }
 
-          return true;
-        });
+          for (const subClass of assetClass.sub_classes) {
+            const key = subClass.sub_class || 'Unassigned';
 
-        if (!assetClasses.length) {
-          continue;
+            let summary = summaryMap.get(key);
+
+            if (!summary) {
+              summary = {
+                sub_class: key,
+                current_value: 0,
+                pnl: 0,
+                quantity: 0,
+                xirr: null,
+                assets: [],
+              };
+
+              summaryMap.set(key, summary);
+            }
+
+            summary.current_value += this.getSubClassCurrentValue(subClass);
+            summary.pnl += this.getSubClassPnl(subClass);
+            summary.quantity += this.getSubClassQuantity(subClass);
+            summary.assets.push(...subClass.assets);
+          }
         }
-
-        groups.push({
-          family_name: family.family_name,
-          portfolio: portfolio.portfolio,
-          asset_classes: assetClasses,
-        });
       }
     }
 
-    return groups;
+    return Array.from(summaryMap.values())
+      .map((summary) => ({
+        ...summary,
+        xirr: this.calculateXirr(summary.assets),
+      }))
+      .sort((a, b) => a.sub_class.localeCompare(b.sub_class));
   }
 
-  get portfolioCount(): number {
-    return this.portfolioGroups.length;
+  getSubClassAssets(subClass: string): PortfolioAssetNode[] {
+    return this.subClassSummaries.find((summary) => summary.sub_class === subClass)?.assets ?? [];
   }
 
-  getGroupAssetCount(group: PortfolioGroup): number {
-    let count = 0;
-
-    for (const assetClass of group.asset_classes) {
-      for (const subClass of assetClass.sub_classes) {
-        if (this.selectedSubClass && subClass.sub_class !== this.selectedSubClass) {
-          continue;
-        }
-
-        count += subClass.assets.length;
-      }
-    }
-
-    return count;
+  toggleSubClass(subClass: string): void {
+    this.expandedSubClass = this.expandedSubClass === subClass ? '' : subClass;
   }
 
-  getAssetCount(portfolio: PortfolioNode): number {
-    let count = 0;
-
-    for (const assetClass of portfolio.asset_classes) {
-      if (this.selectedAssetClass && assetClass.asset_class !== this.selectedAssetClass) {
-        continue;
-      }
-
-      for (const subClass of assetClass.sub_classes) {
-        if (this.selectedSubClass && subClass.sub_class !== this.selectedSubClass) {
-          continue;
-        }
-
-        count += subClass.assets.length;
-      }
-    }
-
-    return count;
-  }
-
-  getSubClassAssets(subClass: SubClassNode) {
-    if (!this.selectedSubClass) {
-      return subClass.assets;
-    }
-
-    if (subClass.sub_class !== this.selectedSubClass) {
-      return [];
-    }
-
-    return subClass.assets;
-  }
-
-  selectFamily(familyName: string): void {
-    this.selectedFamily = this.selectedFamily === familyName ? '' : familyName;
-
-    this.selectedPortfolio = '';
-    this.selectedAssetClass = '';
-    this.selectedSubClass = '';
-
-    this.clearExpansion();
-  }
-
-  selectPortfolio(portfolioName: string): void {
-    this.selectedPortfolio = this.selectedPortfolio === portfolioName ? '' : portfolioName;
+  selectFamily(family: string): void {
+    this.selectedFamily = this.selectedFamily === family ? '' : family;
 
     this.selectedAssetClass = '';
-    this.selectedSubClass = '';
-
-    this.clearExpansion();
+    this.expandedSubClass = '';
   }
 
   selectAssetClass(assetClass: string): void {
     this.selectedAssetClass = this.selectedAssetClass === assetClass ? '' : assetClass;
 
-    this.selectedSubClass = '';
-
-    this.clearExpansion();
-  }
-
-  selectSubClass(subClass: string): void {
-    this.selectedSubClass = this.selectedSubClass === subClass ? '' : subClass;
-
-    this.clearExpansion();
+    this.expandedSubClass = '';
   }
 
   clearFamily(): void {
     this.selectedFamily = '';
-    this.selectedPortfolio = '';
     this.selectedAssetClass = '';
-    this.selectedSubClass = '';
-
-    this.clearExpansion();
-  }
-
-  clearPortfolio(): void {
-    this.selectedPortfolio = '';
-    this.selectedAssetClass = '';
-    this.selectedSubClass = '';
-
-    this.clearExpansion();
+    this.expandedSubClass = '';
   }
 
   clearAssetClass(): void {
     this.selectedAssetClass = '';
-    this.selectedSubClass = '';
-
-    this.clearExpansion();
+    this.expandedSubClass = '';
   }
 
-  clearSubClass(): void {
-    this.selectedSubClass = '';
-
-    this.clearExpansion();
+  isFamilySelected(family: string): boolean {
+    return this.selectedFamily === family;
   }
 
-  togglePortfolio(portfolioKey: string): void {
-    this.expandedPortfolio = this.expandedPortfolio === portfolioKey ? null : portfolioKey;
+  isAssetClassSelected(assetClass: string): boolean {
+    return this.selectedAssetClass === assetClass;
   }
 
-  toggleAssetClass(assetClassKey: string): void {
-    this.expandedAssetClass = this.expandedAssetClass === assetClassKey ? null : assetClassKey;
+  formatCurrency(value: number): string {
+    return new Intl.NumberFormat('en-IN', {
+      maximumFractionDigits: 0,
+    }).format(this.toNumber(value));
   }
 
-  toggleSubClass(subClassKey: string): void {
-    this.expandedSubClass = this.expandedSubClass === subClassKey ? null : subClassKey;
+  formatNumber(value: number): string {
+    return new Intl.NumberFormat('en-IN', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(this.toNumber(value));
   }
 
-  getPortfolioKey(familyName: string, portfolioName: string): string {
-    return [familyName, portfolioName].join('|');
+  formatDecimal(value: number): string {
+    return new Intl.NumberFormat('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(this.toNumber(value));
   }
 
-  getAssetClassKey(familyName: string, portfolioName: string, assetClass: string): string {
-    return [familyName, portfolioName, assetClass].join('|');
+  formatPercentage(value: number | null): string {
+    if (value === null || value === undefined) {
+      return '-';
+    }
+
+    return `${this.formatDecimal(value)}%`;
   }
 
-  getSubClassKey(
-    familyName: string,
-    portfolioName: string,
-    assetClass: string,
-    subClass: string,
-  ): string {
-    return [familyName, portfolioName, assetClass, subClass].join('|');
+  getPnlClass(value: number): string {
+    if (value > 0) {
+      return 'positive';
+    }
+
+    if (value < 0) {
+      return 'negative';
+    }
+
+    return 'neutral';
   }
 
-  private clearExpansion(): void {
-    this.expandedPortfolio = null;
-    this.expandedAssetClass = null;
-    this.expandedSubClass = null;
+  private getSubClassCurrentValue(subClass: SubClassNode): number {
+    return subClass.assets.reduce((total, asset) => total + this.toNumber(asset.current_value), 0);
+  }
+
+  private getSubClassPnl(subClass: SubClassNode): number {
+    return subClass.assets.reduce((total, asset) => total + this.toNumber(asset.pnl), 0);
+  }
+
+  private getSubClassQuantity(subClass: SubClassNode): number {
+    return subClass.assets.reduce((total, asset) => total + this.toNumber(asset.quantity), 0);
+  }
+
+  private calculateXirr(assets: PortfolioAssetNode[]): number | null {
+    const validAssets = assets.filter(
+      (asset) =>
+        asset.xirr !== null && asset.xirr !== undefined && this.toNumber(asset.invested_value) > 0,
+    );
+
+    if (!validAssets.length) {
+      return null;
+    }
+
+    let weightedXirr = 0;
+    let totalInvested = 0;
+
+    for (const asset of validAssets) {
+      const invested = this.toNumber(asset.invested_value);
+      const xirr = this.toNumber(asset.xirr);
+
+      weightedXirr += xirr * invested;
+      totalInvested += invested;
+    }
+
+    return totalInvested ? weightedXirr / totalInvested : null;
+  }
+
+  private toNumber(value: number | null | undefined): number {
+    if (value === null || value === undefined) {
+      return 0;
+    }
+
+    const numberValue = Number(value);
+
+    return Number.isFinite(numberValue) ? numberValue : 0;
   }
 
   private validateSelections(): void {
@@ -367,39 +298,15 @@ export class PortfolioComponent implements OnInit, OnDestroy {
       this.selectedFamily = '';
     }
 
-    if (
-      this.selectedPortfolio &&
-      !this.portfolioOptions.some((portfolio) => portfolio.portfolio === this.selectedPortfolio)
-    ) {
-      this.selectedPortfolio = '';
-    }
-
-    if (
-      this.selectedAssetClass &&
-      !this.availableAssetClasses.some(
-        (assetClass) => assetClass.asset_class === this.selectedAssetClass,
-      )
-    ) {
+    if (this.selectedAssetClass && !this.assetClassOptions.includes(this.selectedAssetClass)) {
       this.selectedAssetClass = '';
     }
 
     if (
-      this.selectedSubClass &&
-      !this.availableSubClasses.some((subClass) => subClass.sub_class === this.selectedSubClass)
+      this.expandedSubClass &&
+      !this.subClassSummaries.some((summary) => summary.sub_class === this.expandedSubClass)
     ) {
-      this.selectedSubClass = '';
+      this.expandedSubClass = '';
     }
-  }
-
-  private uniquePortfolios(portfolios: PortfolioNode[]): PortfolioNode[] {
-    const map = new Map<string, PortfolioNode>();
-
-    for (const portfolio of portfolios) {
-      if (!map.has(portfolio.portfolio)) {
-        map.set(portfolio.portfolio, portfolio);
-      }
-    }
-
-    return Array.from(map.values()).sort((a, b) => a.portfolio.localeCompare(b.portfolio));
   }
 }

@@ -85,8 +85,6 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
         this.loading = false;
 
-        // Angular 21 zoneless change detection:
-        // explicitly notify Angular that the view has changed.
         this.cdr.markForCheck();
 
         setTimeout(() => {
@@ -584,7 +582,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     return Number.isFinite(number) ? number : 0;
   }
 
-  private formatCurrency(value: number): string {
+  formatCurrency(value: number): string {
     return `₹${value.toLocaleString('en-IN', {
       maximumFractionDigits: 0,
     })}`;

@@ -30,7 +30,7 @@
         <span class="kpi-label"> Total Wealth </span>
 
         <strong>
-          {{ summary?.total_current_value ?? summary?.total_wealth ?? 0 | number: '1.0-0' }}
+          {{ formatCurrency(summary?.total_current_value ?? summary?.total_wealth ?? 0) }}
         </strong>
 
         <span class="kpi-subtitle"> Current portfolio value </span>
@@ -41,7 +41,7 @@
         <span class="kpi-label"> Invested Value </span>
 
         <strong>
-          {{ summary?.total_invested ?? summary?.invested_value ?? 0 | number: '1.0-0' }}
+          {{ formatCurrency(summary?.total_invested ?? summary?.invested_value ?? 0) }}
         </strong>
 
         <span class="kpi-subtitle"> Total invested </span>
@@ -55,10 +55,10 @@
           [class.positive]="(summary?.total_pnl ?? summary?.pnl ?? 0) >= 0"
           [class.negative]="(summary?.total_pnl ?? summary?.pnl ?? 0) < 0"
         >
-          {{ summary?.total_pnl ?? summary?.pnl ?? 0 | number: '1.0-0' }}
+          {{ formatCurrency(summary?.total_pnl ?? summary?.pnl ?? 0) }}
         </strong>
 
-        <span class="kpi-subtitle"> Overall P&L </span>
+        <span class="kpi-subtitle"> Overall P&amp;L </span>
       </div>
 
       <!-- XIRR -->
@@ -172,16 +172,22 @@
           <div class="summary-row">
             <span> Realized P&amp;L </span>
 
-            <strong>
-              {{ summary?.realized_pnl ?? 0 | currency: 'INR' : 'symbol' : '1.0-0' }}
+            <strong
+              [class.positive]="(summary?.realized_pnl ?? 0) >= 0"
+              [class.negative]="(summary?.realized_pnl ?? 0) < 0"
+            >
+              {{ formatCurrency(summary?.realized_pnl ?? 0) }}
             </strong>
           </div>
 
           <div class="summary-row">
             <span> Unrealized P&amp;L </span>
 
-            <strong>
-              {{ summary?.unrealized_pnl ?? 0 | currency: 'INR' : 'symbol' : '1.0-0' }}
+            <strong
+              [class.positive]="(summary?.unrealized_pnl ?? 0) >= 0"
+              [class.negative]="(summary?.unrealized_pnl ?? 0) < 0"
+            >
+              {{ formatCurrency(summary?.unrealized_pnl ?? 0) }}
             </strong>
           </div>
 
