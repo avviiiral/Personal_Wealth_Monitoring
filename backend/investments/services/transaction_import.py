@@ -916,29 +916,33 @@ class TransactionImporter:
                         )
                     )
 
-                    Transaction.objects.create(
-                        owner=owner,
-                        family_name=family_name,
-                        portfolio=portfolio,
-                        asset_class=asset_class,
-                        sub_class=sub_class,
-                        asset_name=asset_name,
-                        underlying=underlying,
-                        advisors=advisors,
-                        asset=asset,
-                        transaction_type=(
-                            INVESTMENT_TRANSACTION_MAP[
-                                transaction_type
-                            ]
-                        ),
-                        transaction_date=transaction_date,
-                        quantity=quantity,
-                        price_per_unit=price,
-                        amount=amount,
-                        fees=Decimal("0"),
-                        notes=notes,
-                        source="EXCEL",
-                        source_key=source_key,
+                    transaction_obj, created = (
+                        Transaction.objects.update_or_create(
+                            owner=owner,
+                            source="EXCEL",
+                            source_key=source_key,
+                            defaults={
+                                "family_name": family_name,
+                                "portfolio": portfolio,
+                                "asset_class": asset_class,
+                                "sub_class": sub_class,
+                                "asset_name": asset_name,
+                                "underlying": underlying,
+                                "advisors": advisors,
+                                "asset": asset,
+                                "transaction_type": (
+                                    INVESTMENT_TRANSACTION_MAP[
+                                        transaction_type
+                                    ]
+                                ),
+                                "transaction_date": transaction_date,
+                                "quantity": quantity,
+                                "price_per_unit": price,
+                                "amount": amount,
+                                "fees": Decimal("0"),
+                                "notes": notes,
+                            },
+                        )
                     )
 
                     imported_investments += 1
