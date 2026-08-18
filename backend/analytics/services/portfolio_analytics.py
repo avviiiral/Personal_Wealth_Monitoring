@@ -138,7 +138,7 @@ class PortfolioAnalytics:
         realized_pnl = PortfolioAnalytics.ZERO
 
         for tx in transactions:
-            asset_id = tx.asset_id
+            asset_id = tx.asset.id
 
             if asset_id not in positions:
                 positions[asset_id] = {
@@ -330,7 +330,7 @@ class PortfolioAnalytics:
 
             results.append(
                 {
-                    "asset_id": holding.asset_id,
+                    "asset_id": holding.asset.id,
                     "asset_name": holding.asset.name,
                     "symbol": holding.asset.symbol,
                     "current_value": holding.current_value,

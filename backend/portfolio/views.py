@@ -1,5 +1,6 @@
 import traceback
 from decimal import Decimal
+from typing import cast
 
 from django.db import transaction
 from django.db.models import Sum
@@ -10,16 +11,8 @@ from investments.models import (
     Transaction,
 )
 
-from mutual_funds.models import (
-    MutualFundTransaction,
-)
-
 from investments.services.file_transaction_sync import (
     FileTransactionSyncService,
-)
-
-from investments.services.xirr import (
-    XIRRCalculator,
 )
 
 from investments.services.portfolio_metrics import (
@@ -84,8 +77,11 @@ def portfolio_assets(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    asset = serializer.save(
-        owner=request.user,
+    asset = cast(
+        Asset,
+        serializer.save(
+            owner=request.user,
+        ),
     )
 
     market_data = {
@@ -114,11 +110,14 @@ def portfolio_assets(request):
                 "error": str(exc),
             }
 
+    asset_data = dict(
+        AssetSerializer(asset).data
+    )
+
+    asset_data["market_data"] = market_data
+
     return Response(
-        {
-            **AssetSerializer(asset).data,
-            "market_data": market_data,
-        },
+        asset_data,
         status=status.HTTP_201_CREATED,
     )
 
@@ -190,7 +189,10 @@ def portfolio_asset_detail(
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    asset = serializer.save()
+    asset = cast(
+        Asset,
+        serializer.save(),
+    )
 
     return Response(
         AssetSerializer(asset).data,
@@ -238,8 +240,11 @@ def portfolio_transactions(request):
 
     with transaction.atomic():
 
-        transaction_obj = serializer.save(
-            owner=request.user,
+        transaction_obj = cast(
+            Transaction,
+            serializer.save(
+                owner=request.user,
+            ),
         )
 
         HoldingCalculationEngine.rebuild_holding(
@@ -334,7 +339,10 @@ def portfolio_transaction_detail(
 
     with transaction.atomic():
 
-        transaction_obj = serializer.save()
+        transaction_obj = cast(
+            Transaction,
+            serializer.save(),
+        )
 
         new_asset = transaction_obj.asset
 
