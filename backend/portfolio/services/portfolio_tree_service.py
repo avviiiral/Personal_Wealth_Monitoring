@@ -4,6 +4,10 @@ from django.db.models import QuerySet
 
 from investments.models import Transaction
 
+from investments.services.portfolio_metrics import (
+    PortfolioMetricsService,
+)
+
 
 class PortfolioTreeService:
     ZERO = Decimal("0")
@@ -105,7 +109,11 @@ class PortfolioTreeService:
         }
 
     @classmethod
-    def _build_asset(cls, transactions):
+    def _build_asset(
+        cls,
+        owner,
+        transactions,
+    ):
         first = transactions[0]
         asset = first.asset
 
@@ -116,6 +124,32 @@ class PortfolioTreeService:
         quantity = position["quantity"]
         invested_value = position["invested_value"]
         average_cost = position["average_cost"]
+
+        try:
+            metrics = (
+                PortfolioMetricsService
+                .calculate_asset_metrics(
+                    owner=owner,
+                    family_name=cls._clean(
+                        first.family_name
+                    ),
+                    portfolio=cls._clean(
+                        first.portfolio
+                    ),
+                    asset=asset,
+                )
+            )
+        except Exception:
+            metrics = {
+                "quantity": quantity,
+                "average_cost": average_cost,
+                "invested_value": invested_value,
+                "current_price": Decimal("0"),
+                "current_value": Decimal("0"),
+                "pnl": Decimal("0"),
+                "pnl_percentage": 0.0,
+                "xirr": None,
+            }
 
         security_master = getattr(
             asset,
@@ -154,19 +188,51 @@ class PortfolioTreeService:
                 "",
             ),
             "quantity": cls._decimal_to_float(
-                quantity
+                metrics.get(
+                    "quantity",
+                    quantity,
+                )
             ),
             "average_cost": cls._decimal_to_float(
-                average_cost
+                metrics.get(
+                    "average_cost",
+                    average_cost,
+                )
             ),
             "invested_value": cls._decimal_to_float(
-                invested_value
+                metrics.get(
+                    "invested_value",
+                    invested_value,
+                )
             ),
-            "current_price": 0.0,
-            "current_value": 0.0,
-            "pnl": 0.0,
-            "pnl_percentage": 0.0,
-            "xirr": None,
+            "current_price": cls._decimal_to_float(
+                metrics.get(
+                    "current_price",
+                    Decimal("0"),
+                )
+            ),
+            "current_value": cls._decimal_to_float(
+                metrics.get(
+                    "current_value",
+                    Decimal("0"),
+                )
+            ),
+            "pnl": cls._decimal_to_float(
+                metrics.get(
+                    "pnl",
+                    Decimal("0"),
+                )
+            ),
+            "pnl_percentage": float(
+                metrics.get(
+                    "pnl_percentage",
+                    0.0,
+                )
+                or 0.0
+            ),
+            "xirr": metrics.get(
+                "xirr"
+            ),
             "sector": (
                 getattr(
                     security_master,
@@ -197,10 +263,21 @@ class PortfolioTreeService:
         grouped = {}
 
         for tx in transactions:
-            family = cls._clean(tx.family_name)
-            portfolio = cls._clean(tx.portfolio)
-            asset_class = cls._clean(tx.asset_class)
-            sub_class = cls._clean(tx.sub_class)
+            family = cls._clean(
+                tx.family_name
+            )
+
+            portfolio = cls._clean(
+                tx.portfolio
+            )
+
+            asset_class = cls._clean(
+                tx.asset_class
+            )
+
+            sub_class = cls._clean(
+                tx.sub_class
+            )
 
             group_key = (
                 family,
@@ -224,7 +301,8 @@ class PortfolioTreeService:
         ), asset_transactions in grouped.items():
 
             asset_data = cls._build_asset(
-                asset_transactions
+                owner=owner,
+                transactions=asset_transactions,
             )
 
             family_data = tree.setdefault(
@@ -357,11 +435,14 @@ class PortfolioTreeService:
             )
 
             family_data["portfolios"] = portfolios
+
             family_data["portfolio_count"] = len(
                 portfolios
             )
 
-            families.append(family_data)
+            families.append(
+                family_data
+            )
 
         families.sort(
             key=lambda item: (

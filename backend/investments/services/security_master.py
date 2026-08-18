@@ -6,7 +6,7 @@ from investments.models import (
 
 class SecurityMasterService:
     """
-    Creates and retrieves Security Master records.
+    Creates, retrieves, and synchronizes Security Master records.
 
     ISIN is the primary security identifier whenever
     an ISIN is available.
@@ -34,7 +34,6 @@ class SecurityMasterService:
             )
 
             if security:
-
                 changed = False
 
                 if security.asset_name != asset.name:
@@ -106,6 +105,40 @@ class SecurityMasterService:
             )
             .first()
         )
+
+    @staticmethod
+    def sync_asset(
+        owner,
+        asset,
+    ):
+        """
+        Ensure an Asset has a corresponding Security Master record.
+
+        Existing user-maintained Security Master classification
+        fields are preserved.
+        """
+
+        security = (
+            SecurityMasterService
+            .get_or_create(
+                owner=owner,
+                asset=asset,
+            )
+        )
+
+        if (
+            asset.security_master_id
+            != security.id
+        ):
+            asset.security_master = security
+            asset.save(
+                update_fields=[
+                    "security_master",
+                    "updated_at",
+                ]
+            )
+
+        return security
 
     @staticmethod
     def update_classification(
