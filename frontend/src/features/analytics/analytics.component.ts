@@ -554,7 +554,10 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
       return 'Unknown';
     }
 
-    return value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+    return value
+      .replace(/_/g, ' ')
+      .toLowerCase()
+      .replace(/\b\w/g, (char) => char.toUpperCase());
   }
 
   getBestPerformerName(): string {
