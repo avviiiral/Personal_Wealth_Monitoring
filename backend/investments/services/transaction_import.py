@@ -491,6 +491,44 @@ class TransactionImporter:
         return None
 
     @staticmethod
+    def resolve_security_identity_name(
+        asset_name,
+        underlying,
+    ):
+        """
+        Determine the name that identifies the actual
+        security/underlying instrument, as opposed to the
+        Excel "Asset Name" column, which for several
+        sub-classes (e.g. PMS strategies, AIFs, or a generic
+        "Direct Equity" bucket) holds the name of the product
+        or strategy that many DIFFERENT underlyings share.
+
+        The Excel "Underlying" column always identifies the
+        actual security when it is present. It is empty only
+        for rows that genuinely have no separate underlying
+        (e.g. mutual funds, cash-like entries, or a strategy's
+        own cash leg), in which case the Asset Name already
+        correctly identifies the instrument.
+
+        This method contains no security-specific logic and
+        works identically for every asset class/sub-class in
+        the dataset.
+        """
+
+        underlying_clean = (
+            TransactionImporter
+            ._clean_string(underlying)
+        )
+
+        if underlying_clean:
+            return underlying_clean
+
+        return (
+            TransactionImporter
+            ._clean_string(asset_name)
+        )
+
+    @staticmethod
     def _fallback_portfolio(
         asset_class,
         sub_class,
@@ -1001,11 +1039,6 @@ class TransactionImporter:
 
         for parsed in rows:
             source_key = parsed["source_key"]
-            
-            # Correct existing Indian mutual-fund assets even when
-            # the transaction itself is already present and will
-            # therefore be skipped as a duplicate.
-            
 
             mapped_asset_class = ASSET_CLASS_MAP[
                 parsed["asset_class"].upper()
@@ -1111,9 +1144,17 @@ class TransactionImporter:
                 seen_source_keys.add(source_key)
                 continue
 
+            security_identity_name = (
+                TransactionImporter
+                .resolve_security_identity_name(
+                    asset_name=parsed["asset_name"],
+                    underlying=parsed["underlying"],
+                )
+            )
+
             asset = TransactionImporter._get_or_create_asset(
                 owner=owner,
-                asset_name=parsed["asset_name"],
+                asset_name=security_identity_name,
                 isin=parsed["isin"],
                 asset_class=parsed["asset_class"],
                 sub_class=parsed["sub_class"],
