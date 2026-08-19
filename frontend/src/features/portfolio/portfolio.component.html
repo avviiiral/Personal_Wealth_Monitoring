@@ -9,9 +9,11 @@
     </button>
   </div>
 
+  <!-- FILTERS -->
   <div *ngIf="!loading && !error" class="selection-area">
+    <!-- FAMILY -->
     <div class="selection-box">
-      <div class="selection-title">Family</div>
+      <div class="selection-title">Family Name</div>
 
       <div class="selection-buttons">
         <button
@@ -35,6 +37,7 @@
       </div>
     </div>
 
+    <!-- ASSET CLASS -->
     <div class="selection-box">
       <div class="selection-title">Asset Class</div>
 
@@ -59,6 +62,32 @@
         </button>
       </div>
     </div>
+
+    <!-- ADVISORS -->
+    <div class="selection-box">
+      <div class="selection-title">Advisors</div>
+
+      <div class="selection-buttons">
+        <button
+          type="button"
+          class="selection-button"
+          [class.active]="!selectedAdvisor"
+          (click)="clearAdvisor()"
+        >
+          All
+        </button>
+
+        <button
+          *ngFor="let advisor of advisorOptions"
+          type="button"
+          class="selection-button"
+          [class.active]="isAdvisorSelected(advisor)"
+          (click)="selectAdvisor(advisor)"
+        >
+          {{ advisor }}
+        </button>
+      </div>
+    </div>
   </div>
 
   <div *ngIf="loading" class="loading-state">Loading portfolio...</div>
@@ -78,7 +107,7 @@
 
             <th>Current Value</th>
 
-            <th>Gain</th>
+            <th>P&amp;L</th>
 
             <th>XIRR</th>
 
@@ -87,7 +116,10 @@
         </thead>
 
         <tbody>
-          <ng-container *ngFor="let summary of subClassSummaries; trackBy: trackBySubClass">
+          <!-- =====================================================
+               LEVEL 1: SUB CLASS
+               ===================================================== -->
+          <ng-container *ngFor="let summary of subClassSummaries">
             <tr
               class="sub-class-row"
               [class.expanded]="expandedSubClass === summary.sub_class"
@@ -128,161 +160,198 @@
               </td>
             </tr>
 
+            <!-- =================================================
+                 LEVEL 2: ASSET NAME
+                 ================================================= -->
             <tr *ngIf="expandedSubClass === summary.sub_class" class="asset-detail-row">
               <td colspan="6">
                 <div class="asset-detail-container">
-                  <div class="asset-detail-title">{{ summary.sub_class }} Assets</div>
+                  <div class="asset-detail-title">
+                    {{ summary.sub_class }}
+                    Assets
+                  </div>
 
-                  <div class="asset-table-scroll">
-                    <table class="asset-table">
-                      <thead>
-                        <tr>
-                          <th>Asset</th>
-
-                          <th>ISIN</th>
-
-                          <th>Quantity</th>
-
-                          <th>Invested</th>
-
-                          <th>Current Price / NAV</th>
-
-                          <th>Current Value</th>
-
-                          <th>Gain</th>
-
-                          <th>XIRR</th>
-                        </tr>
-                      </thead>
-
-                      <tbody>
-                        <tr *ngFor="let asset of summary.assets; trackBy: trackByAsset">
-                          <td class="asset-name">
-                            {{
-                              asset.underlying && asset.underlying.toUpperCase() !== 'N/A'
-                                ? asset.underlying
-                                : asset.asset_name
-                            }}
-                          </td>
-
-                          <td class="isin">
-                            {{ asset.isin || '-' }}
-                          </td>
-
-                          <td>
-                            {{ formatNumber(asset.quantity) }}
-                          </td>
-
-                          <td>₹{{ formatCurrency(asset.invested_value) }}</td>
-
-                          <!-- CURRENT PRICE / NAV -->
-                          <td class="price-cell">
-                            <!-- Normal display -->
-                            <ng-container *ngIf="!isEditingPrice(asset)">
-                              <div class="current-price">
-                                {{
-                                  asset.current_price !== null && asset.current_price !== undefined
-                                    ? '₹' + formatDecimal(asset.current_price)
-                                    : '-'
-                                }}
-
-                                <span *ngIf="isManualPrice(asset)" class="manual-price-badge">
-                                  Manual
-                                </span>
-                              </div>
-
-                              <small *ngIf="hasPriceDate(asset)" class="price-update-date">
-                                Updated
-                                {{ formatPriceDate(getPriceDate(asset)) }}
-                              </small>
-
-                              <button
-                                type="button"
-                                class="manual-price-edit"
-                                (click)="onManualPriceEdit($event, asset)"
-                              >
-                                Set price
-                              </button>
-                            </ng-container>
-
-                            <!-- Edit mode -->
-                            <ng-container *ngIf="isEditingPrice(asset)">
-                              <div
-                                class="manual-price-container"
-                                (click)="$event.stopPropagation()"
-                              >
-                                <label class="manual-price-label">
-                                  Price per unit (₹)
-
-                                  <input
-                                    type="number"
-                                    class="manual-price-input"
-                                    [(ngModel)]="manualPriceInput"
-                                    min="0"
-                                    step="0.0001"
-                                    placeholder="0.00"
-                                    [disabled]="isSavingManualPrice(asset)"
-                                  />
-                                </label>
-
-                                <div class="manual-price-actions">
-                                  <button
-                                    type="button"
-                                    class="manual-price-button manual-price-save"
-                                    [disabled]="isSavingManualPrice(asset)"
-                                    (click)="saveManualPrice(asset)"
-                                  >
-                                    {{ isSavingManualPrice(asset) ? 'Saving...' : 'Save' }}
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    class="manual-price-button"
-                                    [disabled]="isSavingManualPrice(asset)"
-                                    (click)="cancelEditingPrice(asset)"
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
-                              </div>
-
-                              <small class="manual-price-hint">
-                                {{ formatNumber(asset.quantity) }} units held
-                              </small>
-
-                              <small *ngIf="getManualPriceError(asset)" class="manual-price-error">
-                                {{ getManualPriceError(asset) }}
-                              </small>
-                            </ng-container>
-                          </td>
-
-                          <td>₹{{ formatCurrency(asset.current_value) }}</td>
-
-                          <td class="pnl-cell" [ngClass]="getPnlClass(asset.pnl)">
-                            {{ asset.pnl >= 0 ? '+' : '-' }}₹{{ formatAbsoluteCurrency(asset.pnl) }}
-                          </td>
-
-                          <td
-                            class="pnl-cell"
-                            [ngClass]="
-                              asset.xirr === null || asset.xirr === undefined
-                                ? 'neutral'
-                                : getPnlClass(asset.xirr)
+                  <div class="asset-groups">
+                    <ng-container *ngFor="let assetGroup of getAssetGroups(summary.assets)">
+                      <!-- ASSET NAME IS CLICKABLE -->
+                      <div class="asset-group">
+                        <div
+                          class="asset-group-header"
+                          [class.expanded]="
+                            expandedAsset === getAssetKey(summary.sub_class, assetGroup.asset_name)
+                          "
+                          (click)="
+                            toggleAsset(getAssetKey(summary.sub_class, assetGroup.asset_name))
+                          "
+                        >
+                          <span
+                            class="row-chevron"
+                            [class.open]="
+                              expandedAsset ===
+                              getAssetKey(summary.sub_class, assetGroup.asset_name)
                             "
                           >
-                            {{
-                              asset.xirr === null || asset.xirr === undefined
-                                ? '-'
-                                : formatPercentage(asset.xirr)
-                            }}
-                          </td>
-                        </tr>
+                            ›
+                          </span>
 
-                        <tr *ngIf="summary.assets.length === 0">
-                          <td colspan="8" class="empty-table">No assets available.</td>
-                        </tr>
-                      </tbody>
-                    </table>
+                          <span class="asset-group-name">
+                            {{ assetGroup.asset_name }}
+                          </span>
+                        </div>
+
+                        <!-- =====================================
+                             LEVEL 3 / FINAL:
+                             UNDERLYING + DETAILS
+                             ===================================== -->
+                        <div
+                          *ngIf="
+                            expandedAsset === getAssetKey(summary.sub_class, assetGroup.asset_name)
+                          "
+                          class="underlying-container"
+                        >
+                          <div class="underlying-table-scroll">
+                            <table class="asset-table">
+                              <thead>
+                                <tr>
+                                  <th>Underlying</th>
+
+                                  <th>ISIN</th>
+
+                                  <th>Quantity</th>
+
+                                  <th>Invested</th>
+
+                                  <th>Current Price / NAV</th>
+
+                                  <th>Current Value</th>
+
+                                  <th>P&amp;L</th>
+
+                                  <th>XIRR</th>
+                                </tr>
+                              </thead>
+
+                              <tbody>
+                                <tr *ngFor="let asset of assetGroup.assets" class="underlying-row">
+                                  <!-- FINAL NAME
+                                       NO CLICK
+                                       NO ARROW -->
+                                  <td class="asset-name final-underlying">
+                                    {{ getUnderlyingName(asset) }}
+                                  </td>
+
+                                  <td class="isin">
+                                    {{ asset.isin || '-' }}
+                                  </td>
+
+                                  <td>
+                                    {{ formatNumber(asset.quantity) }}
+                                  </td>
+
+                                  <td>₹{{ formatCurrency(getUnderlyingInvested(asset)) }}</td>
+
+                                  <!-- CURRENT PRICE / NAV -->
+                                  <td class="price-cell">
+                                    <!-- NORMAL DISPLAY -->
+                                    <ng-container *ngIf="!isEditingPrice(asset)">
+                                      <div class="current-price">
+                                        {{
+                                          asset.current_price !== null &&
+                                          asset.current_price !== undefined
+                                            ? '₹' + formatDecimal(asset.current_price)
+                                            : '-'
+                                        }}
+                                      </div>
+
+                                      <small *ngIf="hasPriceDate(asset)" class="price-update-date">
+                                        Updated
+                                        {{ formatPriceDate(getPriceDate(asset)) }}
+                                      </small>
+
+                                      <button
+                                        type="button"
+                                        class="manual-price-edit"
+                                        (click)="onManualPriceEdit($event, asset)"
+                                      >
+                                        Edit
+                                      </button>
+                                    </ng-container>
+
+                                    <!-- EDIT MODE -->
+                                    <ng-container *ngIf="isEditingPrice(asset)">
+                                      <div
+                                        class="manual-price-container"
+                                        (click)="$event.stopPropagation()"
+                                      >
+                                        <input
+                                          type="number"
+                                          class="manual-price-input"
+                                          [(ngModel)]="manualPriceInput"
+                                          min="0"
+                                          step="0.0001"
+                                          placeholder="Price"
+                                          [disabled]="isSavingManualPrice(asset)"
+                                        />
+
+                                        <div class="manual-price-actions">
+                                          <button
+                                            type="button"
+                                            class="manual-price-button manual-price-save"
+                                            [disabled]="isSavingManualPrice(asset)"
+                                            (click)="saveManualPrice(asset)"
+                                          >
+                                            {{ isSavingManualPrice(asset) ? 'Saving...' : 'Save' }}
+                                          </button>
+
+                                          <button
+                                            type="button"
+                                            class="manual-price-button"
+                                            [disabled]="isSavingManualPrice(asset)"
+                                            (click)="cancelEditingPrice(asset)"
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
+                                      </div>
+
+                                      <small
+                                        *ngIf="getManualPriceError(asset)"
+                                        class="manual-price-error"
+                                      >
+                                        {{ getManualPriceError(asset) }}
+                                      </small>
+                                    </ng-container>
+                                  </td>
+
+                                  <td>₹{{ formatCurrency(asset.current_value) }}</td>
+
+                                  <td class="pnl-cell" [ngClass]="getPnlClass(asset.pnl)">
+                                    {{ asset.pnl >= 0 ? '+' : '-' }}₹{{
+                                      formatAbsoluteCurrency(asset.pnl)
+                                    }}
+                                  </td>
+
+                                  <td
+                                    class="pnl-cell"
+                                    [ngClass]="
+                                      asset.xirr === null || asset.xirr === undefined
+                                        ? 'neutral'
+                                        : getPnlClass(asset.xirr)
+                                    "
+                                  >
+                                    {{
+                                      asset.xirr === null || asset.xirr === undefined
+                                        ? '-'
+                                        : formatPercentage(asset.xirr)
+                                    }}
+                                  </td>
+                                </tr>
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    </ng-container>
                   </div>
                 </div>
               </td>

@@ -21,6 +21,11 @@ interface SubClassSummary {
   assets: PortfolioAssetNode[];
 }
 
+interface AssetGroup {
+  asset_name: string;
+  assets: PortfolioAssetNode[];
+}
+
 @Component({
   selector: 'app-portfolio',
   standalone: true,
@@ -39,8 +44,10 @@ export class PortfolioComponent implements OnInit, OnDestroy {
 
   selectedFamily = '';
   selectedAssetClass = '';
+  selectedAdvisor = '';
 
   expandedSubClass = '';
+  expandedAsset = '';
 
   loading = true;
   error = '';
@@ -65,35 +72,10 @@ export class PortfolioComponent implements OnInit, OnDestroy {
    */
   manualPriceErrors: Record<number, string> = {};
 
-  /* ==========================================================
-     SUMMARY CACHE
-
-     subClassSummaries is read by the template on every change
-     detection pass. If it returns freshly built objects each
-     time, Angular's checkNoChanges pass sees a different array
-     identity, raises ExpressionChangedAfterItHasBeenCheckedError
-     and abandons the DOM update - which is why toggling the
-     manual price editor previously had no visible effect.
-
-     The result is therefore computed once per data/filter change
-     and reused until one of those inputs actually changes.
-     ========================================================== */
-
-  private summariesCache: SubClassSummary[] = [];
-  private summariesCacheFamilies: FamilyNode[] | null = null;
-  private summariesCacheFamily = '';
-  private summariesCacheAssetClass = '';
-
   ngOnInit(): void {
     this.loadPortfolio();
 
     this.refreshSubscription = timer(30000, 30000).subscribe(() => {
-      // Never refresh underneath an open editor - it would discard
-      // whatever the user is part-way through typing.
-      if (this.editingAssetId !== null || this.savingManualPriceAssetId !== null) {
-        return;
-      }
-
       this.loadPortfolio(true);
     });
   }
@@ -112,13 +94,11 @@ export class PortfolioComponent implements OnInit, OnDestroy {
       next: (response) => {
         this.families = response.families ?? [];
 
-        this.invalidateSummaries();
-
         this.validateSelections();
 
         this.loading = false;
 
-        this.cdr.markForCheck();
+        this.cdr.detectChanges();
       },
 
       error: (error) => {
@@ -132,28 +112,13 @@ export class PortfolioComponent implements OnInit, OnDestroy {
           this.error = 'Unable to load portfolio data.';
         }
 
-        this.cdr.markForCheck();
+        this.cdr.detectChanges();
       },
     });
   }
 
   refresh(): void {
     this.loadPortfolio();
-  }
-
-  /* ==========================================================
-     TRACKING
-
-     Stable keys stop Angular tearing down and rebuilding every
-     row (and any focused input inside it) on each refresh.
-     ========================================================== */
-
-  trackBySubClass(_index: number, summary: SubClassSummary): string {
-    return summary.sub_class;
-  }
-
-  trackByAsset(_index: number, asset: PortfolioAssetNode): number {
-    return asset.id;
   }
 
   get familyOptions(): string[] {
@@ -179,6 +144,36 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     return Array.from(classes).sort((a, b) => a.localeCompare(b));
   }
 
+  get advisorOptions(): string[] {
+    const advisors = new Set<string>();
+
+    for (const family of this.families) {
+      if (this.selectedFamily && family.family_name !== this.selectedFamily) {
+        continue;
+      }
+
+      for (const portfolio of family.portfolios) {
+        for (const assetClass of portfolio.asset_classes) {
+          if (this.selectedAssetClass && assetClass.asset_class !== this.selectedAssetClass) {
+            continue;
+          }
+
+          for (const subClass of assetClass.sub_classes) {
+            for (const asset of subClass.assets) {
+              const advisor = asset.advisors?.trim();
+
+              if (advisor) {
+                advisors.add(advisor);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return Array.from(advisors).sort((a, b) => a.localeCompare(b));
+  }
+
   get filteredFamilies(): FamilyNode[] {
     if (!this.selectedFamily) {
       return this.families;
@@ -188,53 +183,185 @@ export class PortfolioComponent implements OnInit, OnDestroy {
   }
 
   get subClassSummaries(): SubClassSummary[] {
-    if (
-      this.summariesCacheFamilies === this.families &&
-      this.summariesCacheFamily === this.selectedFamily &&
-      this.summariesCacheAssetClass === this.selectedAssetClass
-    ) {
-      return this.summariesCache;
+    const summaryMap = new Map<string, SubClassSummary>();
+
+    for (const family of this.filteredFamilies) {
+      for (const portfolio of family.portfolios) {
+        for (const assetClass of portfolio.asset_classes) {
+          if (this.selectedAssetClass && assetClass.asset_class !== this.selectedAssetClass) {
+            continue;
+          }
+
+          for (const subClass of assetClass.sub_classes) {
+            const filteredAssets = subClass.assets.filter((asset) => {
+              if (!this.selectedAdvisor) {
+                return true;
+              }
+
+              return asset.advisors?.trim() === this.selectedAdvisor;
+            });
+
+            if (!filteredAssets.length) {
+              continue;
+            }
+
+            const key = subClass.sub_class || 'Unassigned';
+
+            let summary = summaryMap.get(key);
+
+            if (!summary) {
+              summary = {
+                sub_class: key,
+                current_value: 0,
+                pnl: 0,
+                quantity: 0,
+                xirr: null,
+                assets: [],
+              };
+
+              summaryMap.set(key, summary);
+            }
+
+            summary.current_value += this.getAssetsCurrentValue(filteredAssets);
+            summary.pnl += this.getAssetsPnl(filteredAssets);
+            summary.quantity += this.getAssetsQuantity(filteredAssets);
+            summary.assets.push(...filteredAssets);
+          }
+        }
+      }
     }
 
-    this.summariesCache = this.buildSubClassSummaries();
-
-    this.summariesCacheFamilies = this.families;
-    this.summariesCacheFamily = this.selectedFamily;
-    this.summariesCacheAssetClass = this.selectedAssetClass;
-
-    return this.summariesCache;
+    return Array.from(summaryMap.values())
+      .map((summary) => ({
+        ...summary,
+        xirr: this.calculateXirr(summary.assets),
+      }))
+      .sort((a, b) => a.sub_class.localeCompare(b.sub_class));
   }
 
   getSubClassAssets(subClass: string): PortfolioAssetNode[] {
     return this.subClassSummaries.find((summary) => summary.sub_class === subClass)?.assets ?? [];
   }
 
+  /**
+   * LEVEL 1:
+   * Sub Class expansion.
+   */
   toggleSubClass(subClass: string): void {
-    this.expandedSubClass = this.expandedSubClass === subClass ? '' : subClass;
+    if (this.expandedSubClass === subClass) {
+      this.expandedSubClass = '';
+      this.expandedAsset = '';
+      return;
+    }
+
+    this.expandedSubClass = subClass;
+    this.expandedAsset = '';
+  }
+
+  /**
+   * Returns the Asset Name groups displayed under a Sub Class.
+   *
+   * Multiple backend rows having the same asset_name are grouped
+   * together at Level 2.
+   */
+  getAssetGroups(assets: PortfolioAssetNode[]): AssetGroup[] {
+    const groups = new Map<string, PortfolioAssetNode[]>();
+
+    for (const asset of assets) {
+      const assetName = asset.asset_name?.trim() || 'Unnamed Asset';
+
+      if (!groups.has(assetName)) {
+        groups.set(assetName, []);
+      }
+
+      groups.get(assetName)!.push(asset);
+    }
+
+    return Array.from(groups.entries())
+      .map(([asset_name, groupedAssets]) => ({
+        asset_name,
+        assets: groupedAssets,
+      }))
+      .sort((a, b) => a.asset_name.localeCompare(b.asset_name));
+  }
+
+  /**
+   * LEVEL 2:
+   * Asset Name expansion.
+   *
+   * This opens the FINAL Underlying/details section.
+   */
+  toggleAsset(assetKey: string): void {
+    this.expandedAsset = this.expandedAsset === assetKey ? '' : assetKey;
+  }
+
+  /**
+   * Stable key for an Asset Name group.
+   */
+  getAssetKey(subClass: string, assetName: string): string {
+    return `${subClass}::${assetName}`;
+  }
+
+  /**
+   * FINAL LEVEL:
+   * Underlying name.
+   *
+   * If Underlying is empty/null, Asset Name itself is used.
+   */
+  getUnderlyingName(asset: PortfolioAssetNode): string {
+    return asset.underlying?.trim() || asset.asset_name;
+  }
+
+  /**
+   * Existing invested_value is used directly.
+   */
+  getUnderlyingInvested(asset: PortfolioAssetNode): number {
+    return this.toNumber(asset.invested_value);
   }
 
   selectFamily(family: string): void {
     this.selectedFamily = this.selectedFamily === family ? '' : family;
 
     this.selectedAssetClass = '';
+    this.selectedAdvisor = '';
     this.expandedSubClass = '';
+    this.expandedAsset = '';
   }
 
   selectAssetClass(assetClass: string): void {
     this.selectedAssetClass = this.selectedAssetClass === assetClass ? '' : assetClass;
 
+    this.selectedAdvisor = '';
     this.expandedSubClass = '';
+    this.expandedAsset = '';
+  }
+
+  selectAdvisor(advisor: string): void {
+    this.selectedAdvisor = this.selectedAdvisor === advisor ? '' : advisor;
+
+    this.expandedSubClass = '';
+    this.expandedAsset = '';
   }
 
   clearFamily(): void {
     this.selectedFamily = '';
     this.selectedAssetClass = '';
+    this.selectedAdvisor = '';
     this.expandedSubClass = '';
+    this.expandedAsset = '';
   }
 
   clearAssetClass(): void {
     this.selectedAssetClass = '';
+    this.selectedAdvisor = '';
     this.expandedSubClass = '';
+    this.expandedAsset = '';
+  }
+
+  clearAdvisor(): void {
+    this.selectedAdvisor = '';
+    this.expandedSubClass = '';
+    this.expandedAsset = '';
   }
 
   isFamilySelected(family: string): boolean {
@@ -245,13 +372,15 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     return this.selectedAssetClass === assetClass;
   }
 
-  /* ==========================================================
-     MANUAL PRICE EDITING
-     ========================================================== */
+  isAdvisorSelected(advisor: string): boolean {
+    return this.selectedAdvisor === advisor;
+  }
 
   onManualPriceEdit(event: MouseEvent, asset: PortfolioAssetNode): void {
     event.preventDefault();
     event.stopPropagation();
+
+    console.log('[Portfolio] Edit price clicked:', asset.id, asset.asset_name);
 
     this.startEditingPrice(asset);
   }
@@ -260,6 +389,8 @@ export class PortfolioComponent implements OnInit, OnDestroy {
    * Start editing an asset's current price.
    */
   startEditingPrice(asset: PortfolioAssetNode): void {
+    console.log('[Portfolio] Starting price edit:', asset.id, asset.asset_name);
+
     this.editingAssetId = asset.id;
 
     this.manualPriceInput =
@@ -269,7 +400,12 @@ export class PortfolioComponent implements OnInit, OnDestroy {
 
     this.manualPriceErrors[asset.id] = '';
 
-    this.cdr.markForCheck();
+    this.cdr.detectChanges();
+
+    console.log('[Portfolio] Edit state:', {
+      editingAssetId: this.editingAssetId,
+      manualPriceInput: this.manualPriceInput,
+    });
   }
 
   /**
@@ -280,21 +416,16 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     this.manualPriceInput = '';
 
     this.manualPriceErrors[asset.id] = '';
-
-    this.cdr.markForCheck();
   }
 
   /**
    * Save a manually entered current price.
-   *
-   * The value is a price per unit, not a total holding value.
    */
   saveManualPrice(asset: PortfolioAssetNode): void {
     const price = Number(this.manualPriceInput);
 
     if (!Number.isFinite(price) || price <= 0) {
-      this.manualPriceErrors[asset.id] = 'Enter a price per unit greater than 0.';
-      this.cdr.markForCheck();
+      this.manualPriceErrors[asset.id] = 'Enter a valid price greater than 0.';
       return;
     }
 
@@ -308,7 +439,8 @@ export class PortfolioComponent implements OnInit, OnDestroy {
 
         if (!response.success) {
           this.manualPriceErrors[asset.id] = response.message || 'Unable to update price.';
-          this.cdr.markForCheck();
+
+          this.cdr.detectChanges();
           return;
         }
 
@@ -323,7 +455,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
          * P&L %
          * XIRR
          *
-         * are all recalculated from the new price by the backend.
+         * are recalculated from the updated price.
          */
         this.loadPortfolio(true);
       },
@@ -336,7 +468,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
         this.manualPriceErrors[asset.id] =
           error?.error?.message || 'Unable to update manual price.';
 
-        this.cdr.markForCheck();
+        this.cdr.detectChanges();
       },
     });
   }
@@ -362,26 +494,6 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     return this.manualPriceErrors[asset.id] || '';
   }
 
-  /**
-   * True when the displayed price came from a manual override
-   * rather than an automatic market-data feed.
-   */
-  isManualPrice(asset: PortfolioAssetNode): boolean {
-    const extendedAsset = asset as PortfolioAssetNode & {
-      price_source?: string | null;
-    };
-
-    return extendedAsset.price_source === 'MANUAL';
-  }
-
-  /* ==========================================================
-     FORMATTING
-     ========================================================== */
-
-  /**
-   * Returns the absolute value without exposing Math
-   * directly to the Angular template.
-   */
   formatAbsoluteCurrency(value: number): string {
     return this.formatCurrency(Math.abs(this.toNumber(value)));
   }
@@ -426,12 +538,6 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     return 'neutral';
   }
 
-  /**
-   * Price date support.
-   *
-   * These methods safely support the current PortfolioAssetNode
-   * even if the backend has not yet exposed a price date.
-   */
   hasPriceDate(asset: PortfolioAssetNode): boolean {
     return !!this.getPriceDate(asset);
   }
@@ -463,73 +569,28 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     }).format(parsedDate);
   }
 
-  /* ==========================================================
-     INTERNAL
-     ========================================================== */
-
-  private invalidateSummaries(): void {
-    this.summariesCacheFamilies = null;
+  private getAssetsCurrentValue(assets: PortfolioAssetNode[]): number {
+    return assets.reduce((total, asset) => total + this.toNumber(asset.current_value), 0);
   }
 
-  private buildSubClassSummaries(): SubClassSummary[] {
-    const summaryMap = new Map<string, SubClassSummary>();
+  private getAssetsPnl(assets: PortfolioAssetNode[]): number {
+    return assets.reduce((total, asset) => total + this.toNumber(asset.pnl), 0);
+  }
 
-    for (const family of this.filteredFamilies) {
-      for (const portfolio of family.portfolios) {
-        for (const assetClass of portfolio.asset_classes) {
-          if (this.selectedAssetClass && assetClass.asset_class !== this.selectedAssetClass) {
-            continue;
-          }
-
-          for (const subClass of assetClass.sub_classes) {
-            const key = subClass.sub_class || 'Unassigned';
-
-            let summary = summaryMap.get(key);
-
-            if (!summary) {
-              summary = {
-                sub_class: key,
-                current_value: 0,
-                pnl: 0,
-                quantity: 0,
-                xirr: null,
-                assets: [],
-              };
-
-              summaryMap.set(key, summary);
-            }
-
-            summary.current_value += this.getSubClassCurrentValue(subClass);
-            summary.pnl += this.getSubClassPnl(subClass);
-            summary.quantity += this.getSubClassQuantity(subClass);
-            summary.assets.push(...subClass.assets);
-          }
-        }
-      }
-    }
-
-    // Mutate in place rather than spreading into new objects, so the
-    // identities handed to the template stay stable for the lifetime
-    // of this cache entry.
-    const summaries = Array.from(summaryMap.values());
-
-    for (const summary of summaries) {
-      summary.xirr = this.calculateXirr(summary.assets);
-    }
-
-    return summaries.sort((a, b) => a.sub_class.localeCompare(b.sub_class));
+  private getAssetsQuantity(assets: PortfolioAssetNode[]): number {
+    return assets.reduce((total, asset) => total + this.toNumber(asset.quantity), 0);
   }
 
   private getSubClassCurrentValue(subClass: SubClassNode): number {
-    return subClass.assets.reduce((total, asset) => total + this.toNumber(asset.current_value), 0);
+    return this.getAssetsCurrentValue(subClass.assets);
   }
 
   private getSubClassPnl(subClass: SubClassNode): number {
-    return subClass.assets.reduce((total, asset) => total + this.toNumber(asset.pnl), 0);
+    return this.getAssetsPnl(subClass.assets);
   }
 
   private getSubClassQuantity(subClass: SubClassNode): number {
-    return subClass.assets.reduce((total, asset) => total + this.toNumber(asset.quantity), 0);
+    return this.getAssetsQuantity(subClass.assets);
   }
 
   private calculateXirr(assets: PortfolioAssetNode[]): number | null {
@@ -576,11 +637,16 @@ export class PortfolioComponent implements OnInit, OnDestroy {
       this.selectedAssetClass = '';
     }
 
+    if (this.selectedAdvisor && !this.advisorOptions.includes(this.selectedAdvisor)) {
+      this.selectedAdvisor = '';
+    }
+
     if (
       this.expandedSubClass &&
       !this.subClassSummaries.some((summary) => summary.sub_class === this.expandedSubClass)
     ) {
       this.expandedSubClass = '';
+      this.expandedAsset = '';
     }
   }
 }

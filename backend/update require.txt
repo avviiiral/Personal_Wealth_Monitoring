@@ -1,9 +1,0 @@
-qty check
-
-buoynd stock name add (PMS)
-
-EQTY PMS 
-|
-|----PMS name
-        |
-        |- Underling stocks

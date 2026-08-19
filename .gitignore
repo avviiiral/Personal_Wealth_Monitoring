@@ -1,0 +1,164 @@
+# ============================================================
+# Python
+# ============================================================
+
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# Python virtual environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# ============================================================
+# Django
+# ============================================================
+
+*.log
+
+# Local SQLite database
+db.sqlite3
+db.sqlite3-journal
+
+# Django collected static/media files
+staticfiles/
+media/
+
+# ============================================================
+# Environment / secrets
+# ============================================================
+
+.env
+.env.*
+!.env.example
+
+# API keys / credentials
+*.pem
+*.key
+credentials.json
+secrets.json
+
+# ============================================================
+# IDE / Editors
+# ============================================================
+
+.vscode/
+.idea/
+
+# VS Code local history
+.history/
+
+# ============================================================
+# OS files
+# ============================================================
+
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ============================================================
+# Node / Angular
+# ============================================================
+
+node_modules/
+.angular/
+dist/
+
+# Angular cache
+.angular/cache/
+
+# ============================================================
+# Temporary files
+# ============================================================
+
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+
+# ============================================================
+# PWMS generated/local data
+# ============================================================
+
+# Do not commit generated transaction files
+data/*.xlsx
+data/*.xls
+data/*.csv
+
+# Keep the data directory itself
+!data/.gitkeep
+
+# Generated reports
+reports/
+exports/
+
+# ============================================================
+# Local AI / model files
+# ============================================================
+
+*.model
+*.weights
+*.onnx
+*.pt
+*.pth
+
+# ============================================================
+# Misc
+# ============================================================
+
+.DS_Store
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+.env
+*.log
+
+# Django
+db.sqlite3
+db.sqlite3-journal
+staticfiles/
+media/
+
+# Node / Angular
+frontend/node_modules/
+frontend/.angular/
+frontend/dist/
+frontend/out-tsc/
+
+# Angular cache
+.angular/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
