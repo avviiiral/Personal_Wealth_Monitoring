@@ -229,11 +229,20 @@ export class PortfolioComponent implements OnInit, OnDestroy {
   isAssetClassSelected(assetClass: string): boolean {
     return this.selectedAssetClass === assetClass;
   }
+  onManualPriceEdit(event: MouseEvent, asset: PortfolioAssetNode): void {
+    event.preventDefault();
+    event.stopPropagation();
 
+    console.log('[Portfolio] Edit price clicked:', asset.id, asset.asset_name);
+
+    this.startEditingPrice(asset);
+  }
   /**
    * Start editing an asset's current price.
    */
   startEditingPrice(asset: PortfolioAssetNode): void {
+    console.log('[Portfolio] Starting price edit:', asset.id, asset.asset_name);
+
     this.editingAssetId = asset.id;
 
     this.manualPriceInput =
@@ -242,6 +251,13 @@ export class PortfolioComponent implements OnInit, OnDestroy {
         : '';
 
     this.manualPriceErrors[asset.id] = '';
+
+    this.cdr.detectChanges();
+
+    console.log('[Portfolio] Edit state:', {
+      editingAssetId: this.editingAssetId,
+      manualPriceInput: this.manualPriceInput,
+    });
   }
 
   /**
