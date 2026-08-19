@@ -1,31 +1,10 @@
 import { Component } from '@angular/core';
-
-import {
-  LucideChartPie,
-  LucideCircleDollarSign,
-  LucideLayoutDashboard,
-  LucidePlus,
-  LucideSettings,
-  LucideTrendingUp,
-  LucideWallet,
-} from '@lucide/angular';
-
 import { RouterLink, RouterLinkActive } from '@angular/router';
 
 @Component({
   selector: 'app-sidebar',
   standalone: true,
-  imports: [
-    RouterLink,
-    RouterLinkActive,
-
-    LucideLayoutDashboard,
-    LucideWallet,
-    LucideTrendingUp,
-    LucideCircleDollarSign,
-    LucideChartPie,
-    LucideSettings,
-  ],
+  imports: [RouterLink, RouterLinkActive],
   templateUrl: './sidebar.component.html',
   styleUrl: './sidebar.component.scss',
 })
