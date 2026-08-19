@@ -6,12 +6,20 @@ from investments.models import (
     Transaction,
 )
 
+from market_data.models import (
+    ManualAssetPrice,
+    MarketPrice,
+)
 
-class AssetSerializer(serializers.ModelSerializer):
+
+class AssetSerializer(
+    serializers.ModelSerializer
+):
 
     class Meta:
         model = Asset
         fields = "__all__"
+
         read_only_fields = (
             "id",
             "owner",
@@ -20,7 +28,9 @@ class AssetSerializer(serializers.ModelSerializer):
         )
 
 
-class HoldingSerializer(serializers.ModelSerializer):
+class HoldingSerializer(
+    serializers.ModelSerializer
+):
 
     asset_name = serializers.CharField(
         source="asset.name",
@@ -32,8 +42,23 @@ class HoldingSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
+    price_source = serializers.SerializerMethodField()
+
+    price_updated_date = (
+        serializers.SerializerMethodField()
+    )
+
+    manual_price_available = (
+        serializers.SerializerMethodField()
+    )
+
+    manual_price = (
+        serializers.SerializerMethodField()
+    )
+
     class Meta:
         model = Holding
+
         fields = (
             "id",
             "asset",
@@ -46,6 +71,12 @@ class HoldingSerializer(serializers.ModelSerializer):
             "current_value",
             "unrealized_pnl",
             "updated_at",
+
+            # Manual/effective price metadata
+            "price_source",
+            "price_updated_date",
+            "manual_price_available",
+            "manual_price",
         )
 
         read_only_fields = (
@@ -55,10 +86,127 @@ class HoldingSerializer(serializers.ModelSerializer):
             "current_value",
             "unrealized_pnl",
             "updated_at",
+            "price_source",
+            "price_updated_date",
+            "manual_price_available",
+            "manual_price",
         )
 
+    def _latest_automatic_price(
+        self,
+        obj,
+    ):
+        return (
+            MarketPrice.objects
+            .filter(
+                asset=obj.asset,
+            )
+            .order_by("-date")
+            .first()
+        )
 
-class TransactionSerializer(serializers.ModelSerializer):
+    def _manual_price(
+        self,
+        obj,
+    ):
+        return (
+            ManualAssetPrice.objects
+            .filter(
+                asset=obj.asset,
+            )
+            .first()
+        )
+
+    def get_price_source(
+        self,
+        obj,
+    ):
+        automatic = (
+            self._latest_automatic_price(
+                obj
+            )
+        )
+
+        if automatic is not None:
+            return automatic.source
+
+        manual = (
+            self._manual_price(
+                obj
+            )
+        )
+
+        if manual is not None:
+            return "MANUAL"
+
+        return None
+
+    def get_price_updated_date(
+        self,
+        obj,
+    ):
+        automatic = (
+            self._latest_automatic_price(
+                obj
+            )
+        )
+
+        if automatic is not None:
+            return str(
+                automatic.date
+            )
+
+        manual = (
+            self._manual_price(
+                obj
+            )
+        )
+
+        if manual is not None:
+            return str(
+                manual.price_date
+            )
+
+        return None
+
+    def get_manual_price(
+        self,
+        obj,
+    ):
+        manual = (
+            self._manual_price(
+                obj
+            )
+        )
+
+        if manual is None:
+            return None
+
+        return str(
+            manual.price
+        )
+
+    def get_manual_price_available(
+        self,
+        obj,
+    ):
+        """
+        Manual editing is available only when
+        automatic market data does not exist.
+        """
+
+        automatic = (
+            self._latest_automatic_price(
+                obj
+            )
+        )
+
+        return automatic is None
+
+
+class TransactionSerializer(
+    serializers.ModelSerializer
+):
 
     asset_name_display = serializers.CharField(
         source="asset.name",
@@ -104,9 +252,14 @@ class TransactionSerializer(serializers.ModelSerializer):
             "updated_at",
         )
 
-    def validate_asset(self, asset):
+    def validate_asset(
+        self,
+        asset,
+    ):
 
-        request = self.context.get("request")
+        request = self.context.get(
+            "request"
+        )
 
         if request is None:
             return asset

@@ -1,14 +1,16 @@
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { ChangeDetectorRef, Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { Subscription, timer } from 'rxjs';
 
 import {
-  AssetClassNode,
-  FamilyNode,
   PortfolioApiService,
   PortfolioAssetNode,
+  FamilyNode,
   SubClassNode,
 } from '../../core/services/portfolio-api.service';
+
+import { ManualPriceService } from '../../core/services/manual-price.service';
 
 interface SubClassSummary {
   sub_class: string;
@@ -22,12 +24,13 @@ interface SubClassSummary {
 @Component({
   selector: 'app-portfolio',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, FormsModule],
   templateUrl: './portfolio.component.html',
   styleUrl: './portfolio.component.scss',
 })
 export class PortfolioComponent implements OnInit, OnDestroy {
   private readonly portfolioApi = inject(PortfolioApiService);
+  private readonly manualPriceService = inject(ManualPriceService);
   private readonly cdr = inject(ChangeDetectorRef);
 
   private refreshSubscription: Subscription | null = null;
@@ -41,6 +44,26 @@ export class PortfolioComponent implements OnInit, OnDestroy {
 
   loading = true;
   error = '';
+
+  /**
+   * Asset currently being edited.
+   */
+  editingAssetId: number | null = null;
+
+  /**
+   * Temporary manual price entered by the user.
+   */
+  manualPriceInput = '';
+
+  /**
+   * Asset currently being saved.
+   */
+  savingManualPriceAssetId: number | null = null;
+
+  /**
+   * Per-asset error messages.
+   */
+  manualPriceErrors: Record<number, string> = {};
 
   ngOnInit(): void {
     this.loadPortfolio();
@@ -206,6 +229,129 @@ export class PortfolioComponent implements OnInit, OnDestroy {
   isAssetClassSelected(assetClass: string): boolean {
     return this.selectedAssetClass === assetClass;
   }
+  onManualPriceEdit(event: MouseEvent, asset: PortfolioAssetNode): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    console.log('[Portfolio] Edit price clicked:', asset.id, asset.asset_name);
+
+    this.startEditingPrice(asset);
+  }
+  /**
+   * Start editing an asset's current price.
+   */
+  startEditingPrice(asset: PortfolioAssetNode): void {
+    console.log('[Portfolio] Starting price edit:', asset.id, asset.asset_name);
+
+    this.editingAssetId = asset.id;
+
+    this.manualPriceInput =
+      asset.current_price !== null && asset.current_price !== undefined
+        ? String(asset.current_price)
+        : '';
+
+    this.manualPriceErrors[asset.id] = '';
+
+    this.cdr.detectChanges();
+
+    console.log('[Portfolio] Edit state:', {
+      editingAssetId: this.editingAssetId,
+      manualPriceInput: this.manualPriceInput,
+    });
+  }
+
+  /**
+   * Cancel manual price editing.
+   */
+  cancelEditingPrice(asset: PortfolioAssetNode): void {
+    this.editingAssetId = null;
+    this.manualPriceInput = '';
+
+    this.manualPriceErrors[asset.id] = '';
+  }
+
+  /**
+   * Save a manually entered current price.
+   */
+  saveManualPrice(asset: PortfolioAssetNode): void {
+    const price = Number(this.manualPriceInput);
+
+    if (!Number.isFinite(price) || price <= 0) {
+      this.manualPriceErrors[asset.id] = 'Enter a valid price greater than 0.';
+      return;
+    }
+
+    this.manualPriceErrors[asset.id] = '';
+
+    this.savingManualPriceAssetId = asset.id;
+
+    this.manualPriceService.updatePrice(asset.id, price).subscribe({
+      next: (response) => {
+        this.savingManualPriceAssetId = null;
+
+        if (!response.success) {
+          this.manualPriceErrors[asset.id] = response.message || 'Unable to update price.';
+          this.cdr.detectChanges();
+          return;
+        }
+
+        this.editingAssetId = null;
+        this.manualPriceInput = '';
+
+        /*
+         * Reload the portfolio tree so that:
+         *
+         * Current Value
+         * P&L
+         * P&L %
+         * XIRR
+         *
+         * are all recalculated from the new price by the backend.
+         */
+        this.loadPortfolio(true);
+      },
+
+      error: (error) => {
+        console.error('Manual price update failed:', error);
+
+        this.savingManualPriceAssetId = null;
+
+        this.manualPriceErrors[asset.id] =
+          error?.error?.message || 'Unable to update manual price.';
+
+        this.cdr.detectChanges();
+      },
+    });
+  }
+
+  /**
+   * Check whether an asset is currently being edited.
+   */
+  isEditingPrice(asset: PortfolioAssetNode): boolean {
+    return this.editingAssetId === asset.id;
+  }
+
+  /**
+   * Check whether an asset price is currently being saved.
+   */
+  isSavingManualPrice(asset: PortfolioAssetNode): boolean {
+    return this.savingManualPriceAssetId === asset.id;
+  }
+
+  /**
+   * Get the manual-price error for an asset.
+   */
+  getManualPriceError(asset: PortfolioAssetNode): string {
+    return this.manualPriceErrors[asset.id] || '';
+  }
+
+  /**
+   * Returns the absolute value without exposing Math
+   * directly to the Angular template.
+   */
+  formatAbsoluteCurrency(value: number): string {
+    return this.formatCurrency(Math.abs(this.toNumber(value)));
+  }
 
   formatCurrency(value: number): string {
     return new Intl.NumberFormat('en-IN', {
@@ -247,6 +393,43 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     return 'neutral';
   }
 
+  /**
+   * Price date support.
+   *
+   * These methods safely support the current PortfolioAssetNode
+   * even if the backend has not yet exposed a price date.
+   */
+  hasPriceDate(asset: PortfolioAssetNode): boolean {
+    return !!this.getPriceDate(asset);
+  }
+
+  getPriceDate(asset: PortfolioAssetNode): string | null {
+    const extendedAsset = asset as PortfolioAssetNode & {
+      price_date?: string | null;
+      updated_at?: string | null;
+    };
+
+    return extendedAsset.price_date ?? extendedAsset.updated_at ?? null;
+  }
+
+  formatPriceDate(dateValue: string | null): string {
+    if (!dateValue) {
+      return '';
+    }
+
+    const parsedDate = new Date(dateValue);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return '';
+    }
+
+    return new Intl.DateTimeFormat('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    }).format(parsedDate);
+  }
+
   private getSubClassCurrentValue(subClass: SubClassNode): number {
     return subClass.assets.reduce((total, asset) => total + this.toNumber(asset.current_value), 0);
   }
@@ -274,6 +457,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
 
     for (const asset of validAssets) {
       const invested = this.toNumber(asset.invested_value);
+
       const xirr = this.toNumber(asset.xirr);
 
       weightedXirr += xirr * invested;

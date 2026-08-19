@@ -94,4 +94,53 @@ class MarketPrice(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.asset.name} - {self.date} - {self.close_price}"
+        return (
+            f"{self.asset.name} - "
+            f"{self.date} - "
+            f"{self.close_price}"
+        )
+
+
+class ManualAssetPrice(models.Model):
+    """
+    Manually entered current price for an asset.
+
+    This is used when automatic market data is not
+    available for the asset.
+
+    Examples:
+        - Sovereign Gold Bonds
+        - Private/unlisted investments
+        - Private equity
+        - AIFs
+        - Assets without ISIN
+        - Any security that cannot be resolved
+          automatically
+    """
+
+    asset = models.OneToOneField(
+        Asset,
+        on_delete=models.CASCADE,
+        related_name="manual_price",
+    )
+
+    price = models.DecimalField(
+        max_digits=20,
+        decimal_places=6,
+    )
+
+    price_date = models.DateField()
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    class Meta:
+        ordering = ["-price_date"]
+
+    def __str__(self):
+        return (
+            f"{self.asset.name} - "
+            f"{self.price} - "
+            f"{self.price_date}"
+        )

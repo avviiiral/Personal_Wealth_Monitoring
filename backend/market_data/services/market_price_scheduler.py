@@ -103,6 +103,8 @@ class MarketPriceScheduler:
                 category__in=[
                     "STOCK",
                     "ETF",
+                    "MUTUAL_FUND",
+                    "BOND",
                 ]
             )
             .select_related(
@@ -114,7 +116,8 @@ class MarketPriceScheduler:
 
         print(
             "[MARKET UPDATE] "
-            f"Found {total_assets} STOCK/ETF assets."
+            f"Found {total_assets} "
+            "STOCK/ETF/MUTUAL_FUND/BOND assets."
         )
 
         updated = 0
@@ -166,9 +169,15 @@ class MarketPriceScheduler:
                             "current_price"
                         )
 
+                        source = result.get(
+                            "source",
+                            "MARKET_DATA",
+                        )
+
                         print(
                             "[MARKET UPDATE] "
                             f"{asset.name}: UPDATED - "
+                            f"source={source}, "
                             f"records={records}, "
                             f"price={current_price}"
                         )

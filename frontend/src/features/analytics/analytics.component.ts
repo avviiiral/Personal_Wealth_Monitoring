@@ -79,7 +79,6 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
       summary: this.wealthApi.getSummary(),
       allocation: this.wealthApi.getAllocation(),
       performance: this.wealthApi.getPerformance(),
-      xirr: this.wealthApi.getXirr(),
       historical: this.wealthApi.getHistorical(this.selectedDays),
     }).subscribe({
       next: (data) => {
@@ -89,7 +88,9 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
           this.summary = data.summary;
           this.allocation = data.allocation;
           this.performance = data.performance;
-          this.xirr = data.xirr;
+          this.xirr = {
+            xirr_percentage: this.summary?.xirr_percentage ?? null,
+          };
           this.historical = data.historical;
 
           console.log('Analytics summary:', this.summary);

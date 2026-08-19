@@ -4,189 +4,280 @@
       <h1>Portfolio</h1>
     </div>
 
-    <button type="button" class="refresh-button" (click)="refresh()" [disabled]="loading">
+    <button type="button" class="refresh-button" [disabled]="loading" (click)="refresh()">
       Refresh
     </button>
   </div>
 
+  <div *ngIf="!loading && !error" class="selection-area">
+    <div class="selection-box">
+      <div class="selection-title">Family</div>
+
+      <div class="selection-buttons">
+        <button
+          type="button"
+          class="selection-button"
+          [class.active]="!selectedFamily"
+          (click)="clearFamily()"
+        >
+          All
+        </button>
+
+        <button
+          *ngFor="let family of familyOptions"
+          type="button"
+          class="selection-button"
+          [class.active]="isFamilySelected(family)"
+          (click)="selectFamily(family)"
+        >
+          {{ family }}
+        </button>
+      </div>
+    </div>
+
+    <div class="selection-box">
+      <div class="selection-title">Asset Class</div>
+
+      <div class="selection-buttons">
+        <button
+          type="button"
+          class="selection-button"
+          [class.active]="!selectedAssetClass"
+          (click)="clearAssetClass()"
+        >
+          All
+        </button>
+
+        <button
+          *ngFor="let assetClass of assetClassOptions"
+          type="button"
+          class="selection-button"
+          [class.active]="isAssetClassSelected(assetClass)"
+          (click)="selectAssetClass(assetClass)"
+        >
+          {{ assetClass }}
+        </button>
+      </div>
+    </div>
+  </div>
+
   <div *ngIf="loading" class="loading-state">Loading portfolio...</div>
 
-  <div *ngIf="error" class="error-state">
+  <div *ngIf="!loading && error" class="error-state">
     {{ error }}
   </div>
 
-  <ng-container *ngIf="!loading && !error">
-    <section class="selection-area">
-      <div class="selection-box family-box">
-        <div class="selection-title">Family</div>
+  <div *ngIf="!loading && !error" class="portfolio-table-card">
+    <div class="table-scroll">
+      <table class="portfolio-table">
+        <thead>
+          <tr>
+            <th class="sub-class-name">Sub Class</th>
 
-        <div class="selection-buttons">
-          <button
-            *ngFor="let family of familyOptions"
-            type="button"
-            class="selection-button"
-            [class.active]="isFamilySelected(family)"
-            (click)="selectFamily(family)"
-          >
-            {{ family }}
-          </button>
-        </div>
-      </div>
+            <th>Quantity</th>
 
-      <div class="selection-box asset-class-box">
-        <div class="selection-title">Asset Class</div>
+            <th>Current Value</th>
 
-        <div class="selection-buttons">
-          <button
-            *ngFor="let assetClass of assetClassOptions"
-            type="button"
-            class="selection-button"
-            [class.active]="isAssetClassSelected(assetClass)"
-            (click)="selectAssetClass(assetClass)"
-          >
-            {{ assetClass }}
-          </button>
-        </div>
-      </div>
-    </section>
+            <th>P&amp;L</th>
 
-    <section class="portfolio-table-card">
-      <div class="table-scroll">
-        <table class="portfolio-table">
-          <thead>
-            <tr>
-              <th>Sub Class</th>
-              <th>P&amp;L</th>
-              <th>QTY</th>
-              <th>XIRR</th>
-              <th class="arrow-column"></th>
-            </tr>
-          </thead>
+            <th>XIRR</th>
 
-          <tbody>
-            <ng-container *ngFor="let summary of subClassSummaries">
-              <tr
-                class="sub-class-row"
-                [class.expanded]="expandedSubClass === summary.sub_class"
-                (click)="toggleSubClass(summary.sub_class)"
+            <th class="arrow-column"></th>
+          </tr>
+        </thead>
+
+        <tbody>
+          <ng-container *ngFor="let summary of subClassSummaries">
+            <tr
+              class="sub-class-row"
+              [class.expanded]="expandedSubClass === summary.sub_class"
+              (click)="toggleSubClass(summary.sub_class)"
+            >
+              <td class="sub-class-name">
+                <span class="row-chevron" [class.open]="expandedSubClass === summary.sub_class">
+                  ›
+                </span>
+
+                {{ summary.sub_class }}
+              </td>
+
+              <td>
+                {{ formatNumber(summary.quantity) }}
+              </td>
+
+              <td>₹{{ formatCurrency(summary.current_value) }}</td>
+
+              <td class="pnl-cell" [ngClass]="getPnlClass(summary.pnl)">
+                {{ summary.pnl >= 0 ? '+' : '-' }}₹{{ formatAbsoluteCurrency(summary.pnl) }}
+              </td>
+
+              <td
+                class="pnl-cell"
+                [ngClass]="summary.xirr === null ? 'neutral' : getPnlClass(summary.xirr)"
               >
-                <td class="sub-class-name">
-                  <span class="row-chevron" [class.open]="expandedSubClass === summary.sub_class">
-                    ›
-                  </span>
+                {{ formatPercentage(summary.xirr) }}
+              </td>
 
-                  {{ summary.sub_class }}
-                </td>
-
-                <td
-                  class="pnl-cell"
-                  [class.positive]="summary.pnl > 0"
-                  [class.negative]="summary.pnl < 0"
+              <td class="arrow-column">
+                <span
+                  class="row-chevron right"
+                  [class.open]="expandedSubClass === summary.sub_class"
                 >
-                  ₹{{ formatCurrency(summary.pnl) }}
-                </td>
-
-                <td>
-                  {{ formatNumber(summary.quantity) }}
-                </td>
-
-                <td
-                  [class.positive]="(summary.xirr ?? 0) > 0"
-                  [class.negative]="(summary.xirr ?? 0) < 0"
-                >
-                  {{ formatPercentage(summary.xirr) }}
-                </td>
-
-                <td class="arrow-column">
-                  <span
-                    class="row-chevron right"
-                    [class.open]="expandedSubClass === summary.sub_class"
-                  >
-                    ›
-                  </span>
-                </td>
-              </tr>
-
-              <tr *ngIf="expandedSubClass === summary.sub_class" class="asset-detail-row">
-                <td colspan="5">
-                  <div class="asset-detail-container">
-                    <div class="asset-detail-title">
-                      {{ summary.sub_class }}
-                    </div>
-
-                    <div class="asset-table-scroll">
-                      <table class="asset-table">
-                        <thead>
-                          <tr>
-                            <th>Underlying</th>
-                            <th>ISIN</th>
-                            <th>Quantity</th>
-                            <th>Avg. Cost</th>
-                            <th>Invested</th>
-                            <th>Current Price</th>
-                            <th>Current Value</th>
-                            <th>P&amp;L</th>
-                            <th>P&amp;L %</th>
-                            <th>XIRR</th>
-                          </tr>
-                        </thead>
-
-                        <tbody>
-                          <ng-container *ngFor="let asset of summary.assets">
-                            <tr *ngIf="asset.quantity !== 0">
-                              <td class="asset-name">
-                                {{ asset.underlying || asset.asset_name || '-' }}
-                              </td>
-
-                              <td class="isin">
-                                {{ asset.isin || '-' }}
-                              </td>
-
-                              <td>
-                                {{ formatNumber(asset.quantity) }}
-                              </td>
-
-                              <td>₹{{ formatDecimal(asset.average_cost) }}</td>
-
-                              <td>₹{{ formatCurrency(asset.invested_value) }}</td>
-
-                              <td>₹{{ formatDecimal(asset.current_price) }}</td>
-
-                              <td>₹{{ formatCurrency(asset.current_value) }}</td>
-
-                              <td [class.positive]="asset.pnl > 0" [class.negative]="asset.pnl < 0">
-                                ₹{{ formatCurrency(asset.pnl) }}
-                              </td>
-
-                              <td
-                                [class.positive]="asset.pnl_percentage > 0"
-                                [class.negative]="asset.pnl_percentage < 0"
-                              >
-                                {{ formatPercentage(asset.pnl_percentage) }}
-                              </td>
-
-                              <td
-                                [class.positive]="(asset.xirr ?? 0) > 0"
-                                [class.negative]="(asset.xirr ?? 0) < 0"
-                              >
-                                {{ formatPercentage(asset.xirr) }}
-                              </td>
-                            </tr>
-                          </ng-container>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </td>
-              </tr>
-            </ng-container>
-
-            <tr *ngIf="subClassSummaries.length === 0">
-              <td colspan="5" class="empty-table">No portfolio data available.</td>
+                  ›
+                </span>
+              </td>
             </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-  </ng-container>
+
+            <tr *ngIf="expandedSubClass === summary.sub_class" class="asset-detail-row">
+              <td colspan="6">
+                <div class="asset-detail-container">
+                  <div class="asset-detail-title">{{ summary.sub_class }} Assets</div>
+
+                  <div class="asset-table-scroll">
+                    <table class="asset-table">
+                      <thead>
+                        <tr>
+                          <th>Asset</th>
+
+                          <th>ISIN</th>
+
+                          <th>Quantity</th>
+
+                          <th>Invested</th>
+
+                          <th>Current Price / NAV</th>
+
+                          <th>Current Value</th>
+
+                          <th>P&amp;L</th>
+
+                          <th>XIRR</th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        <tr *ngFor="let asset of summary.assets">
+                          <td class="asset-name">
+                            {{ asset.asset_name }}
+                          </td>
+
+                          <td class="isin">
+                            {{ asset.isin || '-' }}
+                          </td>
+
+                          <td>
+                            {{ formatNumber(asset.quantity) }}
+                          </td>
+
+                          <td>₹{{ formatCurrency(asset.invested_value) }}</td>
+
+                          <!-- CURRENT PRICE / NAV -->
+                          <td class="price-cell">
+                            <!-- Normal display -->
+                            <ng-container *ngIf="!isEditingPrice(asset)">
+                              <div class="current-price">
+                                {{
+                                  asset.current_price !== null && asset.current_price !== undefined
+                                    ? '₹' + formatDecimal(asset.current_price)
+                                    : '-'
+                                }}
+                              </div>
+
+                              <small *ngIf="hasPriceDate(asset)" class="price-update-date">
+                                Updated
+                                {{ formatPriceDate(getPriceDate(asset)) }}
+                              </small>
+
+                              <button
+                                type="button"
+                                class="manual-price-edit"
+                                (click)="onManualPriceEdit($event, asset)"
+                              >
+                                Edit
+                              </button>
+                            </ng-container>
+
+                            <!-- Edit mode -->
+                            <ng-container *ngIf="isEditingPrice(asset)">
+                              <div
+                                class="manual-price-container"
+                                (click)="$event.stopPropagation()"
+                              >
+                                <input
+                                  type="number"
+                                  class="manual-price-input"
+                                  [(ngModel)]="manualPriceInput"
+                                  min="0"
+                                  step="0.0001"
+                                  placeholder="Price"
+                                  [disabled]="isSavingManualPrice(asset)"
+                                />
+
+                                <div class="manual-price-actions">
+                                  <button
+                                    type="button"
+                                    class="manual-price-button manual-price-save"
+                                    [disabled]="isSavingManualPrice(asset)"
+                                    (click)="saveManualPrice(asset)"
+                                  >
+                                    {{ isSavingManualPrice(asset) ? 'Saving...' : 'Save' }}
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    class="manual-price-button"
+                                    [disabled]="isSavingManualPrice(asset)"
+                                    (click)="cancelEditingPrice(asset)"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+
+                              <small *ngIf="getManualPriceError(asset)" class="manual-price-error">
+                                {{ getManualPriceError(asset) }}
+                              </small>
+                            </ng-container>
+                          </td>
+
+                          <td>₹{{ formatCurrency(asset.current_value) }}</td>
+
+                          <td class="pnl-cell" [ngClass]="getPnlClass(asset.pnl)">
+                            {{ asset.pnl >= 0 ? '+' : '-' }}₹{{ formatAbsoluteCurrency(asset.pnl) }}
+                          </td>
+
+                          <td
+                            class="pnl-cell"
+                            [ngClass]="
+                              asset.xirr === null || asset.xirr === undefined
+                                ? 'neutral'
+                                : getPnlClass(asset.xirr)
+                            "
+                          >
+                            {{
+                              asset.xirr === null || asset.xirr === undefined
+                                ? '-'
+                                : formatPercentage(asset.xirr)
+                            }}
+                          </td>
+                        </tr>
+
+                        <tr *ngIf="summary.assets.length === 0">
+                          <td colspan="8" class="empty-table">No assets available.</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </td>
+            </tr>
+          </ng-container>
+
+          <tr *ngIf="subClassSummaries.length === 0">
+            <td colspan="6" class="empty-table">No portfolio data available.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
 </div>
