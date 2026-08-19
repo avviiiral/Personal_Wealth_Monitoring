@@ -8,31 +8,42 @@ from investments.models import (
     Transaction,
     TransactionType,
 )
+
 from market_data.models import (
+    DataSource,
     MarketPrice,
-    ManualAssetPrice,
 )
 
 
 class HoldingCalculationEngine:
     """
-    Calculates the current holding for an asset from its transactions
-    and latest available market price.
+    Calculates the current holding for an asset.
 
     Price priority:
 
-        1. Automatic MarketPrice
-        2. ManualAssetPrice
+        1. Manual MarketPrice
+        2. Automatic MarketPrice
         3. Zero
+
+    Manual price is given priority because the user
+    explicitly entered it for an asset whose automatic
+    market data may be unavailable or incorrect.
     """
 
     ZERO = Decimal("0")
 
+    # ==========================================================
+    # TRANSACTIONS
+    # ==========================================================
+
     @staticmethod
     def get_transactions(asset):
+
         return (
             Transaction.objects
-            .filter(asset=asset)
+            .filter(
+                asset=asset
+            )
             .order_by(
                 "transaction_date",
                 "created_at",
@@ -40,28 +51,12 @@ class HoldingCalculationEngine:
             )
         )
 
+    # ==========================================================
+    # POSITION
+    # ==========================================================
+
     @staticmethod
     def calculate_position(asset):
-        """
-        Calculate the current position.
-
-        BUY / SIP:
-            Increase quantity and invested value.
-
-        SELL:
-            Reduce quantity and remove the corresponding
-            cost basis using the current average cost.
-
-        BONUS:
-            Increase quantity without increasing cost basis.
-
-        SPLIT:
-            Apply the quantity adjustment without changing
-            total cost basis.
-
-        DIVIDEND / INTEREST / DEPOSIT / WITHDRAWAL:
-            Do not change security quantity or cost basis.
-        """
 
         quantity = (
             HoldingCalculationEngine.ZERO
@@ -78,7 +73,9 @@ class HoldingCalculationEngine:
 
         for tx in transactions:
 
-            tx_type = tx.transaction_type
+            tx_type = (
+                tx.transaction_type
+            )
 
             tx_quantity = (
                 tx.quantity
@@ -131,10 +128,12 @@ class HoldingCalculationEngine:
                 quantity -= sell_quantity
 
                 invested_value -= (
-                    average_cost * sell_quantity
+                    average_cost
+                    * sell_quantity
                 )
 
                 if quantity <= 0:
+
                     quantity = (
                         HoldingCalculationEngine.ZERO
                     )
@@ -162,7 +161,7 @@ class HoldingCalculationEngine:
                     quantity += tx_quantity
 
             # --------------------------------------------------
-            # Other transaction types
+            # OTHER
             # --------------------------------------------------
 
             elif tx_type in (
@@ -186,33 +185,76 @@ class HoldingCalculationEngine:
             "average_cost": average_cost,
         }
 
+    # ==========================================================
+    # LATEST AUTOMATIC PRICE
+    # ==========================================================
+
     @staticmethod
     def get_latest_price(asset):
-        """
-        Return the latest automatically collected market price.
-
-        Manual price is intentionally NOT returned here because
-        callers need to distinguish automatic data from manual data.
-        """
 
         return (
             MarketPrice.objects
-            .filter(asset=asset)
-            .order_by("-date")
+            .filter(
+                asset=asset,
+            )
+            .exclude(
+                source=DataSource.MANUAL,
+            )
+            .order_by(
+                "-date",
+                "-id",
+            )
             .first()
         )
+
+    # ==========================================================
+    # EFFECTIVE PRICE
+    # ==========================================================
 
     @staticmethod
     def get_effective_price(asset):
         """
-        Return the price that should currently be used.
+        Determine the price that should be used.
 
         Priority:
 
-            1. Automatic MarketPrice
-            2. ManualAssetPrice
+            1. Manual price
+            2. Automatic market price
             3. Zero
         """
+
+        # ------------------------------------------------------
+        # MANUAL PRICE FIRST
+        # ------------------------------------------------------
+
+        manual_price = (
+            MarketPrice.objects
+            .filter(
+                asset=asset,
+                source=DataSource.MANUAL,
+            )
+            .order_by(
+                "-date",
+                "-id",
+            )
+            .first()
+        )
+
+        if manual_price is not None:
+
+            return {
+                "price": (
+                    manual_price.close_price
+                    or HoldingCalculationEngine.ZERO
+                ),
+                "source": DataSource.MANUAL,
+                "date": manual_price.date,
+                "is_manual": True,
+            }
+
+        # ------------------------------------------------------
+        # AUTOMATIC PRICE
+        # ------------------------------------------------------
 
         latest_price = (
             HoldingCalculationEngine
@@ -222,26 +264,18 @@ class HoldingCalculationEngine:
         if latest_price is not None:
 
             return {
-                "price": latest_price.close_price,
+                "price": (
+                    latest_price.close_price
+                    or HoldingCalculationEngine.ZERO
+                ),
                 "source": latest_price.source,
                 "date": latest_price.date,
                 "is_manual": False,
             }
 
-        manual_price = (
-            ManualAssetPrice.objects
-            .filter(asset=asset)
-            .first()
-        )
-
-        if manual_price is not None:
-
-            return {
-                "price": manual_price.price,
-                "source": "MANUAL",
-                "date": manual_price.price_date,
-                "is_manual": True,
-            }
+        # ------------------------------------------------------
+        # NO PRICE
+        # ------------------------------------------------------
 
         return {
             "price": HoldingCalculationEngine.ZERO,
@@ -249,6 +283,10 @@ class HoldingCalculationEngine:
             "date": None,
             "is_manual": False,
         }
+
+    # ==========================================================
+    # REBUILD HOLDING
+    # ==========================================================
 
     @staticmethod
     @transaction.atomic
@@ -259,7 +297,9 @@ class HoldingCalculationEngine:
             .calculate_position(asset)
         )
 
-        quantity = position["quantity"]
+        quantity = (
+            position["quantity"]
+        )
 
         invested_value = (
             position["invested_value"]
@@ -279,27 +319,36 @@ class HoldingCalculationEngine:
         )
 
         current_value = (
-            quantity * current_price
+            quantity
+            * current_price
         )
 
         unrealized_pnl = (
-            current_value - invested_value
+            current_value
+            - invested_value
         )
 
-        holding, _ = Holding.objects.update_or_create(
-            asset=asset,
-            defaults={
-                "owner": asset.owner,
-                "quantity": quantity,
-                "average_cost": average_cost,
-                "invested_value": invested_value,
-                "current_price": current_price,
-                "current_value": current_value,
-                "unrealized_pnl": unrealized_pnl,
-            },
+        holding, _ = (
+            Holding.objects
+            .update_or_create(
+                asset=asset,
+                defaults={
+                    "owner": asset.owner,
+                    "quantity": quantity,
+                    "average_cost": average_cost,
+                    "invested_value": invested_value,
+                    "current_price": current_price,
+                    "current_value": current_value,
+                    "unrealized_pnl": unrealized_pnl,
+                },
+            )
         )
 
         return holding
+
+    # ==========================================================
+    # REBUILD ALL
+    # ==========================================================
 
     @staticmethod
     def rebuild_all_for_user(user):
@@ -318,9 +367,13 @@ class HoldingCalculationEngine:
 
             holding = (
                 HoldingCalculationEngine
-                .rebuild_holding(asset)
+                .rebuild_holding(
+                    asset
+                )
             )
 
-            holdings.append(holding)
+            holdings.append(
+                holding
+            )
 
         return holdings

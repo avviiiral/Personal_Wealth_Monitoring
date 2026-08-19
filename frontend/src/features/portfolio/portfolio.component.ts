@@ -65,10 +65,35 @@ export class PortfolioComponent implements OnInit, OnDestroy {
    */
   manualPriceErrors: Record<number, string> = {};
 
+  /* ==========================================================
+     SUMMARY CACHE
+
+     subClassSummaries is read by the template on every change
+     detection pass. If it returns freshly built objects each
+     time, Angular's checkNoChanges pass sees a different array
+     identity, raises ExpressionChangedAfterItHasBeenCheckedError
+     and abandons the DOM update - which is why toggling the
+     manual price editor previously had no visible effect.
+
+     The result is therefore computed once per data/filter change
+     and reused until one of those inputs actually changes.
+     ========================================================== */
+
+  private summariesCache: SubClassSummary[] = [];
+  private summariesCacheFamilies: FamilyNode[] | null = null;
+  private summariesCacheFamily = '';
+  private summariesCacheAssetClass = '';
+
   ngOnInit(): void {
     this.loadPortfolio();
 
     this.refreshSubscription = timer(30000, 30000).subscribe(() => {
+      // Never refresh underneath an open editor - it would discard
+      // whatever the user is part-way through typing.
+      if (this.editingAssetId !== null || this.savingManualPriceAssetId !== null) {
+        return;
+      }
+
       this.loadPortfolio(true);
     });
   }
@@ -87,11 +112,13 @@ export class PortfolioComponent implements OnInit, OnDestroy {
       next: (response) => {
         this.families = response.families ?? [];
 
+        this.invalidateSummaries();
+
         this.validateSelections();
 
         this.loading = false;
 
-        this.cdr.detectChanges();
+        this.cdr.markForCheck();
       },
 
       error: (error) => {
@@ -105,13 +132,28 @@ export class PortfolioComponent implements OnInit, OnDestroy {
           this.error = 'Unable to load portfolio data.';
         }
 
-        this.cdr.detectChanges();
+        this.cdr.markForCheck();
       },
     });
   }
 
   refresh(): void {
     this.loadPortfolio();
+  }
+
+  /* ==========================================================
+     TRACKING
+
+     Stable keys stop Angular tearing down and rebuilding every
+     row (and any focused input inside it) on each refresh.
+     ========================================================== */
+
+  trackBySubClass(_index: number, summary: SubClassSummary): string {
+    return summary.sub_class;
+  }
+
+  trackByAsset(_index: number, asset: PortfolioAssetNode): number {
+    return asset.id;
   }
 
   get familyOptions(): string[] {
@@ -146,48 +188,21 @@ export class PortfolioComponent implements OnInit, OnDestroy {
   }
 
   get subClassSummaries(): SubClassSummary[] {
-    const summaryMap = new Map<string, SubClassSummary>();
-
-    for (const family of this.filteredFamilies) {
-      for (const portfolio of family.portfolios) {
-        for (const assetClass of portfolio.asset_classes) {
-          if (this.selectedAssetClass && assetClass.asset_class !== this.selectedAssetClass) {
-            continue;
-          }
-
-          for (const subClass of assetClass.sub_classes) {
-            const key = subClass.sub_class || 'Unassigned';
-
-            let summary = summaryMap.get(key);
-
-            if (!summary) {
-              summary = {
-                sub_class: key,
-                current_value: 0,
-                pnl: 0,
-                quantity: 0,
-                xirr: null,
-                assets: [],
-              };
-
-              summaryMap.set(key, summary);
-            }
-
-            summary.current_value += this.getSubClassCurrentValue(subClass);
-            summary.pnl += this.getSubClassPnl(subClass);
-            summary.quantity += this.getSubClassQuantity(subClass);
-            summary.assets.push(...subClass.assets);
-          }
-        }
-      }
+    if (
+      this.summariesCacheFamilies === this.families &&
+      this.summariesCacheFamily === this.selectedFamily &&
+      this.summariesCacheAssetClass === this.selectedAssetClass
+    ) {
+      return this.summariesCache;
     }
 
-    return Array.from(summaryMap.values())
-      .map((summary) => ({
-        ...summary,
-        xirr: this.calculateXirr(summary.assets),
-      }))
-      .sort((a, b) => a.sub_class.localeCompare(b.sub_class));
+    this.summariesCache = this.buildSubClassSummaries();
+
+    this.summariesCacheFamilies = this.families;
+    this.summariesCacheFamily = this.selectedFamily;
+    this.summariesCacheAssetClass = this.selectedAssetClass;
+
+    return this.summariesCache;
   }
 
   getSubClassAssets(subClass: string): PortfolioAssetNode[] {
@@ -229,20 +244,22 @@ export class PortfolioComponent implements OnInit, OnDestroy {
   isAssetClassSelected(assetClass: string): boolean {
     return this.selectedAssetClass === assetClass;
   }
+
+  /* ==========================================================
+     MANUAL PRICE EDITING
+     ========================================================== */
+
   onManualPriceEdit(event: MouseEvent, asset: PortfolioAssetNode): void {
     event.preventDefault();
     event.stopPropagation();
 
-    console.log('[Portfolio] Edit price clicked:', asset.id, asset.asset_name);
-
     this.startEditingPrice(asset);
   }
+
   /**
    * Start editing an asset's current price.
    */
   startEditingPrice(asset: PortfolioAssetNode): void {
-    console.log('[Portfolio] Starting price edit:', asset.id, asset.asset_name);
-
     this.editingAssetId = asset.id;
 
     this.manualPriceInput =
@@ -252,12 +269,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
 
     this.manualPriceErrors[asset.id] = '';
 
-    this.cdr.detectChanges();
-
-    console.log('[Portfolio] Edit state:', {
-      editingAssetId: this.editingAssetId,
-      manualPriceInput: this.manualPriceInput,
-    });
+    this.cdr.markForCheck();
   }
 
   /**
@@ -268,16 +280,21 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     this.manualPriceInput = '';
 
     this.manualPriceErrors[asset.id] = '';
+
+    this.cdr.markForCheck();
   }
 
   /**
    * Save a manually entered current price.
+   *
+   * The value is a price per unit, not a total holding value.
    */
   saveManualPrice(asset: PortfolioAssetNode): void {
     const price = Number(this.manualPriceInput);
 
     if (!Number.isFinite(price) || price <= 0) {
-      this.manualPriceErrors[asset.id] = 'Enter a valid price greater than 0.';
+      this.manualPriceErrors[asset.id] = 'Enter a price per unit greater than 0.';
+      this.cdr.markForCheck();
       return;
     }
 
@@ -291,7 +308,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
 
         if (!response.success) {
           this.manualPriceErrors[asset.id] = response.message || 'Unable to update price.';
-          this.cdr.detectChanges();
+          this.cdr.markForCheck();
           return;
         }
 
@@ -319,7 +336,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
         this.manualPriceErrors[asset.id] =
           error?.error?.message || 'Unable to update manual price.';
 
-        this.cdr.detectChanges();
+        this.cdr.markForCheck();
       },
     });
   }
@@ -344,6 +361,22 @@ export class PortfolioComponent implements OnInit, OnDestroy {
   getManualPriceError(asset: PortfolioAssetNode): string {
     return this.manualPriceErrors[asset.id] || '';
   }
+
+  /**
+   * True when the displayed price came from a manual override
+   * rather than an automatic market-data feed.
+   */
+  isManualPrice(asset: PortfolioAssetNode): boolean {
+    const extendedAsset = asset as PortfolioAssetNode & {
+      price_source?: string | null;
+    };
+
+    return extendedAsset.price_source === 'MANUAL';
+  }
+
+  /* ==========================================================
+     FORMATTING
+     ========================================================== */
 
   /**
    * Returns the absolute value without exposing Math
@@ -428,6 +461,63 @@ export class PortfolioComponent implements OnInit, OnDestroy {
       month: 'short',
       year: 'numeric',
     }).format(parsedDate);
+  }
+
+  /* ==========================================================
+     INTERNAL
+     ========================================================== */
+
+  private invalidateSummaries(): void {
+    this.summariesCacheFamilies = null;
+  }
+
+  private buildSubClassSummaries(): SubClassSummary[] {
+    const summaryMap = new Map<string, SubClassSummary>();
+
+    for (const family of this.filteredFamilies) {
+      for (const portfolio of family.portfolios) {
+        for (const assetClass of portfolio.asset_classes) {
+          if (this.selectedAssetClass && assetClass.asset_class !== this.selectedAssetClass) {
+            continue;
+          }
+
+          for (const subClass of assetClass.sub_classes) {
+            const key = subClass.sub_class || 'Unassigned';
+
+            let summary = summaryMap.get(key);
+
+            if (!summary) {
+              summary = {
+                sub_class: key,
+                current_value: 0,
+                pnl: 0,
+                quantity: 0,
+                xirr: null,
+                assets: [],
+              };
+
+              summaryMap.set(key, summary);
+            }
+
+            summary.current_value += this.getSubClassCurrentValue(subClass);
+            summary.pnl += this.getSubClassPnl(subClass);
+            summary.quantity += this.getSubClassQuantity(subClass);
+            summary.assets.push(...subClass.assets);
+          }
+        }
+      }
+    }
+
+    // Mutate in place rather than spreading into new objects, so the
+    // identities handed to the template stay stable for the lifetime
+    // of this cache entry.
+    const summaries = Array.from(summaryMap.values());
+
+    for (const summary of summaries) {
+      summary.xirr = this.calculateXirr(summary.assets);
+    }
+
+    return summaries.sort((a, b) => a.sub_class.localeCompare(b.sub_class));
   }
 
   private getSubClassCurrentValue(subClass: SubClassNode): number {

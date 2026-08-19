@@ -1,4 +1,8 @@
+from datetime import date
 from decimal import Decimal, InvalidOperation
+
+from django.db import transaction
+from django.utils import timezone
 
 from rest_framework import status
 from rest_framework.decorators import (
@@ -11,7 +15,8 @@ from rest_framework.response import Response
 from investments.models import Asset
 
 from market_data.models import (
-    ManualAssetPrice,
+    DataSource,
+    MarketPrice,
 )
 
 from portfolio.services.holding_engine import (
@@ -31,14 +36,21 @@ def manual_asset_price(
 ):
     """
     Create, update, or delete a manually entered
-    asset price.
+    current price for an asset.
 
-    Manual prices are only used when automatic market
-    data is unavailable.
+    Manual prices are stored directly in MarketPrice
+    using source=MANUAL so the entire portfolio
+    calculation pipeline uses the same price source.
+
+    This is intended for assets where automatic
+    market data is unavailable or unreliable.
     """
 
-    try:
+    # ==========================================================
+    # FIND ASSET
+    # ==========================================================
 
+    try:
         asset = (
             Asset.objects
             .get(
@@ -49,7 +61,6 @@ def manual_asset_price(
         )
 
     except Asset.DoesNotExist:
-
         return Response(
             {
                 "success": False,
@@ -65,20 +76,26 @@ def manual_asset_price(
     if request.method == "DELETE":
 
         deleted, _ = (
-            ManualAssetPrice.objects
+            MarketPrice.objects
             .filter(
                 asset=asset,
+                source=DataSource.MANUAL,
             )
             .delete()
         )
 
-        HoldingCalculationEngine.rebuild_holding(
-            asset
-        )
+        with transaction.atomic():
 
-        PortfolioPositionEngine.rebuild_all_for_user(
-            request.user
-        )
+            holding = (
+                HoldingCalculationEngine
+                .rebuild_holding(
+                    asset
+                )
+            )
+
+            PortfolioPositionEngine.rebuild_all_for_user(
+                request.user
+            )
 
         return Response(
             {
@@ -87,12 +104,25 @@ def manual_asset_price(
                     "Manual price removed successfully."
                 ),
                 "deleted": bool(deleted),
+                "data": {
+                    "asset_id": asset.id,
+                    "asset_name": asset.name,
+                    "current_price": str(
+                        holding.current_price
+                    ),
+                    "current_value": str(
+                        holding.current_value
+                    ),
+                    "unrealized_pnl": str(
+                        holding.unrealized_pnl
+                    ),
+                },
             },
             status=status.HTTP_200_OK,
         )
 
     # ==========================================================
-    # VALIDATE PRICE
+    # GET PRICE
     # ==========================================================
 
     raw_price = request.data.get(
@@ -103,16 +133,17 @@ def manual_asset_price(
         None,
         "",
     ):
-
         return Response(
             {
                 "success": False,
-                "message": (
-                    "Price is required."
-                ),
+                "message": "Price is required.",
             },
             status=status.HTTP_400_BAD_REQUEST,
         )
+
+    # ==========================================================
+    # VALIDATE PRICE
+    # ==========================================================
 
     try:
 
@@ -152,16 +183,14 @@ def manual_asset_price(
         )
 
     # ==========================================================
-    # DATE
+    # PRICE DATE
     # ==========================================================
 
-    price_date = request.data.get(
+    raw_price_date = request.data.get(
         "price_date"
     )
 
-    if not price_date:
-
-        from django.utils import timezone
+    if not raw_price_date:
 
         price_date = (
             timezone.localdate()
@@ -171,10 +200,8 @@ def manual_asset_price(
 
         try:
 
-            from datetime import date
-
             price_date = date.fromisoformat(
-                str(price_date)
+                str(raw_price_date)
             )
 
         except ValueError:
@@ -191,34 +218,58 @@ def manual_asset_price(
             )
 
     # ==========================================================
-    # SAVE
+    # SAVE MANUAL MARKET PRICE
     # ==========================================================
 
-    manual_price, _ = (
-        ManualAssetPrice.objects
-        .update_or_create(
+    with transaction.atomic():
+
+        manual_price, _ = (
+            MarketPrice.objects
+            .update_or_create(
+                asset=asset,
+                date=price_date,
+                source=DataSource.MANUAL,
+                defaults={
+                    "open_price": None,
+                    "high_price": None,
+                    "low_price": None,
+                    "close_price": price,
+                    "adjusted_close": price,
+                    "volume": None,
+                },
+            )
+        )
+
+        # Remove older manual prices for the same asset.
+        MarketPrice.objects.filter(
             asset=asset,
-            defaults={
-                "price": price,
-                "price_date": price_date,
-            },
+            source=DataSource.MANUAL,
+        ).exclude(
+            id=manual_price.id,
+        ).delete()
+
+        # ======================================================
+        # REBUILD HOLDING
+        # ======================================================
+
+        holding = (
+            HoldingCalculationEngine
+            .rebuild_holding(
+                asset
+            )
         )
-    )
+
+        # ======================================================
+        # REBUILD PORTFOLIO POSITIONS
+        # ======================================================
+
+        PortfolioPositionEngine.rebuild_all_for_user(
+            request.user
+        )
 
     # ==========================================================
-    # REBUILD HOLDING
+    # RESPONSE
     # ==========================================================
-
-    holding = (
-        HoldingCalculationEngine
-        .rebuild_holding(
-            asset
-        )
-    )
-
-    PortfolioPositionEngine.rebuild_all_for_user(
-        request.user
-    )
 
     return Response(
         {
@@ -230,10 +281,10 @@ def manual_asset_price(
                 "asset_id": asset.id,
                 "asset_name": asset.name,
                 "price": str(
-                    manual_price.price
+                    manual_price.close_price
                 ),
                 "price_date": str(
-                    manual_price.price_date
+                    manual_price.date
                 ),
                 "current_price": str(
                     holding.current_price

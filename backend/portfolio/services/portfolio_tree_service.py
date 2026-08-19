@@ -1,3 +1,5 @@
+import logging
+
 from decimal import Decimal
 
 from django.db.models import QuerySet
@@ -7,6 +9,9 @@ from investments.models import Transaction
 from investments.services.portfolio_metrics import (
     PortfolioMetricsService,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class PortfolioTreeService:
@@ -24,6 +29,22 @@ class PortfolioTreeService:
     def _decimal_to_float(value):
         if value is None:
             return 0.0
+
+        return float(value)
+
+    @staticmethod
+    def _optional_float(value):
+        """
+        Convert to float, preserving None.
+
+        _decimal_to_float turns None into 0.0, which reports an
+        unpriced holding as worth nothing and the position as a
+        total loss. Anything the user should see as "unknown"
+        goes through this instead.
+        """
+
+        if value is None:
+            return None
 
         return float(value)
 
@@ -140,14 +161,21 @@ class PortfolioTreeService:
                 )
             )
         except Exception:
+            logger.exception(
+                "Asset metrics failed for asset_id=%s",
+                getattr(asset, "id", None),
+            )
+
             metrics = {
                 "quantity": quantity,
                 "average_cost": average_cost,
                 "invested_value": invested_value,
-                "current_price": Decimal("0"),
-                "current_value": Decimal("0"),
-                "pnl": Decimal("0"),
-                "pnl_percentage": 0.0,
+                "current_price": None,
+                "current_value": None,
+                "pnl": None,
+                "pnl_percentage": None,
+                "price_source": None,
+                "price_date": None,
                 "xirr": None,
             }
 
@@ -205,30 +233,33 @@ class PortfolioTreeService:
                     invested_value,
                 )
             ),
-            "current_price": cls._decimal_to_float(
+            "current_price": cls._optional_float(
                 metrics.get(
-                    "current_price",
-                    Decimal("0"),
+                    "current_price"
                 )
             ),
-            "current_value": cls._decimal_to_float(
+            "current_value": cls._optional_float(
                 metrics.get(
-                    "current_value",
-                    Decimal("0"),
+                    "current_value"
                 )
             ),
-            "pnl": cls._decimal_to_float(
+            "pnl": cls._optional_float(
                 metrics.get(
-                    "pnl",
-                    Decimal("0"),
+                    "pnl"
                 )
             ),
-            "pnl_percentage": float(
+            "pnl_percentage": cls._optional_float(
                 metrics.get(
-                    "pnl_percentage",
-                    0.0,
+                    "pnl_percentage"
                 )
-                or 0.0
+            ),
+            "price_source": metrics.get(
+                "price_source"
+            ),
+            "price_date": (
+                str(metrics["price_date"])
+                if metrics.get("price_date")
+                else None
             ),
             "xirr": metrics.get(
                 "xirr"

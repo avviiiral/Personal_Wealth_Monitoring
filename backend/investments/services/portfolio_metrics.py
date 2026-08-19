@@ -14,7 +14,10 @@ from investments.services.xirr import (
     XIRRCalculator,
 )
 
-from market_data.models import MarketPrice
+from market_data.models import (
+    ManualAssetPrice,
+    MarketPrice,
+)
 
 
 class PortfolioMetricsService:
@@ -23,21 +26,93 @@ class PortfolioMetricsService:
 
     @staticmethod
     def get_current_price(asset):
+        """
+        Return the price that should be used for this asset.
+
+        Priority:
+
+            1. ManualAssetPrice  - an explicit override entered
+               by the user always wins over scraped data.
+            2. MarketPrice       - the latest automatically
+               collected price.
+            3. None              - the price is genuinely unknown.
+
+        None is returned rather than zero. Zero is a real price
+        and using it as a placeholder silently reports the holding
+        as worthless and the position as a total loss.
+        """
+
+        manual_price = (
+            ManualAssetPrice.objects
+            .filter(asset=asset)
+            .first()
+        )
+
+        if (
+            manual_price is not None
+            and manual_price.price is not None
+        ):
+            return manual_price.price
 
         latest_price = (
             MarketPrice.objects
             .filter(asset=asset)
-            .order_by("-date")
+            .order_by(
+                "-date",
+                "-id",
+            )
             .first()
         )
 
-        if not latest_price:
-            return PortfolioMetricsService.ZERO
+        if latest_price is None:
+            return None
 
-        return (
-            latest_price.close_price
-            or PortfolioMetricsService.ZERO
+        return latest_price.close_price
+
+    @staticmethod
+    def get_price_metadata(asset):
+        """
+        Return the source and as-of date for the price returned
+        by get_current_price, so the UI can distinguish a manual
+        override from a live quote and a fresh price from a
+        stale one.
+        """
+
+        manual_price = (
+            ManualAssetPrice.objects
+            .filter(asset=asset)
+            .first()
         )
+
+        if (
+            manual_price is not None
+            and manual_price.price is not None
+        ):
+            return {
+                "price_source": "MANUAL",
+                "price_date": manual_price.price_date,
+            }
+
+        latest_price = (
+            MarketPrice.objects
+            .filter(asset=asset)
+            .order_by(
+                "-date",
+                "-id",
+            )
+            .first()
+        )
+
+        if latest_price is None:
+            return {
+                "price_source": None,
+                "price_date": None,
+            }
+
+        return {
+            "price_source": latest_price.source,
+            "price_date": latest_price.date,
+        }
 
     @classmethod
     def calculate_asset_metrics(
@@ -85,30 +160,47 @@ class PortfolioMetricsService:
             asset
         )
 
-        current_value = (
-            quantity
-            * current_price
+        price_metadata = cls.get_price_metadata(
+            asset
         )
 
         # --------------------------------------------------
-        # P&L
+        # Current value
+        #
+        # When the price is unknown the value, P&L and P&L %
+        # are unknown too. They stay None rather than being
+        # zero-filled, so the UI can show "-" instead of
+        # reporting a fabricated total loss.
         # --------------------------------------------------
 
-        gain = (
-            current_value
-            - invested_value
-        )
+        if current_price is None:
 
-        if invested_value > 0:
-
-            pnl_percentage = (
-                gain
-                / invested_value
-            ) * Decimal("100")
+            current_value = None
+            gain = None
+            pnl_percentage = None
 
         else:
 
-            pnl_percentage = cls.ZERO
+            current_value = (
+                quantity
+                * current_price
+            )
+
+            gain = (
+                current_value
+                - invested_value
+            )
+
+            if invested_value > 0:
+
+                pnl_percentage = (
+                    gain
+                    / invested_value
+                ) * Decimal("100")
+
+            else:
+
+                pnl_percentage = cls.ZERO
 
         # --------------------------------------------------
         # XIRR cash flows
@@ -175,6 +267,7 @@ class PortfolioMetricsService:
 
         if (
             quantity > 0
+            and current_value is not None
             and current_value > 0
         ):
 
@@ -206,10 +299,22 @@ class PortfolioMetricsService:
 
             "pnl": gain,
 
-            "pnl_percentage": round(
-                float(pnl_percentage),
-                2,
+            "pnl_percentage": (
+                None
+                if pnl_percentage is None
+                else round(
+                    float(pnl_percentage),
+                    2,
+                )
             ),
+
+            "price_source": price_metadata[
+                "price_source"
+            ],
+
+            "price_date": price_metadata[
+                "price_date"
+            ],
 
             "xirr": xirr,
         }

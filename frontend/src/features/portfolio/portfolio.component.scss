@@ -267,7 +267,8 @@
    ========================================================== */
 
 .price-cell {
-  min-width: 150px;
+  min-width: 210px;
+  vertical-align: top;
 }
 
 .current-price {
@@ -294,8 +295,9 @@
 
 .manual-price-container {
   display: flex;
-  align-items: center;
-  gap: 7px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
 }
 
 .manual-price-input {
@@ -366,9 +368,38 @@
 
 .manual-price-label {
   display: block;
-  margin-top: 3px;
   font-size: 10px;
+  font-weight: 600;
   color: #667085;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+
+  .manual-price-input {
+    display: block;
+    margin-top: 4px;
+    width: 130px;
+  }
+}
+
+.manual-price-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 10px;
+  color: #98a2b3;
+}
+
+.manual-price-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: #f2f4f7;
+  color: #475467;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: middle;
 }
 
 /* ==========================================================

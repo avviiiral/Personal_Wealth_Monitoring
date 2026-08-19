@@ -87,7 +87,7 @@
         </thead>
 
         <tbody>
-          <ng-container *ngFor="let summary of subClassSummaries">
+          <ng-container *ngFor="let summary of subClassSummaries; trackBy: trackBySubClass">
             <tr
               class="sub-class-row"
               [class.expanded]="expandedSubClass === summary.sub_class"
@@ -156,7 +156,7 @@
                       </thead>
 
                       <tbody>
-                        <tr *ngFor="let asset of summary.assets">
+                        <tr *ngFor="let asset of summary.assets; trackBy: trackByAsset">
                           <td class="asset-name">
                             {{ asset.asset_name }}
                           </td>
@@ -181,6 +181,10 @@
                                     ? '₹' + formatDecimal(asset.current_price)
                                     : '-'
                                 }}
+
+                                <span *ngIf="isManualPrice(asset)" class="manual-price-badge">
+                                  Manual
+                                </span>
                               </div>
 
                               <small *ngIf="hasPriceDate(asset)" class="price-update-date">
@@ -193,7 +197,7 @@
                                 class="manual-price-edit"
                                 (click)="onManualPriceEdit($event, asset)"
                               >
-                                Edit
+                                Set price
                               </button>
                             </ng-container>
 
@@ -203,15 +207,19 @@
                                 class="manual-price-container"
                                 (click)="$event.stopPropagation()"
                               >
-                                <input
-                                  type="number"
-                                  class="manual-price-input"
-                                  [(ngModel)]="manualPriceInput"
-                                  min="0"
-                                  step="0.0001"
-                                  placeholder="Price"
-                                  [disabled]="isSavingManualPrice(asset)"
-                                />
+                                <label class="manual-price-label">
+                                  Price per unit (₹)
+
+                                  <input
+                                    type="number"
+                                    class="manual-price-input"
+                                    [(ngModel)]="manualPriceInput"
+                                    min="0"
+                                    step="0.0001"
+                                    placeholder="0.00"
+                                    [disabled]="isSavingManualPrice(asset)"
+                                  />
+                                </label>
 
                                 <div class="manual-price-actions">
                                   <button
@@ -233,6 +241,10 @@
                                   </button>
                                 </div>
                               </div>
+
+                              <small class="manual-price-hint">
+                                {{ formatNumber(asset.quantity) }} units held
+                              </small>
 
                               <small *ngIf="getManualPriceError(asset)" class="manual-price-error">
                                 {{ getManualPriceError(asset) }}
