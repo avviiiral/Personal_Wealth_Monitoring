@@ -13,6 +13,9 @@ from market_data.services.yahoo_finance import (
 from market_data.services.mutual_fund_nav_service import (
     MutualFundNAVService,
 )
+from market_data.services.bond_price_service import (
+    BondPriceService,
+)
 from portfolio.services.holding_engine import (
     HoldingCalculationEngine,
 )
@@ -41,6 +44,17 @@ class MarketDataManager:
         AMFI
           ↓
         NAV
+          ↓
+        MarketPrice
+
+    BOND
+        Asset
+          ↓
+        ISIN
+          ↓
+        NSE CBRICS
+          ↓
+        Latest reported trade price
           ↓
         MarketPrice
     """
@@ -211,6 +225,216 @@ class MarketDataManager:
         }
 
     @classmethod
+    def _fetch_bond(
+        cls,
+        asset,
+    ):
+        """
+        Fetch and store the latest reported
+        NSE bond trade using ISIN.
+        """
+
+        if not asset.isin:
+
+            return {
+                "success": False,
+                "skipped": True,
+                "source": "NSE_CBRICS",
+                "reason": (
+                    "Bond has no ISIN."
+                ),
+            }
+
+        try:
+
+            trade = (
+                BondPriceService
+                .get_latest_price(
+                    asset.isin
+                )
+            )
+
+        except Exception as exc:
+
+            return {
+                "success": False,
+                "skipped": False,
+                "source": "NSE_CBRICS",
+                "error": str(exc),
+            }
+
+        # --------------------------------------------------
+        # No new trade found
+        # --------------------------------------------------
+
+        if trade is None:
+
+            latest_date = (
+                cls.get_latest_market_date(
+                    asset,
+                    source=DataSource.OTHER,
+                )
+            )
+
+            if latest_date is not None:
+
+                holding = (
+                    cls._rebuild_holding(
+                        asset
+                    )
+                )
+
+                return {
+                    "success": True,
+                    "skipped": True,
+                    "source": "NSE_CBRICS",
+                    "reason": (
+                        "No newer bond trade "
+                        "was reported."
+                    ),
+                    "date": str(latest_date),
+                    "holding_id": (
+                        holding.id
+                        if holding
+                        else None
+                    ),
+                    "current_price": (
+                        str(
+                            holding.current_price
+                        )
+                        if holding
+                        else "0"
+                    ),
+                    "current_value": (
+                        str(
+                            holding.current_value
+                        )
+                        if holding
+                        else "0"
+                    ),
+                }
+
+            return {
+                "success": False,
+                "skipped": True,
+                "source": "NSE_CBRICS",
+                "reason": (
+                    "No NSE bond trade found "
+                    f"for ISIN {asset.isin}."
+                ),
+            }
+
+        trade_date = trade["date"]
+        price = trade["price"]
+
+        latest_date = (
+            cls.get_latest_market_date(
+                asset,
+                source=DataSource.OTHER,
+            )
+        )
+
+        # --------------------------------------------------
+        # Already stored
+        # --------------------------------------------------
+
+        if (
+            latest_date is not None
+            and trade_date <= latest_date
+        ):
+
+            holding = (
+                cls._rebuild_holding(
+                    asset
+                )
+            )
+
+            return {
+                "success": True,
+                "skipped": True,
+                "source": "NSE_CBRICS",
+                "reason": (
+                    "Bond market data is already "
+                    "up to date."
+                ),
+                "date": str(trade_date),
+                "holding_id": (
+                    holding.id
+                    if holding
+                    else None
+                ),
+                "current_price": (
+                    str(
+                        holding.current_price
+                    )
+                    if holding
+                    else str(price)
+                ),
+                "current_value": (
+                    str(
+                        holding.current_value
+                    )
+                    if holding
+                    else "0"
+                ),
+            }
+
+        # --------------------------------------------------
+        # Store latest bond trade
+        # --------------------------------------------------
+
+        MarketPrice.objects.update_or_create(
+            asset=asset,
+            date=trade_date,
+            source=DataSource.OTHER,
+            defaults={
+                "open_price": None,
+                "high_price": None,
+                "low_price": None,
+                "close_price": price,
+                "adjusted_close": price,
+                "volume": None,
+            },
+        )
+
+        holding = (
+            cls._rebuild_holding(
+                asset
+            )
+        )
+
+        return {
+            "success": True,
+            "skipped": False,
+            "source": "NSE_CBRICS",
+            "isin": asset.isin,
+            "price": str(price),
+            "date": str(trade_date),
+            "yield": (
+                str(trade["yield"])
+                if trade["yield"] is not None
+                else None
+            ),
+            "issuer": trade["issuer"],
+            "description": trade["description"],
+            "holding_id": (
+                holding.id
+                if holding
+                else None
+            ),
+            "current_price": (
+                str(holding.current_price)
+                if holding
+                else str(price)
+            ),
+            "current_value": (
+                str(holding.current_value)
+                if holding
+                else "0"
+            ),
+        }
+
+    @classmethod
     def fetch_and_rebuild(
         cls,
         asset,
@@ -225,6 +449,9 @@ class MarketDataManager:
 
         MUTUAL_FUND:
             AMFI NAV
+
+        BOND:
+            NSE CBRICS
         """
 
         # ======================================================
@@ -234,6 +461,16 @@ class MarketDataManager:
         if asset.category == "MUTUAL_FUND":
 
             return cls._fetch_mutual_fund(
+                asset
+            )
+
+        # ======================================================
+        # BOND
+        # ======================================================
+
+        if asset.category == "BOND":
+
+            return cls._fetch_bond(
                 asset
             )
 
@@ -250,8 +487,9 @@ class MarketDataManager:
                 "success": False,
                 "skipped": True,
                 "reason": (
-                    "Market refresh currently supports "
-                    "STOCK, ETF and MUTUAL_FUND assets."
+                    "Market refresh currently "
+                    "supports STOCK, ETF, "
+                    "MUTUAL_FUND and BOND assets."
                 ),
             }
 
@@ -282,9 +520,9 @@ class MarketDataManager:
                 "success": False,
                 "skipped": True,
                 "reason": (
-                    f"Unable to resolve Yahoo Finance "
+                    "Unable to resolve Yahoo Finance "
                     f"symbol for {asset.name} "
-                    f"(ISIN: "
+                    "(ISIN: "
                     f"{asset.isin or 'N/A'})."
                 ),
                 "symbol": None,
