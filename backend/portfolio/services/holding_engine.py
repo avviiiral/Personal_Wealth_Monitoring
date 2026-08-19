@@ -8,13 +8,22 @@ from investments.models import (
     Transaction,
     TransactionType,
 )
-from market_data.models import MarketPrice
+from market_data.models import (
+    MarketPrice,
+    ManualAssetPrice,
+)
 
 
 class HoldingCalculationEngine:
     """
     Calculates the current holding for an asset from its transactions
     and latest available market price.
+
+    Price priority:
+
+        1. Automatic MarketPrice
+        2. ManualAssetPrice
+        3. Zero
     """
 
     ZERO = Decimal("0")
@@ -54,8 +63,13 @@ class HoldingCalculationEngine:
             Do not change security quantity or cost basis.
         """
 
-        quantity = HoldingCalculationEngine.ZERO
-        invested_value = HoldingCalculationEngine.ZERO
+        quantity = (
+            HoldingCalculationEngine.ZERO
+        )
+
+        invested_value = (
+            HoldingCalculationEngine.ZERO
+        )
 
         transactions = (
             HoldingCalculationEngine
@@ -124,6 +138,7 @@ class HoldingCalculationEngine:
                     quantity = (
                         HoldingCalculationEngine.ZERO
                     )
+
                     invested_value = (
                         HoldingCalculationEngine.ZERO
                     )
@@ -173,6 +188,13 @@ class HoldingCalculationEngine:
 
     @staticmethod
     def get_latest_price(asset):
+        """
+        Return the latest automatically collected market price.
+
+        Manual price is intentionally NOT returned here because
+        callers need to distinguish automatic data from manual data.
+        """
+
         return (
             MarketPrice.objects
             .filter(asset=asset)
@@ -181,28 +203,80 @@ class HoldingCalculationEngine:
         )
 
     @staticmethod
-    @transaction.atomic
-    def rebuild_holding(asset):
-        position = (
-            HoldingCalculationEngine
-            .calculate_position(asset)
-        )
+    def get_effective_price(asset):
+        """
+        Return the price that should currently be used.
 
-        quantity = position["quantity"]
-        invested_value = position["invested_value"]
-        average_cost = position["average_cost"]
+        Priority:
+
+            1. Automatic MarketPrice
+            2. ManualAssetPrice
+            3. Zero
+        """
 
         latest_price = (
             HoldingCalculationEngine
             .get_latest_price(asset)
         )
 
-        if latest_price:
-            current_price = latest_price.close_price
-        else:
-            current_price = (
-                HoldingCalculationEngine.ZERO
-            )
+        if latest_price is not None:
+
+            return {
+                "price": latest_price.close_price,
+                "source": latest_price.source,
+                "date": latest_price.date,
+                "is_manual": False,
+            }
+
+        manual_price = (
+            ManualAssetPrice.objects
+            .filter(asset=asset)
+            .first()
+        )
+
+        if manual_price is not None:
+
+            return {
+                "price": manual_price.price,
+                "source": "MANUAL",
+                "date": manual_price.price_date,
+                "is_manual": True,
+            }
+
+        return {
+            "price": HoldingCalculationEngine.ZERO,
+            "source": None,
+            "date": None,
+            "is_manual": False,
+        }
+
+    @staticmethod
+    @transaction.atomic
+    def rebuild_holding(asset):
+
+        position = (
+            HoldingCalculationEngine
+            .calculate_position(asset)
+        )
+
+        quantity = position["quantity"]
+
+        invested_value = (
+            position["invested_value"]
+        )
+
+        average_cost = (
+            position["average_cost"]
+        )
+
+        effective_price = (
+            HoldingCalculationEngine
+            .get_effective_price(asset)
+        )
+
+        current_price = (
+            effective_price["price"]
+        )
 
         current_value = (
             quantity * current_price
@@ -229,6 +303,7 @@ class HoldingCalculationEngine:
 
     @staticmethod
     def rebuild_all_for_user(user):
+
         assets = (
             Asset.objects
             .filter(
