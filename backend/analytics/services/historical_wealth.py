@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -19,25 +20,373 @@ class HistoricalWealthAnalytics:
     """
     Historical unified wealth analytics.
 
-    Combines:
+    Optimized implementation:
+        - Loads transactions in bulk.
+        - Loads historical prices/NAVs in bulk.
+        - Calculates positions in memory.
+        - Avoids database queries inside the daily/holding loops.
 
-        Equity transactions
-            +
-        Historical equity market prices
-
-        Mutual-fund transactions
-            +
-        Historical mutual-fund NAV
-
-    The service calculates the portfolio position as of a
-    historical date and then values that position using the
-    latest available market price/NAV on or before that date.
+    The existing API response structure is preserved.
     """
 
     ZERO = Decimal("0")
 
     # ==========================================================
-    # EQUITY POSITION
+    # EQUITY TRANSACTION HELPER
+    # ==========================================================
+
+    @staticmethod
+    def _apply_equity_transaction(
+        position,
+        transaction,
+    ):
+        quantity = (
+            transaction.quantity
+            or HistoricalWealthAnalytics.ZERO
+        )
+
+        amount = (
+            transaction.amount
+            or HistoricalWealthAnalytics.ZERO
+        )
+
+        fees = (
+            transaction.fees
+            or HistoricalWealthAnalytics.ZERO
+        )
+
+        if transaction.transaction_type in (
+            TransactionType.BUY,
+            TransactionType.SIP,
+        ):
+            position["quantity"] += quantity
+            position["invested_value"] += amount + fees
+
+        elif transaction.transaction_type == TransactionType.SELL:
+            if (
+                position["quantity"] <= 0
+                or quantity <= 0
+            ):
+                return
+
+            average_cost = (
+                position["invested_value"]
+                / position["quantity"]
+            )
+
+            cost_of_sale = (
+                average_cost * quantity
+            )
+
+            position["quantity"] -= quantity
+            position["invested_value"] -= cost_of_sale
+
+            if position["quantity"] <= 0:
+                position["quantity"] = (
+                    HistoricalWealthAnalytics.ZERO
+                )
+                position["invested_value"] = (
+                    HistoricalWealthAnalytics.ZERO
+                )
+
+    # ==========================================================
+    # MUTUAL FUND TRANSACTION HELPER
+    # ==========================================================
+
+    @staticmethod
+    def _apply_mutual_fund_transaction(
+        position,
+        transaction,
+    ):
+        units = (
+            transaction.units
+            or HistoricalWealthAnalytics.ZERO
+        )
+
+        amount = (
+            transaction.amount
+            or HistoricalWealthAnalytics.ZERO
+        )
+
+        fees = (
+            transaction.fees
+            or HistoricalWealthAnalytics.ZERO
+        )
+
+        if transaction.transaction_type in (
+            MutualFundTransactionType.PURCHASE,
+            MutualFundTransactionType.SIP,
+        ):
+            position["units"] += units
+            position["invested_value"] += amount + fees
+
+        elif transaction.transaction_type == (
+            MutualFundTransactionType.REDEMPTION
+        ):
+            if (
+                position["units"] <= 0
+                or units <= 0
+            ):
+                return
+
+            average_cost = (
+                position["invested_value"]
+                / position["units"]
+            )
+
+            cost_of_redemption = (
+                average_cost * units
+            )
+
+            position["units"] -= units
+            position["invested_value"] -= (
+                cost_of_redemption
+            )
+
+            if position["units"] <= 0:
+                position["units"] = (
+                    HistoricalWealthAnalytics.ZERO
+                )
+                position["invested_value"] = (
+                    HistoricalWealthAnalytics.ZERO
+                )
+
+    # ==========================================================
+    # EQUITY PRICE MAP
+    # ==========================================================
+
+    @staticmethod
+    def _build_price_map(
+        assets,
+        start_date,
+        end_date,
+    ):
+        """
+        Load historical equity prices needed for the
+        requested date range.
+
+        Prices are sorted by asset/date so that the
+        latest available price can be maintained in memory.
+        """
+
+        asset_ids = [
+            asset.id
+            for asset in assets
+        ]
+
+        if not asset_ids:
+            return {}
+
+        prices_by_asset = defaultdict(list)
+
+        # ------------------------------------------------------
+        # Prices inside requested range
+        # ------------------------------------------------------
+
+        prices = (
+            MarketPrice.objects
+            .filter(
+                asset_id__in=asset_ids,
+                date__gte=start_date,
+                date__lte=end_date,
+            )
+            .order_by(
+                "asset_id",
+                "date",
+                "id",
+            )
+            .only(
+                "asset_id",
+                "date",
+                "close_price",
+            )
+        )
+
+        for price in prices:
+            prices_by_asset[
+                price.asset_id
+            ].append(
+                (
+                    price.date,
+                    price.close_price,
+                )
+            )
+
+        # ------------------------------------------------------
+        # Latest price before requested range
+        # ------------------------------------------------------
+
+        for asset in assets:
+
+            previous_price = (
+                MarketPrice.objects
+                .filter(
+                    asset_id=asset.id,
+                    date__lt=start_date,
+                )
+                .order_by(
+                    "-date",
+                    "-id",
+                )
+                .only(
+                    "date",
+                    "close_price",
+                )
+                .first()
+            )
+
+            if previous_price is not None:
+                prices_by_asset[
+                    asset.id
+                ].insert(
+                    0,
+                    (
+                        previous_price.date,
+                        previous_price.close_price,
+                    ),
+                )
+
+        return dict(prices_by_asset)
+
+    # ==========================================================
+    # MUTUAL FUND NAV MAP
+    # ==========================================================
+
+    @staticmethod
+    def _build_nav_map(
+        schemes,
+        start_date,
+        end_date,
+    ):
+        """
+        Load historical mutual-fund NAVs needed for the
+        requested date range.
+        """
+
+        scheme_ids = [
+            scheme.id
+            for scheme in schemes
+        ]
+
+        if not scheme_ids:
+            return {}
+
+        navs_by_scheme = defaultdict(list)
+
+        # ------------------------------------------------------
+        # NAVs inside requested range
+        # ------------------------------------------------------
+
+        navs = (
+            MutualFundNAV.objects
+            .filter(
+                scheme_id__in=scheme_ids,
+                date__gte=start_date,
+                date__lte=end_date,
+            )
+            .order_by(
+                "scheme_id",
+                "date",
+                "id",
+            )
+            .only(
+                "scheme_id",
+                "date",
+                "nav",
+            )
+        )
+
+        for nav in navs:
+            navs_by_scheme[
+                nav.scheme_id
+            ].append(
+                (
+                    nav.date,
+                    nav.nav,
+                )
+            )
+
+        # ------------------------------------------------------
+        # Latest NAV before requested range
+        # ------------------------------------------------------
+
+        for scheme in schemes:
+
+            previous_nav = (
+                MutualFundNAV.objects
+                .filter(
+                    scheme_id=scheme.id,
+                    date__lt=start_date,
+                )
+                .order_by(
+                    "-date",
+                    "-id",
+                )
+                .only(
+                    "date",
+                    "nav",
+                )
+                .first()
+            )
+
+            if previous_nav is not None:
+                navs_by_scheme[
+                    scheme.id
+                ].insert(
+                    0,
+                    (
+                        previous_nav.date,
+                        previous_nav.nav,
+                    ),
+                )
+
+        return dict(navs_by_scheme)
+
+    # ==========================================================
+    # LATEST VALUE FROM SORTED HISTORY
+    # ==========================================================
+
+    @staticmethod
+    def _get_value_for_date(
+        values,
+        target_date,
+        pointer,
+    ):
+        """
+        Return the latest value on or before target_date.
+
+        values:
+            [(date, value), ...]
+
+        pointer:
+            Current index in the sorted list.
+
+        Returns:
+            (value, updated_pointer)
+        """
+
+        if not values:
+            return None, pointer
+
+        while (
+            pointer + 1 < len(values)
+            and values[pointer + 1][0] <= target_date
+        ):
+            pointer += 1
+
+        if (
+            pointer >= 0
+            and values[pointer][0] <= target_date
+        ):
+            return (
+                values[pointer][1],
+                pointer,
+            )
+
+        return None, pointer
+
+    # ==========================================================
+    # LEGACY EQUITY POSITION
     # ==========================================================
 
     @staticmethod
@@ -47,9 +396,12 @@ class HistoricalWealthAnalytics:
         target_date,
     ):
         """
-        Calculate an equity position as it existed on target_date.
+        Calculate an equity position as it existed
+        on target_date.
 
         Uses average-cost methodology.
+
+        Kept for compatibility with existing callers/tests.
         """
 
         transactions = (
@@ -66,74 +418,26 @@ class HistoricalWealthAnalytics:
             )
         )
 
-        quantity = HistoricalWealthAnalytics.ZERO
-        invested_value = HistoricalWealthAnalytics.ZERO
+        position = {
+            "quantity": (
+                HistoricalWealthAnalytics.ZERO
+            ),
+            "invested_value": (
+                HistoricalWealthAnalytics.ZERO
+            ),
+        }
 
         for transaction in transactions:
 
-            transaction_quantity = (
-                transaction.quantity
-                or HistoricalWealthAnalytics.ZERO
+            HistoricalWealthAnalytics._apply_equity_transaction(
+                position,
+                transaction,
             )
 
-            amount = (
-                transaction.amount
-                or HistoricalWealthAnalytics.ZERO
-            )
-
-            fees = (
-                transaction.fees
-                or HistoricalWealthAnalytics.ZERO
-            )
-
-            if transaction.transaction_type in (
-                TransactionType.BUY,
-                TransactionType.SIP,
-            ):
-                quantity += transaction_quantity
-
-                invested_value += (
-                    amount + fees
-                )
-
-            elif transaction.transaction_type == (
-                TransactionType.SELL
-            ):
-                if (
-                    quantity <= 0
-                    or transaction_quantity <= 0
-                ):
-                    continue
-
-                average_cost = (
-                    invested_value / quantity
-                )
-
-                cost_of_sale = (
-                    average_cost
-                    * transaction_quantity
-                )
-
-                quantity -= transaction_quantity
-
-                invested_value -= cost_of_sale
-
-                if quantity <= 0:
-                    quantity = (
-                        HistoricalWealthAnalytics.ZERO
-                    )
-
-                    invested_value = (
-                        HistoricalWealthAnalytics.ZERO
-                    )
-
-        return {
-            "quantity": quantity,
-            "invested_value": invested_value,
-        }
+        return position
 
     # ==========================================================
-    # EQUITY PRICE
+    # LEGACY EQUITY PRICE
     # ==========================================================
 
     @staticmethod
@@ -142,8 +446,10 @@ class HistoricalWealthAnalytics:
         target_date,
     ):
         """
-        Get the latest available equity market price on or
-        before target_date.
+        Get latest available equity market price
+        on or before target_date.
+
+        Kept for compatibility with existing callers/tests.
         """
 
         price = (
@@ -152,17 +458,17 @@ class HistoricalWealthAnalytics:
                 asset=asset,
                 date__lte=target_date,
             )
-            .order_by("-date")
+            .order_by(
+                "-date",
+                "-id",
+            )
             .first()
         )
-
-        if price is None:
-            return None
 
         return price
 
     # ==========================================================
-    # MUTUAL FUND POSITION
+    # LEGACY MUTUAL FUND POSITION
     # ==========================================================
 
     @staticmethod
@@ -172,10 +478,12 @@ class HistoricalWealthAnalytics:
         target_date,
     ):
         """
-        Calculate a mutual-fund position as it existed on
-        target_date.
+        Calculate a mutual-fund position as it existed
+        on target_date.
 
         Uses average-cost methodology.
+
+        Kept for compatibility with existing callers/tests.
         """
 
         transactions = (
@@ -192,76 +500,26 @@ class HistoricalWealthAnalytics:
             )
         )
 
-        units = HistoricalWealthAnalytics.ZERO
-        invested_value = HistoricalWealthAnalytics.ZERO
+        position = {
+            "units": (
+                HistoricalWealthAnalytics.ZERO
+            ),
+            "invested_value": (
+                HistoricalWealthAnalytics.ZERO
+            ),
+        }
 
         for transaction in transactions:
 
-            transaction_units = (
-                transaction.units
-                or HistoricalWealthAnalytics.ZERO
+            HistoricalWealthAnalytics._apply_mutual_fund_transaction(
+                position,
+                transaction,
             )
 
-            amount = (
-                transaction.amount
-                or HistoricalWealthAnalytics.ZERO
-            )
-
-            fees = (
-                transaction.fees
-                or HistoricalWealthAnalytics.ZERO
-            )
-
-            if transaction.transaction_type in (
-                MutualFundTransactionType.PURCHASE,
-                MutualFundTransactionType.SIP,
-            ):
-                units += transaction_units
-
-                invested_value += (
-                    amount + fees
-                )
-
-            elif transaction.transaction_type == (
-                MutualFundTransactionType.REDEMPTION
-            ):
-                if (
-                    units <= 0
-                    or transaction_units <= 0
-                ):
-                    continue
-
-                average_cost = (
-                    invested_value / units
-                )
-
-                cost_of_redemption = (
-                    average_cost
-                    * transaction_units
-                )
-
-                units -= transaction_units
-
-                invested_value -= (
-                    cost_of_redemption
-                )
-
-                if units <= 0:
-                    units = (
-                        HistoricalWealthAnalytics.ZERO
-                    )
-
-                    invested_value = (
-                        HistoricalWealthAnalytics.ZERO
-                    )
-
-        return {
-            "units": units,
-            "invested_value": invested_value,
-        }
+        return position
 
     # ==========================================================
-    # MUTUAL FUND NAV
+    # LEGACY MUTUAL FUND NAV
     # ==========================================================
 
     @staticmethod
@@ -270,8 +528,10 @@ class HistoricalWealthAnalytics:
         target_date,
     ):
         """
-        Get the latest available mutual-fund NAV on or before
-        target_date.
+        Get latest available mutual-fund NAV
+        on or before target_date.
+
+        Kept for compatibility with existing callers/tests.
         """
 
         nav = (
@@ -280,17 +540,17 @@ class HistoricalWealthAnalytics:
                 scheme=scheme,
                 date__lte=target_date,
             )
-            .order_by("-date")
+            .order_by(
+                "-date",
+                "-id",
+            )
             .first()
         )
-
-        if nav is None:
-            return None
 
         return nav
 
     # ==========================================================
-    # HISTORICAL VALUE
+    # SINGLE-DATE HISTORICAL VALUE
     # ==========================================================
 
     @staticmethod
@@ -299,8 +559,10 @@ class HistoricalWealthAnalytics:
         target_date,
     ):
         """
-        Calculate the complete unified portfolio value for
-        one historical date.
+        Calculate complete unified portfolio value
+        for one historical date.
+
+        This preserves the original single-date behavior.
         """
 
         total_invested = (
@@ -327,9 +589,9 @@ class HistoricalWealthAnalytics:
             HistoricalWealthAnalytics.ZERO
         )
 
-        # ------------------------------------------------------
+        # ======================================================
         # EQUITIES
-        # ------------------------------------------------------
+        # ======================================================
 
         equity_asset_ids = (
             Transaction.objects
@@ -393,9 +655,9 @@ class HistoricalWealthAnalytics:
             equity_invested += invested_value
             equity_value += current_value
 
-        # ------------------------------------------------------
+        # ======================================================
         # MUTUAL FUNDS
-        # ------------------------------------------------------
+        # ======================================================
 
         mutual_fund_scheme_ids = (
             MutualFundTransaction.objects
@@ -464,6 +726,10 @@ class HistoricalWealthAnalytics:
                 current_value
             )
 
+        # ======================================================
+        # TOTALS
+        # ======================================================
+
         total_invested = (
             equity_invested
             + mutual_fund_invested
@@ -493,8 +759,12 @@ class HistoricalWealthAnalytics:
                 ),
             },
             "mutual_funds": {
-                "invested_value": mutual_fund_invested,
-                "portfolio_value": mutual_fund_value,
+                "invested_value": (
+                    mutual_fund_invested
+                ),
+                "portfolio_value": (
+                    mutual_fund_value
+                ),
                 "pnl": (
                     mutual_fund_value
                     - mutual_fund_invested
@@ -503,7 +773,7 @@ class HistoricalWealthAnalytics:
         }
 
     # ==========================================================
-    # HISTORICAL RANGE
+    # OPTIMIZED HISTORICAL RANGE
     # ==========================================================
 
     @staticmethod
@@ -513,11 +783,20 @@ class HistoricalWealthAnalytics:
         end_date,
     ):
         """
-        Calculate unified historical wealth for every calendar
-        day between start_date and end_date.
+        Optimized historical wealth calculation.
 
-        Dates without a market/NAV update use the latest
-        available price/NAV before that date.
+        The previous implementation performed database
+        queries for every date and every holding.
+
+        This implementation:
+
+            1. Loads transactions once.
+            2. Loads active assets/schemes once.
+            3. Loads prices/NAVs once.
+            4. Builds positions in memory.
+            5. Calculates daily values in memory.
+
+        The API response structure remains unchanged.
         """
 
         if start_date > end_date:
@@ -525,19 +804,514 @@ class HistoricalWealthAnalytics:
                 "start_date cannot be after end_date"
             )
 
+        # ======================================================
+        # EQUITY TRANSACTIONS
+        # ======================================================
+
+        equity_transactions = (
+            Transaction.objects
+            .filter(
+                owner=user,
+                transaction_date__lte=end_date,
+            )
+            .order_by(
+                "transaction_date",
+                "created_at",
+                "id",
+            )
+        )
+
+        equity_transactions_by_date = (
+            defaultdict(list)
+        )
+
+        equity_asset_ids = set()
+
+        for transaction in equity_transactions:
+
+            equity_asset_ids.add(
+                transaction.asset_id
+            )
+
+            equity_transactions_by_date[
+                transaction.transaction_date
+            ].append(transaction)
+
+        # ======================================================
+        # ACTIVE EQUITY ASSETS
+        # ======================================================
+
+        assets = list(
+            Asset.objects
+            .filter(
+                owner=user,
+                is_active=True,
+                id__in=equity_asset_ids,
+            )
+            .order_by("id")
+        )
+
+        active_asset_ids = {
+            asset.id
+            for asset in assets
+        }
+
+        # Only retain transactions belonging to
+        # active assets.
+        filtered_equity_transactions_by_date = (
+            defaultdict(list)
+        )
+
+        for (
+            transaction_date,
+            transactions,
+        ) in equity_transactions_by_date.items():
+
+            for transaction in transactions:
+
+                if transaction.asset_id in active_asset_ids:
+                    filtered_equity_transactions_by_date[
+                        transaction_date
+                    ].append(transaction)
+
+        equity_transactions_by_date = (
+            filtered_equity_transactions_by_date
+        )
+
+        # ======================================================
+        # EQUITY PRICES
+        # ======================================================
+
+        prices_by_asset = (
+            HistoricalWealthAnalytics
+            ._build_price_map(
+                assets,
+                start_date,
+                end_date,
+            )
+        )
+
+        # ======================================================
+        # MUTUAL FUND TRANSACTIONS
+        # ======================================================
+
+        mutual_fund_transactions = (
+            MutualFundTransaction.objects
+            .filter(
+                owner=user,
+                transaction_date__lte=end_date,
+            )
+            .order_by(
+                "transaction_date",
+                "created_at",
+                "id",
+            )
+        )
+
+        mutual_fund_transactions_by_date = (
+            defaultdict(list)
+        )
+
+        mutual_fund_scheme_ids = set()
+
+        for transaction in mutual_fund_transactions:
+
+            mutual_fund_scheme_ids.add(
+                transaction.scheme_id
+            )
+
+            mutual_fund_transactions_by_date[
+                transaction.transaction_date
+            ].append(transaction)
+
+        # ======================================================
+        # ACTIVE MUTUAL FUND SCHEMES
+        # ======================================================
+
+        schemes = list(
+            MutualFundScheme.objects
+            .filter(
+                owner=user,
+                is_active=True,
+                id__in=mutual_fund_scheme_ids,
+            )
+            .order_by("id")
+        )
+
+        active_scheme_ids = {
+            scheme.id
+            for scheme in schemes
+        }
+
+        # ------------------------------------------------------
+        # IMPORTANT:
+        #
+        # Only transactions belonging to active schemes are
+        # retained.
+        #
+        # This prevents a transaction from referencing a scheme
+        # that is not represented in mutual_fund_positions.
+        # ------------------------------------------------------
+
+        filtered_mutual_fund_transactions_by_date = (
+            defaultdict(list)
+        )
+
+        for (
+            transaction_date,
+            transactions,
+        ) in mutual_fund_transactions_by_date.items():
+
+            for transaction in transactions:
+
+                if transaction.scheme_id in active_scheme_ids:
+                    filtered_mutual_fund_transactions_by_date[
+                        transaction_date
+                    ].append(transaction)
+
+        mutual_fund_transactions_by_date = (
+            filtered_mutual_fund_transactions_by_date
+        )
+
+        # ======================================================
+        # MUTUAL FUND NAVs
+        # ======================================================
+
+        navs_by_scheme = (
+            HistoricalWealthAnalytics
+            ._build_nav_map(
+                schemes,
+                start_date,
+                end_date,
+            )
+        )
+
+        # ======================================================
+        # INITIALIZE EQUITY POSITIONS
+        # ======================================================
+
+        equity_positions = {}
+
+        for asset in assets:
+
+            equity_positions[asset.id] = {
+                "quantity": (
+                    HistoricalWealthAnalytics.ZERO
+                ),
+                "invested_value": (
+                    HistoricalWealthAnalytics.ZERO
+                ),
+            }
+
+        # ======================================================
+        # INITIALIZE MUTUAL FUND POSITIONS
+        # ======================================================
+
+        mutual_fund_positions = {}
+
+        for scheme in schemes:
+
+            mutual_fund_positions[scheme.id] = {
+                "units": (
+                    HistoricalWealthAnalytics.ZERO
+                ),
+                "invested_value": (
+                    HistoricalWealthAnalytics.ZERO
+                ),
+            }
+
+        # ======================================================
+        # APPLY TRANSACTIONS BEFORE START DATE
+        # ======================================================
+        #
+        # If the requested period starts after an existing
+        # transaction, that transaction must already be part
+        # of the opening position.
+        #
+        # Example:
+        #
+        # BUY on Jan 1
+        # History starts Jan 10
+        #
+        # The Jan 1 BUY must already be reflected on Jan 10.
+        #
+
+        for (
+            transaction_date,
+            transactions,
+        ) in equity_transactions_by_date.items():
+
+            if transaction_date >= start_date:
+                continue
+
+            for transaction in transactions:
+
+                position = equity_positions.get(
+                    transaction.asset_id
+                )
+
+                if position is None:
+                    continue
+
+                HistoricalWealthAnalytics._apply_equity_transaction(
+                    position,
+                    transaction,
+                )
+
+        for (
+            transaction_date,
+            transactions,
+        ) in mutual_fund_transactions_by_date.items():
+
+            if transaction_date >= start_date:
+                continue
+
+            for transaction in transactions:
+
+                position = mutual_fund_positions.get(
+                    transaction.scheme_id
+                )
+
+                if position is None:
+                    continue
+
+                HistoricalWealthAnalytics._apply_mutual_fund_transaction(
+                    position,
+                    transaction,
+                )
+
+        # ======================================================
+        # PRICE/NAV POINTERS
+        # ======================================================
+
+        price_pointers = {
+            asset.id: -1
+            for asset in assets
+        }
+
+        nav_pointers = {
+            scheme.id: -1
+            for scheme in schemes
+        }
+
+        # ======================================================
+        # DAILY CALCULATION
+        # ======================================================
+
         results = []
 
         current_date = start_date
 
         while current_date <= end_date:
 
-            results.append(
-                HistoricalWealthAnalytics
-                .calculate_historical_value(
-                    user,
+            # --------------------------------------------------
+            # EQUITY TRANSACTIONS FOR CURRENT DATE
+            # --------------------------------------------------
+
+            for transaction in (
+                equity_transactions_by_date.get(
                     current_date,
+                    [],
                 )
+            ):
+
+                position = equity_positions.get(
+                    transaction.asset_id
+                )
+
+                if position is None:
+                    continue
+
+                HistoricalWealthAnalytics._apply_equity_transaction(
+                    position,
+                    transaction,
+                )
+
+            # --------------------------------------------------
+            # MUTUAL FUND TRANSACTIONS FOR CURRENT DATE
+            # --------------------------------------------------
+
+            for transaction in (
+                mutual_fund_transactions_by_date.get(
+                    current_date,
+                    [],
+                )
+            ):
+
+                # Defensive lookup.
+                #
+                # Even if database data contains a transaction
+                # referring to a missing/inactive scheme, the
+                # historical endpoint must not crash.
+                position = mutual_fund_positions.get(
+                    transaction.scheme_id
+                )
+
+                if position is None:
+                    continue
+
+                HistoricalWealthAnalytics._apply_mutual_fund_transaction(
+                    position,
+                    transaction,
+                )
+
+            # --------------------------------------------------
+            # EQUITY VALUE
+            # --------------------------------------------------
+
+            equity_invested = (
+                HistoricalWealthAnalytics.ZERO
             )
+
+            equity_value = (
+                HistoricalWealthAnalytics.ZERO
+            )
+
+            for asset in assets:
+
+                position = equity_positions.get(
+                    asset.id
+                )
+
+                if position is None:
+                    continue
+
+                quantity = position["quantity"]
+
+                if quantity <= 0:
+                    continue
+
+                equity_invested += (
+                    position["invested_value"]
+                )
+
+                price_values = prices_by_asset.get(
+                    asset.id,
+                    [],
+                )
+
+                price, pointer = (
+                    HistoricalWealthAnalytics
+                    ._get_value_for_date(
+                        price_values,
+                        current_date,
+                        price_pointers.get(
+                            asset.id,
+                            -1,
+                        ),
+                    )
+                )
+
+                price_pointers[asset.id] = pointer
+
+                if price is None:
+                    continue
+
+                equity_value += (
+                    quantity * price
+                )
+
+            # --------------------------------------------------
+            # MUTUAL FUND VALUE
+            # --------------------------------------------------
+
+            mutual_fund_invested = (
+                HistoricalWealthAnalytics.ZERO
+            )
+
+            mutual_fund_value = (
+                HistoricalWealthAnalytics.ZERO
+            )
+
+            for scheme in schemes:
+
+                position = mutual_fund_positions.get(
+                    scheme.id
+                )
+
+                if position is None:
+                    continue
+
+                units = position["units"]
+
+                if units <= 0:
+                    continue
+
+                mutual_fund_invested += (
+                    position["invested_value"]
+                )
+
+                nav_values = navs_by_scheme.get(
+                    scheme.id,
+                    [],
+                )
+
+                nav, pointer = (
+                    HistoricalWealthAnalytics
+                    ._get_value_for_date(
+                        nav_values,
+                        current_date,
+                        nav_pointers.get(
+                            scheme.id,
+                            -1,
+                        ),
+                    )
+                )
+
+                nav_pointers[scheme.id] = pointer
+
+                if nav is None:
+                    continue
+
+                mutual_fund_value += (
+                    units * nav
+                )
+
+            # --------------------------------------------------
+            # TOTALS
+            # --------------------------------------------------
+
+            total_invested = (
+                equity_invested
+                + mutual_fund_invested
+            )
+
+            total_value = (
+                equity_value
+                + mutual_fund_value
+            )
+
+            unrealized_pnl = (
+                total_value
+                - total_invested
+            )
+
+            results.append({
+                "date": current_date,
+                "invested_value": total_invested,
+                "portfolio_value": total_value,
+                "pnl": unrealized_pnl,
+                "equity": {
+                    "invested_value": equity_invested,
+                    "portfolio_value": equity_value,
+                    "pnl": (
+                        equity_value
+                        - equity_invested
+                    ),
+                },
+                "mutual_funds": {
+                    "invested_value": (
+                        mutual_fund_invested
+                    ),
+                    "portfolio_value": (
+                        mutual_fund_value
+                    ),
+                    "pnl": (
+                        mutual_fund_value
+                        - mutual_fund_invested
+                    ),
+                },
+            })
 
             current_date += timedelta(days=1)
 
