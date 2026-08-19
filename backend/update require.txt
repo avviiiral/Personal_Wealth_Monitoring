@@ -1,16 +1,9 @@
-# portfolio Update
+qty check
 
-1st filter : Family Name
-2nd : asset class
-3rd : portfolio
-4th : Asset name 
+buoynd stock name add (PMS)
 
-
-
-Replace P&L by Gain
-
-
-# Nav Edittable  for AIF/ Alternate / Gold Bonds
-
-
-# pie chart according to Cap Wise, Sector Wise , Famile Allocations
+EQTY PMS 
+|
+|----PMS name
+        |
+        |- Underling stocks

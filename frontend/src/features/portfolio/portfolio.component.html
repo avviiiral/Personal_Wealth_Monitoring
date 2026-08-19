@@ -158,7 +158,11 @@
                       <tbody>
                         <tr *ngFor="let asset of summary.assets; trackBy: trackByAsset">
                           <td class="asset-name">
-                            {{ asset.asset_name }}
+                            {{
+                              asset.underlying && asset.underlying.toUpperCase() !== 'N/A'
+                                ? asset.underlying
+                                : asset.asset_name
+                            }}
                           </td>
 
                           <td class="isin">
