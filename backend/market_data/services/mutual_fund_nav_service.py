@@ -14,9 +14,19 @@ class MutualFundNAVService:
         Scheme Code
         ISIN Growth / Dividend Payout
         ISIN Dividend Reinvestment
-        Scheme Name
+        Scheme Name (sometimes split across extra
+            semicolon-delimited Plan/Option segments)
         NAV
         Date
+
+    The number of fields between the scheme code/ISIN
+    columns and the trailing NAV/Date columns is not
+    fixed - AMFI's feed can include extra Plan/Option
+    segments for some schemes. NAV and Date are always
+    the LAST TWO fields on the line, so this parser reads
+    them from the end rather than from a fixed index, to
+    avoid silently failing to parse every row when the
+    feed's column count changes.
 
     PWMS uses ISIN as the primary identifier.
     """
@@ -68,9 +78,20 @@ class MutualFundNAVService:
             scheme_code = parts[0].strip()
             isin_growth = parts[1].strip()
             isin_reinvestment = parts[2].strip()
-            scheme_name = parts[3].strip()
-            nav_value = parts[4].strip()
-            nav_date = parts[5].strip()
+
+            # ------------------------------------------------
+            # NAV and Date are always the last two fields.
+            # Everything between the ISIN columns and these
+            # last two fields is treated as the scheme name,
+            # regardless of how many extra Plan/Option
+            # segments AMFI includes on a given line.
+            # ------------------------------------------------
+            nav_value = parts[-2].strip()
+            nav_date = parts[-1].strip()
+
+            scheme_name = (
+                ";".join(parts[3:-2]).strip()
+            )
 
             # Ignore category/header rows.
             if not scheme_code.isdigit():
