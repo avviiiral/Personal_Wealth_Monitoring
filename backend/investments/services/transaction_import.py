@@ -536,6 +536,16 @@ class TransactionImporter:
 
         if "MUTUAL FUND" in normalized_sub_class:
             category = AssetCategory.MUTUAL_FUND
+
+        elif (
+            "GOLD BOND" in normalized_sub_class
+            or normalized_sub_class in {
+                "SGB",
+                "SOVEREIGN GOLD BOND",
+            }
+        ):
+            category = AssetCategory.BOND
+
         else:
             category = ASSET_CLASS_MAP.get(
                 asset_class.upper()

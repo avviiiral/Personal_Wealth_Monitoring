@@ -20,6 +20,9 @@ from portfolio.services.holding_engine import (
     HoldingCalculationEngine,
 )
 
+from market_data.services.sgb_price_service import (
+    SGBPriceService,
+)
 
 class MarketDataManager:
     """
@@ -433,6 +436,107 @@ class MarketDataManager:
                 else "0"
             ),
         }
+    
+    @classmethod
+    def _fetch_sgb(
+        cls,
+        asset,
+    ):
+        """
+        Fetch the latest NSE price for a
+        Sovereign Gold Bond.
+        """
+
+        if not asset.isin:
+
+            return {
+                "success": False,
+                "skipped": True,
+                "source": "NSE_SGB",
+                "reason": (
+                    "SGB has no ISIN."
+                ),
+            }
+
+        try:
+
+            price_record = (
+                SGBPriceService
+                .get_latest_price(
+                    name=asset.name,
+                    isin=asset.isin,
+                )
+            )
+
+        except Exception as exc:
+
+            return {
+                "success": False,
+                "skipped": False,
+                "source": "NSE_SGB",
+                "error": str(exc),
+            }
+
+        if price_record is None:
+
+            return {
+                "success": False,
+                "skipped": True,
+                "source": "NSE_SGB",
+                "reason": (
+                    "Unable to resolve or fetch "
+                    f"SGB price for "
+                    f"{asset.isin}."
+                ),
+            }
+
+        price = price_record["price"]
+        price_date = price_record["date"]
+
+        MarketPrice.objects.update_or_create(
+            asset=asset,
+            date=price_date,
+            source=DataSource.OTHER,
+            defaults={
+                "open_price": None,
+                "high_price": None,
+                "low_price": None,
+                "close_price": price,
+                "adjusted_close": price,
+                "volume": None,
+            },
+        )
+
+        holding = cls._rebuild_holding(
+            asset
+        )
+
+        return {
+            "success": True,
+            "skipped": False,
+            "source": "NSE_SGB",
+            "symbol": (
+                price_record["symbol"]
+            ),
+            "isin": asset.isin,
+            "price": str(price),
+            "date": str(price_date),
+            "holding_id": (
+                holding.id
+                if holding
+                else None
+            ),
+            "current_price": (
+                str(holding.current_price)
+                if holding
+                else str(price)
+            ),
+            "current_value": (
+                str(holding.current_value)
+                if holding
+                else "0"
+            ),
+        }
 
     @classmethod
     def fetch_and_rebuild(
@@ -469,6 +573,18 @@ class MarketDataManager:
         # ======================================================
 
         if asset.category == "BOND":
+    
+            if (
+                "SOVEREIGN GOLD BOND"
+                in (
+                    asset.name
+                    or ""
+                ).upper()
+            ):
+
+                return cls._fetch_sgb(
+                    asset
+                )
 
             return cls._fetch_bond(
                 asset
