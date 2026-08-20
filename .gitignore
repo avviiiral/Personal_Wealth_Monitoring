@@ -100,12 +100,9 @@ dist/
 # ============================================================
 
 # Do not commit generated transaction files
-data/*.xlsx
-data/*.xls
-data/*.csv
-
-# Keep the data directory itself
-!data/.gitkeep
+*.xlsx
+*.xls
+*.csv
 
 # Generated reports
 reports/
