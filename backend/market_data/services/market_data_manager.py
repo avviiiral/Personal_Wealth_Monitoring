@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from investments.models import Asset
+from investments.models import Asset, Transaction
 from market_data.models import MarketPrice, DataSource
 from market_data.services.security_resolver import (
     SecurityResolver,
@@ -106,6 +106,29 @@ class MarketDataManager:
             symbol=asset.symbol,
             isin=asset.isin,
             name=asset.name,
+        )
+
+    @staticmethod
+    def get_earliest_transaction_date(asset):
+        """
+        Return the date of the asset's earliest transaction
+        (its first buy/SIP), or None if the asset has no
+        transactions yet.
+
+        Used so historical price/NAV backfill starts from
+        when the holding was actually acquired, instead of
+        an arbitrary fixed window.
+        """
+
+        return (
+            Transaction.objects
+            .filter(asset=asset)
+            .order_by("transaction_date")
+            .values_list(
+                "transaction_date",
+                flat=True,
+            )
+            .first()
         )
 
     @staticmethod
@@ -663,14 +686,42 @@ class MarketDataManager:
 
             if latest_date is None:
 
-                records = (
-                    YahooFinanceService
-                    .save_history(
-                        asset=asset,
-                        symbol=yahoo_symbol,
-                        period=period,
+                # ----------------------------------------------
+                # Prefer backfilling from the asset's earliest
+                # transaction (buy) date, so the full holding
+                # period is covered rather than a fixed trailing
+                # window. Fall back to the fixed period only
+                # when there is no transaction yet (e.g. an
+                # asset created before any transaction exists).
+                # ----------------------------------------------
+
+                earliest_transaction_date = (
+                    cls.get_earliest_transaction_date(
+                        asset
                     )
                 )
+
+                if earliest_transaction_date is not None:
+
+                    records = (
+                        YahooFinanceService
+                        .save_history(
+                            asset=asset,
+                            symbol=yahoo_symbol,
+                            start=earliest_transaction_date,
+                        )
+                    )
+
+                else:
+
+                    records = (
+                        YahooFinanceService
+                        .save_history(
+                            asset=asset,
+                            symbol=yahoo_symbol,
+                            period=period,
+                        )
+                    )
 
                 fetch_type = "initial"
 
