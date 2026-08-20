@@ -92,6 +92,7 @@ export interface CreateTransactionRequest {
 
 export interface PortfolioAssetNode {
   id: number;
+  family_name: string;
   asset_name: string;
   underlying: string;
   isin: string | null;
@@ -110,6 +111,8 @@ export interface PortfolioAssetNode {
 
   sector: string | null;
   cap_type: string | null;
+
+  price_source: string | null;
 }
 
 export interface SubClassNode {

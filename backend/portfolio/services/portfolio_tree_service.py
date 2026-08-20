@@ -1,3 +1,5 @@
+import logging
+
 from decimal import Decimal
 
 from django.db.models import QuerySet
@@ -7,6 +9,9 @@ from investments.models import Transaction
 from investments.services.portfolio_metrics import (
     PortfolioMetricsService,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class PortfolioTreeService:
@@ -24,6 +29,18 @@ class PortfolioTreeService:
     def _decimal_to_float(value):
         if value is None:
             return 0.0
+
+        return float(value)
+
+    @staticmethod
+    def _optional_float(value):
+        """
+        Convert to float while preserving None.
+
+        None means that a current price/value is not available.
+        """
+        if value is None:
+            return None
 
         return float(value)
 
@@ -49,6 +66,21 @@ class PortfolioTreeService:
 
     @staticmethod
     def _calculate_position(transactions):
+        """
+        Calculate the position ONLY from the transactions supplied.
+
+        The caller supplies transactions belonging to one exact:
+
+            Family
+            + Portfolio
+            + Asset Class
+            + Sub Class
+            + Asset
+
+        Therefore this calculation must never be replaced by a
+        broader asset-level quantity from PortfolioMetricsService.
+        """
+
         quantity = Decimal("0")
         invested_value = Decimal("0")
 
@@ -82,6 +114,7 @@ class PortfolioTreeService:
                 )
 
                 quantity -= sell_quantity
+
                 invested_value -= (
                     average_cost * sell_quantity
                 )
@@ -117,6 +150,15 @@ class PortfolioTreeService:
         first = transactions[0]
         asset = first.asset
 
+        # ---------------------------------------------------------
+        # IMPORTANT:
+        #
+        # These transactions already belong to ONE exact portfolio
+        # strategy/sub-class/asset combination.
+        #
+        # Therefore quantity and invested value MUST come from this
+        # transaction set.
+        # ---------------------------------------------------------
         position = cls._calculate_position(
             transactions
         )
@@ -140,14 +182,18 @@ class PortfolioTreeService:
                 )
             )
         except Exception:
+            logger.exception(
+                "Asset metrics failed for asset_id=%s",
+                getattr(asset, "id", None),
+            )
+
             metrics = {
-                "quantity": quantity,
-                "average_cost": average_cost,
-                "invested_value": invested_value,
-                "current_price": Decimal("0"),
-                "current_value": Decimal("0"),
-                "pnl": Decimal("0"),
-                "pnl_percentage": 0.0,
+                "current_price": None,
+                "current_value": None,
+                "pnl": None,
+                "pnl_percentage": None,
+                "price_source": None,
+                "price_date": None,
                 "xirr": None,
             }
 
@@ -166,73 +212,152 @@ class PortfolioTreeService:
             ),
         )
 
+        # ---------------------------------------------------------
+        # CURRENT PRICE
+        #
+        # Price is security-level data, so it is safe to use the
+        # price returned by PortfolioMetricsService.
+        # ---------------------------------------------------------
+        current_price = metrics.get(
+            "current_price"
+        )
+
+        if current_price is not None:
+            current_price_decimal = Decimal(
+                str(current_price)
+            )
+        else:
+            current_price_decimal = None
+
+        # ---------------------------------------------------------
+        # CURRENT VALUE
+        #
+        # IMPORTANT:
+        #
+        # Do NOT use metrics["current_value"] because that value may
+        # have been calculated using an incorrectly aggregated
+        # quantity.
+        #
+        # Recalculate it using the strategy-specific quantity above.
+        # ---------------------------------------------------------
+        if current_price_decimal is not None:
+            current_value = (
+                quantity * current_price_decimal
+            )
+        else:
+            current_value = None
+
+        # ---------------------------------------------------------
+        # P&L
+        #
+        # Recalculate from the strategy-specific position.
+        # ---------------------------------------------------------
+        if current_value is not None:
+            pnl = (
+                current_value - invested_value
+            )
+        else:
+            pnl = None
+
+        # ---------------------------------------------------------
+        # P&L %
+        # ---------------------------------------------------------
+        if (
+            pnl is not None
+            and invested_value > Decimal("0")
+        ):
+            pnl_percentage = (
+                pnl / invested_value
+            ) * Decimal("100")
+        else:
+            pnl_percentage = None
+
         return {
             "id": asset.id,
+            
+            "family_name": cls._clean(
+                first.family_name
+            ),
+
             "asset_name": asset_name,
+
             "underlying": cls._clean(
                 first.underlying,
                 "",
             ),
+
             "isin": getattr(
                 asset,
                 "isin",
                 None,
             ),
+
             "symbol": getattr(
                 asset,
                 "symbol",
                 None,
             ),
+
             "advisors": cls._clean(
                 first.advisors,
                 "",
             ),
+
+            # =====================================================
+            # CRITICAL FIX
+            #
+            # NEVER take quantity from PortfolioMetricsService.
+            #
+            # This quantity belongs to the exact transaction group:
+            #
+            # Family
+            # + Portfolio
+            # + Asset Class
+            # + Sub Class
+            # + Asset
+            # =====================================================
             "quantity": cls._decimal_to_float(
-                metrics.get(
-                    "quantity",
-                    quantity,
-                )
+                quantity
             ),
+
             "average_cost": cls._decimal_to_float(
-                metrics.get(
-                    "average_cost",
-                    average_cost,
-                )
+                average_cost
             ),
+
             "invested_value": cls._decimal_to_float(
-                metrics.get(
-                    "invested_value",
-                    invested_value,
-                )
+                invested_value
             ),
-            "current_price": cls._decimal_to_float(
-                metrics.get(
-                    "current_price",
-                    Decimal("0"),
-                )
+
+            "current_price": cls._optional_float(
+                current_price
             ),
-            "current_value": cls._decimal_to_float(
-                metrics.get(
-                    "current_value",
-                    Decimal("0"),
-                )
+
+            "current_value": cls._optional_float(
+                current_value
             ),
-            "pnl": cls._decimal_to_float(
-                metrics.get(
-                    "pnl",
-                    Decimal("0"),
-                )
+
+            "pnl": cls._optional_float(
+                pnl
             ),
-            "pnl_percentage": float(
-                metrics.get(
-                    "pnl_percentage",
-                    0.0,
-                )
-                or 0.0
+
+            "pnl_percentage": cls._optional_float(
+                pnl_percentage
             ),
+
+            "price_source": metrics.get(
+                "price_source"
+            ),
+
+            "price_date": (
+                str(metrics["price_date"])
+                if metrics.get("price_date")
+                else None
+            ),
+
             "xirr": metrics.get(
                 "xirr"
             ),
+
             "sector": (
                 getattr(
                     security_master,
@@ -242,6 +367,7 @@ class PortfolioTreeService:
                 if security_master
                 else None
             ),
+
             "cap_type": (
                 getattr(
                     security_master,
@@ -262,6 +388,20 @@ class PortfolioTreeService:
         tree = {}
         grouped = {}
 
+        # =========================================================
+        # GROUPING
+        #
+        # A holding is uniquely identified by:
+        #
+        # Family
+        # Portfolio
+        # Asset Class
+        # Sub Class
+        # Asset
+        #
+        # This means the same underlying/security can exist in
+        # multiple strategies without being combined.
+        # =========================================================
         for tx in transactions:
             family = cls._clean(
                 tx.family_name
@@ -292,6 +432,9 @@ class PortfolioTreeService:
                 [],
             ).append(tx)
 
+        # =========================================================
+        # BUILD TREE
+        # =========================================================
         for (
             family,
             portfolio,
@@ -350,6 +493,9 @@ class PortfolioTreeService:
                 asset_data
             )
 
+        # =========================================================
+        # FINAL TREE NORMALIZATION
+        # =========================================================
         families = []
 
         for family_data in tree.values():
@@ -382,7 +528,9 @@ class PortfolioTreeService:
                         sub_class_data[
                             "asset_count"
                         ] = len(
-                            sub_class_data["assets"]
+                            sub_class_data[
+                                "assets"
+                            ]
                         )
 
                         sub_classes.append(
@@ -402,7 +550,9 @@ class PortfolioTreeService:
 
                     asset_class_data[
                         "sub_class_count"
-                    ] = len(sub_classes)
+                    ] = len(
+                        sub_classes
+                    )
 
                     asset_classes.append(
                         asset_class_data
@@ -421,7 +571,9 @@ class PortfolioTreeService:
 
                 portfolio_data[
                     "asset_class_count"
-                ] = len(asset_classes)
+                ] = len(
+                    asset_classes
+                )
 
                 portfolios.append(
                     portfolio_data
@@ -436,9 +588,9 @@ class PortfolioTreeService:
 
             family_data["portfolios"] = portfolios
 
-            family_data["portfolio_count"] = len(
-                portfolios
-            )
+            family_data[
+                "portfolio_count"
+            ] = len(portfolios)
 
             families.append(
                 family_data

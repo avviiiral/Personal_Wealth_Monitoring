@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 
-import { Observable } from 'rxjs';
+import { Observable, switchMap } from 'rxjs';
 
 export interface ManualPriceResponse {
   success: boolean;
@@ -26,6 +26,12 @@ export class ManualPriceService {
 
   private readonly baseUrl = 'http://localhost:8000/api/portfolio';
 
+  private readonly csrfUrl = 'http://localhost:8000/api/health/';
+
+  // ==========================================================
+  // CSRF TOKEN
+  // ==========================================================
+
   private readCsrfToken(): string {
     const cookies = document.cookie.split(';');
 
@@ -40,6 +46,10 @@ export class ManualPriceService {
     return '';
   }
 
+  // ==========================================================
+  // HEADERS
+  // ==========================================================
+
   private getHeaders(): HttpHeaders {
     const csrfToken = this.readCsrfToken();
 
@@ -52,31 +62,60 @@ export class ManualPriceService {
     return headers;
   }
 
+  // ==========================================================
+  // GET CSRF COOKIE
+  // ==========================================================
+
+  private getCsrfToken(): Observable<unknown> {
+    return this.http.get(this.csrfUrl, {
+      withCredentials: true,
+    });
+  }
+
+  // ==========================================================
+  // UPDATE PRICE
+  // ==========================================================
+
   updatePrice(assetId: number, price: number, priceDate?: string): Observable<ManualPriceResponse> {
-    return this.http.put<ManualPriceResponse>(
-      `${this.baseUrl}/assets/${assetId}/manual-price/`,
-      {
-        price,
-        ...(priceDate
-          ? {
-              price_date: priceDate,
-            }
-          : {}),
-      },
-      {
-        headers: this.getHeaders(),
-        withCredentials: true,
-      },
+    return this.getCsrfToken().pipe(
+      switchMap(() => {
+        return this.http.put<ManualPriceResponse>(
+          `${this.baseUrl}/assets/${assetId}/manual-price/`,
+          {
+            price,
+
+            ...(priceDate
+              ? {
+                  price_date: priceDate,
+                }
+              : {}),
+          },
+          {
+            headers: this.getHeaders(),
+
+            withCredentials: true,
+          },
+        );
+      }),
     );
   }
 
+  // ==========================================================
+  // DELETE PRICE
+  // ==========================================================
+
   deletePrice(assetId: number): Observable<ManualPriceResponse> {
-    return this.http.delete<ManualPriceResponse>(
-      `${this.baseUrl}/assets/${assetId}/manual-price/`,
-      {
-        headers: this.getHeaders(),
-        withCredentials: true,
-      },
+    return this.getCsrfToken().pipe(
+      switchMap(() => {
+        return this.http.delete<ManualPriceResponse>(
+          `${this.baseUrl}/assets/${assetId}/manual-price/`,
+          {
+            headers: this.getHeaders(),
+
+            withCredentials: true,
+          },
+        );
+      }),
     );
   }
 }

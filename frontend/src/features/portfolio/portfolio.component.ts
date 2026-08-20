@@ -21,6 +21,11 @@ interface SubClassSummary {
   assets: PortfolioAssetNode[];
 }
 
+interface AssetGroup {
+  asset_name: string;
+  assets: PortfolioAssetNode[];
+}
+
 @Component({
   selector: 'app-portfolio',
   standalone: true,
@@ -39,8 +44,10 @@ export class PortfolioComponent implements OnInit, OnDestroy {
 
   selectedFamily = '';
   selectedAssetClass = '';
+  selectedAdvisor = '';
 
   expandedSubClass = '';
+  expandedAsset = '';
 
   loading = true;
   error = '';
@@ -137,6 +144,36 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     return Array.from(classes).sort((a, b) => a.localeCompare(b));
   }
 
+  get advisorOptions(): string[] {
+    const advisors = new Set<string>();
+
+    for (const family of this.families) {
+      if (this.selectedFamily && family.family_name !== this.selectedFamily) {
+        continue;
+      }
+
+      for (const portfolio of family.portfolios) {
+        for (const assetClass of portfolio.asset_classes) {
+          if (this.selectedAssetClass && assetClass.asset_class !== this.selectedAssetClass) {
+            continue;
+          }
+
+          for (const subClass of assetClass.sub_classes) {
+            for (const asset of subClass.assets) {
+              const advisor = asset.advisors?.trim();
+
+              if (advisor) {
+                advisors.add(advisor);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return Array.from(advisors).sort((a, b) => a.localeCompare(b));
+  }
+
   get filteredFamilies(): FamilyNode[] {
     if (!this.selectedFamily) {
       return this.families;
@@ -156,6 +193,18 @@ export class PortfolioComponent implements OnInit, OnDestroy {
           }
 
           for (const subClass of assetClass.sub_classes) {
+            const filteredAssets = subClass.assets.filter((asset) => {
+              if (!this.selectedAdvisor) {
+                return true;
+              }
+
+              return asset.advisors?.trim() === this.selectedAdvisor;
+            });
+
+            if (!filteredAssets.length) {
+              continue;
+            }
+
             const key = subClass.sub_class || 'Unassigned';
 
             let summary = summaryMap.get(key);
@@ -173,10 +222,10 @@ export class PortfolioComponent implements OnInit, OnDestroy {
               summaryMap.set(key, summary);
             }
 
-            summary.current_value += this.getSubClassCurrentValue(subClass);
-            summary.pnl += this.getSubClassPnl(subClass);
-            summary.quantity += this.getSubClassQuantity(subClass);
-            summary.assets.push(...subClass.assets);
+            summary.current_value += this.getAssetsCurrentValue(filteredAssets);
+            summary.pnl += this.getAssetsPnl(filteredAssets);
+            summary.quantity += this.getAssetsQuantity(filteredAssets);
+            summary.assets.push(...filteredAssets);
           }
         }
       }
@@ -194,32 +243,125 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     return this.subClassSummaries.find((summary) => summary.sub_class === subClass)?.assets ?? [];
   }
 
+  /**
+   * LEVEL 1:
+   * Sub Class expansion.
+   */
   toggleSubClass(subClass: string): void {
-    this.expandedSubClass = this.expandedSubClass === subClass ? '' : subClass;
+    if (this.expandedSubClass === subClass) {
+      this.expandedSubClass = '';
+      this.expandedAsset = '';
+      return;
+    }
+
+    this.expandedSubClass = subClass;
+    this.expandedAsset = '';
+  }
+
+  /**
+   * Returns the Asset Name groups displayed under a Sub Class.
+   *
+   * Multiple backend rows having the same asset_name are grouped
+   * together at Level 2.
+   */
+  getAssetGroups(assets: PortfolioAssetNode[]): AssetGroup[] {
+    const groups = new Map<string, PortfolioAssetNode[]>();
+
+    for (const asset of assets) {
+      const assetName = asset.asset_name?.trim() || 'Unnamed Asset';
+
+      if (!groups.has(assetName)) {
+        groups.set(assetName, []);
+      }
+
+      groups.get(assetName)!.push(asset);
+    }
+
+    return Array.from(groups.entries())
+      .map(([asset_name, groupedAssets]) => ({
+        asset_name,
+        assets: groupedAssets,
+      }))
+      .sort((a, b) => a.asset_name.localeCompare(b.asset_name));
+  }
+
+  /**
+   * LEVEL 2:
+   * Asset Name expansion.
+   *
+   * This opens the FINAL Underlying/details section.
+   */
+  toggleAsset(assetKey: string): void {
+    this.expandedAsset = this.expandedAsset === assetKey ? '' : assetKey;
+  }
+
+  /**
+   * Stable key for an Asset Name group.
+   */
+  getAssetKey(subClass: string, assetName: string): string {
+    return `${subClass}::${assetName}`;
+  }
+
+  /**
+   * FINAL LEVEL:
+   * Underlying name.
+   *
+   * If Underlying is empty/null, Asset Name itself is used.
+   */
+  getUnderlyingName(asset: PortfolioAssetNode): string {
+    return asset.underlying?.trim() || asset.asset_name;
+  }
+
+  /**
+   * Existing invested_value is used directly.
+   */
+  getUnderlyingInvested(asset: PortfolioAssetNode): number {
+    return this.toNumber(asset.invested_value);
   }
 
   selectFamily(family: string): void {
     this.selectedFamily = this.selectedFamily === family ? '' : family;
 
     this.selectedAssetClass = '';
+    this.selectedAdvisor = '';
     this.expandedSubClass = '';
+    this.expandedAsset = '';
   }
 
   selectAssetClass(assetClass: string): void {
     this.selectedAssetClass = this.selectedAssetClass === assetClass ? '' : assetClass;
 
+    this.selectedAdvisor = '';
     this.expandedSubClass = '';
+    this.expandedAsset = '';
+  }
+
+  selectAdvisor(advisor: string): void {
+    this.selectedAdvisor = this.selectedAdvisor === advisor ? '' : advisor;
+
+    this.expandedSubClass = '';
+    this.expandedAsset = '';
   }
 
   clearFamily(): void {
     this.selectedFamily = '';
     this.selectedAssetClass = '';
+    this.selectedAdvisor = '';
     this.expandedSubClass = '';
+    this.expandedAsset = '';
   }
 
   clearAssetClass(): void {
     this.selectedAssetClass = '';
+    this.selectedAdvisor = '';
     this.expandedSubClass = '';
+    this.expandedAsset = '';
+  }
+
+  clearAdvisor(): void {
+    this.selectedAdvisor = '';
+    this.expandedSubClass = '';
+    this.expandedAsset = '';
   }
 
   isFamilySelected(family: string): boolean {
@@ -229,6 +371,36 @@ export class PortfolioComponent implements OnInit, OnDestroy {
   isAssetClassSelected(assetClass: string): boolean {
     return this.selectedAssetClass === assetClass;
   }
+
+  isAdvisorSelected(advisor: string): boolean {
+    return this.selectedAdvisor === advisor;
+  }
+
+  /**
+   * trackBy functions.
+   *
+   * subClassSummaries / getAssetGroups() are derived from getters
+   * that rebuild new array/object instances on every change
+   * detection cycle (including the one triggered by clicking
+   * "Edit" itself, and the 30s auto-refresh timer). Without a
+   * stable trackBy, Angular's default identity check sees "new"
+   * items every cycle and destroys/recreates the row DOM - which
+   * is what makes the manual-price Edit button appear unresponsive.
+   * These trackBy functions key rows by a stable value so Angular
+   * reuses the existing DOM instead of tearing it down.
+   */
+  trackBySubClass(_index: number, summary: SubClassSummary): string {
+    return summary.sub_class;
+  }
+
+  trackByAssetGroup(_index: number, group: AssetGroup): string {
+    return group.asset_name;
+  }
+
+  trackByAssetId(_index: number, asset: PortfolioAssetNode): number {
+    return asset.id;
+  }
+
   onManualPriceEdit(event: MouseEvent, asset: PortfolioAssetNode): void {
     event.preventDefault();
     event.stopPropagation();
@@ -237,6 +409,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
 
     this.startEditingPrice(asset);
   }
+
   /**
    * Start editing an asset's current price.
    */
@@ -291,6 +464,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
 
         if (!response.success) {
           this.manualPriceErrors[asset.id] = response.message || 'Unable to update price.';
+
           this.cdr.detectChanges();
           return;
         }
@@ -306,7 +480,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
          * P&L %
          * XIRR
          *
-         * are all recalculated from the new price by the backend.
+         * are recalculated from the updated price.
          */
         this.loadPortfolio(true);
       },
@@ -330,6 +504,13 @@ export class PortfolioComponent implements OnInit, OnDestroy {
   isEditingPrice(asset: PortfolioAssetNode): boolean {
     return this.editingAssetId === asset.id;
   }
+  /**
+   * Check whether an asset's current price was manually entered
+   * (as opposed to fetched from Yahoo Finance / AMFI).
+   */
+  isManualPrice(asset: PortfolioAssetNode): boolean {
+    return asset.price_source === 'MANUAL';
+  }
 
   /**
    * Check whether an asset price is currently being saved.
@@ -345,10 +526,6 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     return this.manualPriceErrors[asset.id] || '';
   }
 
-  /**
-   * Returns the absolute value without exposing Math
-   * directly to the Angular template.
-   */
   formatAbsoluteCurrency(value: number): string {
     return this.formatCurrency(Math.abs(this.toNumber(value)));
   }
@@ -393,12 +570,6 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     return 'neutral';
   }
 
-  /**
-   * Price date support.
-   *
-   * These methods safely support the current PortfolioAssetNode
-   * even if the backend has not yet exposed a price date.
-   */
   hasPriceDate(asset: PortfolioAssetNode): boolean {
     return !!this.getPriceDate(asset);
   }
@@ -430,16 +601,28 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     }).format(parsedDate);
   }
 
+  private getAssetsCurrentValue(assets: PortfolioAssetNode[]): number {
+    return assets.reduce((total, asset) => total + this.toNumber(asset.current_value), 0);
+  }
+
+  private getAssetsPnl(assets: PortfolioAssetNode[]): number {
+    return assets.reduce((total, asset) => total + this.toNumber(asset.pnl), 0);
+  }
+
+  private getAssetsQuantity(assets: PortfolioAssetNode[]): number {
+    return assets.reduce((total, asset) => total + this.toNumber(asset.quantity), 0);
+  }
+
   private getSubClassCurrentValue(subClass: SubClassNode): number {
-    return subClass.assets.reduce((total, asset) => total + this.toNumber(asset.current_value), 0);
+    return this.getAssetsCurrentValue(subClass.assets);
   }
 
   private getSubClassPnl(subClass: SubClassNode): number {
-    return subClass.assets.reduce((total, asset) => total + this.toNumber(asset.pnl), 0);
+    return this.getAssetsPnl(subClass.assets);
   }
 
   private getSubClassQuantity(subClass: SubClassNode): number {
-    return subClass.assets.reduce((total, asset) => total + this.toNumber(asset.quantity), 0);
+    return this.getAssetsQuantity(subClass.assets);
   }
 
   private calculateXirr(assets: PortfolioAssetNode[]): number | null {
@@ -486,11 +669,16 @@ export class PortfolioComponent implements OnInit, OnDestroy {
       this.selectedAssetClass = '';
     }
 
+    if (this.selectedAdvisor && !this.advisorOptions.includes(this.selectedAdvisor)) {
+      this.selectedAdvisor = '';
+    }
+
     if (
       this.expandedSubClass &&
       !this.subClassSummaries.some((summary) => summary.sub_class === this.expandedSubClass)
     ) {
       this.expandedSubClass = '';
+      this.expandedAsset = '';
     }
   }
 }
