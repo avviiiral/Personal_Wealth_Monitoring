@@ -162,19 +162,25 @@ class AMFIService:
         1 = ISIN Div Payout / ISIN Growth
         2 = ISIN Div Reinvestment
         3 = Scheme Name
-        4 = NAV
-        5 = Date
+        4 = Plan
+        5 = Option
+        6 = NAV
+        7 = Date
+
+        AMFI added the Plan/Option columns to this feed
+        after this parser was originally written, which
+        shifted NAV and Date two columns to the right.
         """
 
-        if len(parts) < 6:
+        if len(parts) < 8:
             return None
 
         scheme_code = parts[0]
         isin_first = parts[1]
         isin_second = parts[2]
         scheme_name = parts[3]
-        nav_text = parts[4]
-        date_text = parts[5]
+        nav_text = parts[6]
+        date_text = parts[7]
 
         if not scheme_code.isdigit():
             return None
