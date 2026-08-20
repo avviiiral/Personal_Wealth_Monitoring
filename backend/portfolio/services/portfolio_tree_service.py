@@ -274,6 +274,10 @@ class PortfolioTreeService:
 
         return {
             "id": asset.id,
+            
+            "family_name": cls._clean(
+                first.family_name
+            ),
 
             "asset_name": asset_name,
 

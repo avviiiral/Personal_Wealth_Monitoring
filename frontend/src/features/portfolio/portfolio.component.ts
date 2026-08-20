@@ -376,6 +376,31 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     return this.selectedAdvisor === advisor;
   }
 
+  /**
+   * trackBy functions.
+   *
+   * subClassSummaries / getAssetGroups() are derived from getters
+   * that rebuild new array/object instances on every change
+   * detection cycle (including the one triggered by clicking
+   * "Edit" itself, and the 30s auto-refresh timer). Without a
+   * stable trackBy, Angular's default identity check sees "new"
+   * items every cycle and destroys/recreates the row DOM - which
+   * is what makes the manual-price Edit button appear unresponsive.
+   * These trackBy functions key rows by a stable value so Angular
+   * reuses the existing DOM instead of tearing it down.
+   */
+  trackBySubClass(_index: number, summary: SubClassSummary): string {
+    return summary.sub_class;
+  }
+
+  trackByAssetGroup(_index: number, group: AssetGroup): string {
+    return group.asset_name;
+  }
+
+  trackByAssetId(_index: number, asset: PortfolioAssetNode): number {
+    return asset.id;
+  }
+
   onManualPriceEdit(event: MouseEvent, asset: PortfolioAssetNode): void {
     event.preventDefault();
     event.stopPropagation();

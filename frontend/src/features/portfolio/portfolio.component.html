@@ -119,7 +119,7 @@
           <!-- =====================================================
                LEVEL 1: SUB CLASS
                ===================================================== -->
-          <ng-container *ngFor="let summary of subClassSummaries">
+          <ng-container *ngFor="let summary of subClassSummaries; trackBy: trackBySubClass">
             <tr
               class="sub-class-row"
               [class.expanded]="expandedSubClass === summary.sub_class"
@@ -172,7 +172,12 @@
                   </div>
 
                   <div class="asset-groups">
-                    <ng-container *ngFor="let assetGroup of getAssetGroups(summary.assets)">
+                    <ng-container
+                      *ngFor="
+                        let assetGroup of getAssetGroups(summary.assets);
+                        trackBy: trackByAssetGroup
+                      "
+                    >
                       <!-- ASSET NAME IS CLICKABLE -->
                       <div class="asset-group">
                         <div
@@ -215,6 +220,8 @@
                                 <tr>
                                   <th>Underlying</th>
 
+                                  <th>Family</th>
+
                                   <th>ISIN</th>
 
                                   <th>Quantity</th>
@@ -232,12 +239,19 @@
                               </thead>
 
                               <tbody>
-                                <tr *ngFor="let asset of assetGroup.assets" class="underlying-row">
+                                <tr
+                                  *ngFor="let asset of assetGroup.assets; trackBy: trackByAssetId"
+                                  class="underlying-row"
+                                >
                                   <!-- FINAL NAME
                                        NO CLICK
                                        NO ARROW -->
                                   <td class="asset-name final-underlying">
                                     {{ getUnderlyingName(asset) }}
+                                  </td>
+
+                                  <td class="family-name">
+                                    {{ asset.family_name || '-' }}
                                   </td>
 
                                   <td class="isin">
