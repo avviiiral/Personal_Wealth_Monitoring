@@ -7,6 +7,7 @@ from django.db.models import Sum
 
 from investments.models import (
     Asset,
+    AssetCategory,
     Holding,
     Transaction,
 )
@@ -429,6 +430,9 @@ def portfolio_holdings(request):
         .filter(
             owner=request.user,
             asset__is_active=True,
+        )
+        .exclude(
+            asset__category=AssetCategory.MUTUAL_FUND,
         )
         .select_related("asset")
         .order_by("-current_value")
