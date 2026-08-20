@@ -55,7 +55,7 @@
       <!-- P&L -->
 
       <div class="summary-card">
-        <span class="label"> Unrealized P&amp;L </span>
+        <span class="label"> Unrealized Gain </span>
 
         <strong [class.positive]="totalPnl >= 0" [class.negative]="totalPnl < 0">
           {{ totalPnl | currency: 'INR' : 'symbol' : '1.0-0' }}
@@ -119,7 +119,7 @@
 
               <th>Current Value</th>
 
-              <th>P&amp;L</th>
+              <th>Gain</th>
 
               <th>Return</th>
             </tr>

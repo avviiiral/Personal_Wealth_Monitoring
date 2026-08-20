@@ -37,6 +37,11 @@ class HoldingSerializer(
         read_only=True,
     )
 
+    asset_category_display = serializers.CharField(
+        source="asset.get_category_display",
+        read_only=True,
+    )
+
     isin = serializers.CharField(
         source="asset.isin",
         read_only=True,
@@ -56,6 +61,8 @@ class HoldingSerializer(
         serializers.SerializerMethodField()
     )
 
+    pnl_percentage = serializers.SerializerMethodField()
+
     class Meta:
         model = Holding
 
@@ -63,6 +70,7 @@ class HoldingSerializer(
             "id",
             "asset",
             "asset_name",
+            "asset_category_display",
             "isin",
             "quantity",
             "average_cost",
@@ -70,6 +78,7 @@ class HoldingSerializer(
             "current_price",
             "current_value",
             "unrealized_pnl",
+            "pnl_percentage",
             "updated_at",
 
             # Manual/effective price metadata
@@ -85,6 +94,7 @@ class HoldingSerializer(
             "invested_value",
             "current_value",
             "unrealized_pnl",
+            "pnl_percentage",
             "updated_at",
             "price_source",
             "price_updated_date",
@@ -202,6 +212,22 @@ class HoldingSerializer(
         )
 
         return automatic is None
+
+    def get_pnl_percentage(
+        self,
+        obj,
+    ):
+        if not obj.invested_value:
+            return 0
+
+        return round(
+            float(
+                obj.unrealized_pnl
+                / obj.invested_value
+                * 100
+            ),
+            2,
+        )
 
 
 class TransactionSerializer(
