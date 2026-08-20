@@ -111,6 +111,8 @@ export interface PortfolioAssetNode {
 
   sector: string | null;
   cap_type: string | null;
+
+  price_source: string | null;
 }
 
 export interface SubClassNode {

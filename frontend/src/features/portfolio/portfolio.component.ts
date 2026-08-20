@@ -504,6 +504,13 @@ export class PortfolioComponent implements OnInit, OnDestroy {
   isEditingPrice(asset: PortfolioAssetNode): boolean {
     return this.editingAssetId === asset.id;
   }
+  /**
+   * Check whether an asset's current price was manually entered
+   * (as opposed to fetched from Yahoo Finance / AMFI).
+   */
+  isManualPrice(asset: PortfolioAssetNode): boolean {
+    return asset.price_source === 'MANUAL';
+  }
 
   /**
    * Check whether an asset price is currently being saved.

@@ -265,7 +265,10 @@
                                   <td>₹{{ formatCurrency(getUnderlyingInvested(asset)) }}</td>
 
                                   <!-- CURRENT PRICE / NAV -->
-                                  <td class="price-cell">
+                                  <td
+                                    class="price-cell"
+                                    [class.manual-price-cell]="isManualPrice(asset)"
+                                  >
                                     <!-- NORMAL DISPLAY -->
                                     <ng-container *ngIf="!isEditingPrice(asset)">
                                       <div class="current-price">
