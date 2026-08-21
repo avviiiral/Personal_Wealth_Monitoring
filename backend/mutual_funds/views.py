@@ -138,7 +138,7 @@ def mutual_fund_transaction_create(request):
     )
 
     MutualFundHoldingEngine.rebuild_holding(
-        transaction_record.scheme
+        transaction_record.scheme  # pyright: ignore[reportAttributeAccessIssue]
     )
 
     return Response(
@@ -373,7 +373,7 @@ def sip_due(request):
     for installment in installments:
 
         results.append({
-            "id": installment.id,
+            "id": installment.id,  # pyright: ignore[reportAttributeAccessIssue]
 
             "sip_id": (
                 installment.sip.id
@@ -561,7 +561,7 @@ def sip_installment_execute(
 
             "transaction": {
                 "id": (
-                    transaction_record.id
+                    transaction_record.id  # pyright: ignore[reportAttributeAccessIssue]
                 ),
 
                 "transaction_date": (

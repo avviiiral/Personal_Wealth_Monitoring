@@ -196,8 +196,12 @@ class SecurityResolver:
         """
         Load Security Master Excel once per process.
 
-        The workbook is optional. If it is missing or unreadable,
-        the resolver continues using its existing mappings.
+        If the workbook does not exist yet, it is generated
+        automatically from transactions.xlsx before loading.
+
+        The workbook remains optional: if generation or loading
+        fails, the resolver continues using its existing hard-coded
+        mappings.
         """
 
         if cls._security_master_loaded:
@@ -206,6 +210,9 @@ class SecurityResolver:
         cls._security_master_loaded = True
 
         path = cls._security_master_path()
+
+        if path is None:
+            path = cls._generate_security_master()
 
         if path is None:
             return
@@ -220,6 +227,10 @@ class SecurityResolver:
             )
 
             worksheet = workbook.active
+
+            if worksheet is None:
+                workbook.close()
+                return
 
             headers = next(
                 worksheet.iter_rows(
@@ -297,12 +308,67 @@ class SecurityResolver:
 
             workbook.close()
 
-        except Exception:
+            print(
+                "[SECURITY MASTER] Loaded "
+                f"{len(cls._security_master_isin)} ISIN mappings "
+                f"and {len(cls._security_master_name)} name "
+                "mappings from "
+                f"{path}"
+            )
+
+        except Exception as exc:
             # Security Master must not break the existing price
             # resolution system if the Excel file is unavailable,
             # malformed, or openpyxl is not installed.
+            print(
+                "[SECURITY MASTER] Failed to load "
+                f"{path}: {exc}. Falling back to built-in "
+                "mappings."
+            )
+
             cls._security_master_isin = {}
             cls._security_master_name = {}
+
+    @classmethod
+    def _generate_security_master(cls):
+        """
+        Auto-generate security_master.xlsx from transactions.xlsx
+        when it is missing on disk.
+
+        Returns the generated file's path, or None if generation
+        was not possible (e.g. transactions.xlsx is also missing,
+        or a network call to NSE/Yahoo Finance failed).
+        """
+
+        try:
+            from market_data.services.security_master_generator import (
+                SecurityMasterGenerator,
+            )
+
+            print(
+                "[SECURITY MASTER] security_master.xlsx not found. "
+                "Generating it from transactions.xlsx..."
+            )
+
+            result = SecurityMasterGenerator.generate()
+
+            print(
+                "[SECURITY MASTER] Generated "
+                f"{result['total']} securities "
+                f"(resolved={result['resolved']}, "
+                f"unresolved={result['unresolved']}, "
+                f"non_yahoo={result['non_yahoo']})."
+            )
+
+            return cls._security_master_path()
+
+        except Exception as exc:
+            print(
+                "[SECURITY MASTER] Auto-generation failed: "
+                f"{exc}. Falling back to built-in mappings."
+            )
+
+            return None
 
     @classmethod
     def reload_security_master(cls):
