@@ -18,6 +18,7 @@ A full-stack personal wealth and investment tracking platform for centralized mo
 - [API Reference](#api-reference)
 - [Installation on a New Computer](#installation-on-a-new-computer)
 - [Transaction File Requirement (transactions.xlsx)](#transaction-file-requirement-transactionsxlsx)
+  - [Disaster recovery (accidentally deleted db.sqlite3)](#disaster-recovery-accidentally-deleted-dbsqlite3)
 - [Environment Variables](#environment-variables)
 - [Running the App](#running-the-app)
 - [Useful Management Commands](#useful-management-commands)
@@ -476,6 +477,27 @@ The importer uses `Summary` to resolve which portfolio each transaction belongs 
 - Duplicate rows (identical values across all columns) are detected and skipped automatically, so the file can safely be re-synced after adding new rows without duplicating existing transactions.
 - Only `.xlsx` is accepted for this file (a separate `.csv` path exists in the importer but is not wired up to the `portfolio/tree/` sync flow).
 - If you don't have real transaction data yet, create a workbook with just the two correctly-named, correctly-headered empty sheets — the sync will succeed with zero rows imported, and `portfolio/tree/` will return an empty tree instead of a 500.
+
+### Disaster recovery (accidentally deleted `db.sqlite3`)
+
+Because `backend/data/transactions.xlsx` is the source of truth that `portfolio/tree/` syncs from on every request, losing `db.sqlite3` is recoverable as long as `transactions.xlsx` still exists:
+
+1. Recreate the schema: `python manage.py migrate` (empty DB, correct tables).
+2. Recreate your login: `python manage.py createsuperuser`.
+3. Repopulate Assets, Mutual Fund Schemes, and Transactions from the Excel file. Either:
+   - hit `GET /api/portfolio/tree/` once (the sync runs automatically on that endpoint), or
+   - trigger it manually via `python manage.py shell`:
+     ```python
+     from investments.services.file_transaction_sync import FileTransactionSyncService
+     from django.contrib.auth import get_user_model
+     owner = get_user_model().objects.get(username="<your-username>")
+     FileTransactionSyncService.sync(owner)
+     ```
+4. Market/NAV data (prices, history) is **not** recoverable this way — it will repopulate over time as the price scheduler runs, or immediately via `python manage.py update_market_prices --user-id <USER_ID>` / `python manage.py fetch_amfi_nav --user-id <USER_ID>`.
+
+If `transactions.xlsx` itself is also lost, this recovery path doesn't apply — fall back to OS-level file recovery (Recycle Bin, editor local history, File History/OneDrive, or a tool like Recuva) for `db.sqlite3` and/or `transactions.xlsx`, or re-enter data manually.
+
+**Takeaway:** since `transactions.xlsx` is the effective backup for all portfolio data, treat it as such — keep a copy outside `backend/data/` (a separate drive, cloud storage, etc.) so a single accidental deletion in that folder can't take out both the database and its only recovery source at once.
 
 ## Environment Variables
 
