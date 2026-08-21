@@ -146,27 +146,36 @@
               <th>Asset Class</th>
               <th class="align-right">Current Value</th>
               <th class="align-right">% of Total Investment</th>
+              <th class="arrow-column"></th>
             </tr>
           </thead>
 
           <tbody>
-            <ng-container *ngFor="let row of investmentSummaryRows">
-              <tr>
-                <td
-                  *ngIf="row.isFirstInCategory"
-                  [attr.rowspan]="row.categoryRowSpan"
-                  class="category-cell"
-                >
-                  {{ row.asset_category }}
-                </td>
+            <tr
+              *ngFor="let row of investmentSummaryRows; trackBy: trackByAssetClass"
+              class="asset-class-row"
+              [class.clickable]="row.raw_asset_classes.length > 0"
+              [title]="row.raw_asset_classes.length > 0 ? 'View in Portfolio' : ''"
+              (click)="goToPortfolio(row)"
+            >
+              <td
+                *ngIf="row.isFirstInCategory"
+                [attr.rowspan]="row.categoryRowSpan"
+                class="category-cell"
+              >
+                {{ row.asset_category }}
+              </td>
 
-                <td>{{ row.asset_class }}</td>
+              <td>{{ row.asset_class }}</td>
 
-                <td class="align-right">{{ formatCurrency(row.current_value) }}</td>
+              <td class="align-right">{{ formatCurrency(row.current_value) }}</td>
 
-                <td class="align-right">{{ formatPercentage(row.percentage_of_total) }}</td>
-              </tr>
-            </ng-container>
+              <td class="align-right">{{ formatPercentage(row.percentage_of_total) }}</td>
+
+              <td class="arrow-column">
+                <span *ngIf="row.raw_asset_classes.length > 0" class="row-arrow">›</span>
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>

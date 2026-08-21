@@ -10,6 +10,7 @@ import {
 } from '@angular/core';
 
 import { CommonModule } from '@angular/common';
+import { Router } from '@angular/router';
 
 import { Chart, ChartConfiguration, registerables } from 'chart.js';
 
@@ -27,6 +28,7 @@ Chart.register(...registerables);
 export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   private readonly wealthApi = inject(WealthApiService);
   private readonly cdr = inject(ChangeDetectorRef);
+  private readonly router = inject(Router);
 
   @ViewChild('wealthChart')
   wealthChartRef?: ElementRef<HTMLCanvasElement>;
@@ -38,7 +40,6 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   error = '';
 
   summary: any = null;
-  allocation: any = null;
   xirr: any = null;
   historical: any = null;
   investmentSummary: any = null;
@@ -96,26 +97,6 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       },
     });
 
-    // ALLOCATION
-    this.wealthApi.getAllocation().subscribe({
-      next: (data) => {
-        console.log('ALLOCATION RESPONSE:', data);
-
-        this.allocation = data;
-
-        this.cdr.markForCheck();
-
-        setTimeout(() => {
-          this.renderAllocationChart();
-          this.cdr.markForCheck();
-        });
-      },
-
-      error: (error) => {
-        console.error('ALLOCATION API ERROR:', error);
-      },
-    });
-
     // XIRR
     this.wealthApi.getXirr().subscribe({
       next: (data) => {
@@ -142,6 +123,11 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
         this.investmentSummary = data;
 
         this.cdr.markForCheck();
+
+        setTimeout(() => {
+          this.renderAllocationChart();
+          this.cdr.markForCheck();
+        });
       },
 
       error: (error) => {
@@ -301,18 +287,18 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
     this.allocationChart?.destroy();
 
-    const results = this.allocation?.results ?? [];
+    const results = this.allocationByCategory;
 
     if (!results.length) {
       console.warn('No allocation data available.');
       return;
     }
 
-    const labels = results.map((item: any) => this.formatCategory(item.category));
+    const labels = results.map((item) => item.category);
 
-    const values = results.map((item: any) => this.toNumber(item.value));
+    const values = results.map((item) => item.value);
 
-    const percentages = results.map((item: any) => this.toNumber(item.percentage));
+    const percentages = results.map((item) => item.percentage);
 
     const config: ChartConfiguration<'doughnut'> = {
       type: 'doughnut',
@@ -405,9 +391,59 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /**
+   * Groups the Investment Summary rows by Asset Category, summing
+   * current value and % of total, so the Allocation chart shows the
+   * exact same categorization and totals as the Investment Summary
+   * table below it — one source of truth for both.
+   */
+  get allocationByCategory(): Array<{
+    category: string;
+    value: number;
+    percentage: number;
+  }> {
+    const results = this.investmentSummary?.results ?? [];
+
+    const order: string[] = [];
+    const totals = new Map<string, { value: number; percentage: number }>();
+
+    for (const row of results) {
+      const category = row.asset_category;
+
+      if (!totals.has(category)) {
+        totals.set(category, { value: 0, percentage: 0 });
+        order.push(category);
+      }
+
+      const entry = totals.get(category)!;
+
+      entry.value += this.toNumber(row.current_value);
+      entry.percentage += this.toNumber(row.percentage_of_total);
+    }
+
+    return order
+      .map((category) => {
+        const entry = totals.get(category)!;
+
+        return {
+          category,
+          value: entry.value,
+          percentage: Math.round(entry.percentage * 100) / 100,
+        };
+      })
+      .filter((entry) => entry.value > 0);
+  }
+
+  /**
    * Groups the flat Investment Summary rows returned by the API by
    * Asset Category, so the template can render a rowspan-style
    * grouped table without repeating the category on every row.
+   *
+   * Each row keeps raw_asset_classes — the exact Sub Class label(s)
+   * as stored on the transaction/scheme — so a click can link
+   * straight to the matching row(s) on the Portfolio page. The
+   * canonical asset_class label shown here can differ from that raw
+   * value (e.g. "Commodity ETFs" is shown as "Commodity"), so the
+   * link must use the raw value, not the display label.
    */
   get investmentSummaryRows(): Array<{
     asset_category: string;
@@ -416,6 +452,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     percentage_of_total: number;
     isFirstInCategory: boolean;
     categoryRowSpan: number;
+    raw_asset_classes: string[];
   }> {
     const results = this.investmentSummary?.results ?? [];
 
@@ -426,6 +463,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       percentage_of_total: number;
       isFirstInCategory: boolean;
       categoryRowSpan: number;
+      raw_asset_classes: string[];
     }> = [];
 
     let index = 0;
@@ -449,6 +487,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
           percentage_of_total: this.toNumber(results[i].percentage_of_total),
           isFirstInCategory: i === index,
           categoryRowSpan,
+          raw_asset_classes: results[i].raw_asset_classes ?? [],
         });
       }
 
@@ -456,6 +495,25 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     }
 
     return rows;
+  }
+
+  /**
+   * Navigates to the Portfolio page and asks it to auto-expand the
+   * matching Sub Class row(s). Only meaningful for rows that actually
+   * have holdings behind them.
+   */
+  goToPortfolio(row: { raw_asset_classes: string[] }): void {
+    if (!row.raw_asset_classes.length) {
+      return;
+    }
+
+    this.router.navigate(['/portfolio'], {
+      queryParams: { subClass: row.raw_asset_classes },
+    });
+  }
+
+  trackByAssetClass(_index: number, row: { asset_class: string }): string {
+    return row.asset_class;
   }
 
   private formatAxisCurrency(value: number): string {
@@ -487,13 +545,5 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       day: '2-digit',
       month: 'short',
     });
-  }
-
-  private formatCategory(value: string): string {
-    if (!value) {
-      return 'Unknown';
-    }
-
-    return value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
   }
 }

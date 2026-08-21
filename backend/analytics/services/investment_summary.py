@@ -44,6 +44,13 @@ class InvestmentSummaryService:
     list) is never dropped — it is kept under Other / Unlisted and
     logged, so the Investment Summary total always equals the
     portfolio's total current value.
+
+    Each row also returns "raw_asset_classes" — the distinct raw
+    Excel Sub Class strings that were normalized into that row (e.g.
+    "Commodity ETFs" for the "Commodity" row). The Dashboard uses
+    these, not the canonical label, to link to the Portfolio page's
+    Sub Class table so the deep link always matches exactly instead
+    of guessing at the raw string from the display label.
     """
 
     ZERO = Decimal("0")
@@ -226,7 +233,7 @@ class InvestmentSummaryService:
     @staticmethod
     def _equity_asset_class_by_asset_id(user):
         """
-        Resolve every asset's Asset Class as the sub_class of its
+        Resolve every asset's raw Asset Class as the sub_class of its
         most recent transaction that has one set.
         """
 
@@ -268,6 +275,12 @@ class InvestmentSummaryService:
             for asset_class in asset_classes
         }
 
+        raw_values_by_asset_class = {
+            asset_class: set()
+            for _, asset_classes in cls.MASTER_MAPPING
+            for asset_class in asset_classes
+        }
+
         # ------------------------------------------------------------
         # EQUITY / OTHER INVESTMENT HOLDINGS
         # ------------------------------------------------------------
@@ -296,6 +309,11 @@ class InvestmentSummaryService:
 
             totals[asset_class] += value
 
+            if raw_class:
+                raw_values_by_asset_class[asset_class].add(
+                    raw_class
+                )
+
         # ------------------------------------------------------------
         # MUTUAL FUND HOLDINGS
         # ------------------------------------------------------------
@@ -321,6 +339,11 @@ class InvestmentSummaryService:
             )
 
             totals[asset_class] += value
+
+            if raw_class:
+                raw_values_by_asset_class[asset_class].add(
+                    raw_class
+                )
 
         total_current_value = sum(
             totals.values(),
@@ -349,6 +372,9 @@ class InvestmentSummaryService:
                     "percentage_of_total": round(
                         percentage,
                         2,
+                    ),
+                    "raw_asset_classes": sorted(
+                        raw_values_by_asset_class[asset_class]
                     ),
                 })
 

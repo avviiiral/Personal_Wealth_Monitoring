@@ -1,6 +1,6 @@
 from .services.investment_summary import InvestmentSummaryService
 
-
+from decimal import Decimal 
 class InvestmentSummaryServiceTests(TestCase):
     """
     Tests for the Dashboard Investment Summary
