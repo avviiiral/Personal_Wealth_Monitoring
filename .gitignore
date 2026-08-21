@@ -1,161 +1,273 @@
 # ============================================================
-# Python
+# PWMS - Git Ignore
 # ============================================================
 
+# ------------------------------------------------------------
+# Python
+# ------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
 *.pyo
+*.pyd
 
 # Python virtual environments
 venv/
 .venv/
 env/
-.env/
 ENV/
+env.bak/
+venv.bak/
 
-# Distribution / packaging
-build/
-dist/
+# Python packaging
+*.egg
 *.egg-info/
+dist/
+build/
 .eggs/
+pip-wheel-metadata/
+*.whl
 
-# Test / coverage
-.pytest_cache/
-.coverage
-.coverage.*
-htmlcov/
-.tox/
-.nox/
-
-# ============================================================
+# ------------------------------------------------------------
 # Django
-# ============================================================
-
+# ------------------------------------------------------------
 *.log
+*.sqlite3
+*.sqlite3-journal
 
-# Local SQLite database
-db.sqlite3
-db.sqlite3-journal
-
-# Django collected static/media files
+# Django generated files
 staticfiles/
+static_root/
 media/
+media_root/
 
-# ============================================================
-# Environment / secrets
-# ============================================================
+# Local Django settings
+local_settings.py
 
+# ------------------------------------------------------------
+# Environment / Secrets
+# ------------------------------------------------------------
 .env
 .env.*
 !.env.example
 
-# API keys / credentials
+*.secret
+secrets/
+secrets.json
+credentials.json
+service-account.json
+
+# API keys / certificates / private keys
 *.pem
 *.key
-credentials.json
-secrets.json
+*.p12
+*.pfx
 
-# ============================================================
-# IDE / Editors
-# ============================================================
-
-.vscode/
-.idea/
-
-# VS Code local history
-.history/
-
-# ============================================================
-# OS files
-# ============================================================
-
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# ============================================================
+# ------------------------------------------------------------
 # Node / Angular
-# ============================================================
-
+# ------------------------------------------------------------
 node_modules/
-.angular/
-dist/
+.npm/
+.npmrc
 
-# Angular cache
+# Angular build output
+dist/
+.angular/
 .angular/cache/
 
-# ============================================================
-# Temporary files
-# ============================================================
+# Angular temporary files
+.tmp/
+tmp/
 
-*.tmp
-*.temp
-*.swp
-*.swo
-*.bak
+# ------------------------------------------------------------
+# Frontend environment files
+# ------------------------------------------------------------
+frontend/src/environments/environment.local.ts
+frontend/src/environments/environment.*.local.ts
 
-# ============================================================
-# PWMS generated/local data
-# ============================================================
+# ------------------------------------------------------------
+# Testing / Coverage
+# ------------------------------------------------------------
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.tox/
+.nox/
+.cache/
+pytestdebug.log
+coverage.xml
+*.cover
 
-# Do not commit generated transaction files
-*.xlsx
-*.xls
-*.csv
+# ------------------------------------------------------------
+# Type checking / linters
+# ------------------------------------------------------------
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
 
-# Generated reports
-reports/
-exports/
+# ------------------------------------------------------------
+# Jupyter
+# ------------------------------------------------------------
+.ipynb_checkpoints/
 
-# ============================================================
-# Local AI / model files
-# ============================================================
-
-*.model
-*.weights
-*.onnx
-*.pt
-*.pth
-
-# ============================================================
-# Misc
-# ============================================================
-
-.DS_Store
-*.sqlite3
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-venv/
-.venv/
-env/
-.env
-*.log
-
-# Django
-db.sqlite3
-db.sqlite3-journal
-staticfiles/
-media/
-
-# Node / Angular
-frontend/node_modules/
-frontend/.angular/
-frontend/dist/
-frontend/out-tsc/
-
-# Angular cache
-.angular/
-
-# IDE
+# ------------------------------------------------------------
+# IDE / Editors
+# ------------------------------------------------------------
 .vscode/
 .idea/
+*.swp
+*.swo
+*.swn
+*.iml
 
-# OS
-.DS_Store
+# Visual Studio
+.vs/
+
+# ------------------------------------------------------------
+# Windows
+# ------------------------------------------------------------
 Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+
+# Windows installer / temporary
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+
+# ------------------------------------------------------------
+# macOS
+# ------------------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ------------------------------------------------------------
+# Linux
+# ------------------------------------------------------------
+*~
+.nfs*
+
+# ------------------------------------------------------------
+# Logs
+# ------------------------------------------------------------
+logs/
+*.log
+log/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ------------------------------------------------------------
+# Temporary files
+# ------------------------------------------------------------
+*.tmp
+*.temp
+*.bak
+*.backup
+*.old
+*.orig
+*.swp
+
+# ------------------------------------------------------------
+# Generated data
+# ------------------------------------------------------------
+*.csv
+*.xlsx
+*.xls
+*.jsonl
+
+# Ignore generated/output directories
+output/
+outputs/
+generated/
+exports/
+reports/
+
+# ------------------------------------------------------------
+# AI / ML generated files
+# ------------------------------------------------------------
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.bin
+*.ckpt
+*.h5
+*.keras
+
+models/
+checkpoints/
+weights/
+
+# ------------------------------------------------------------
+# Camera / Video files
+# ------------------------------------------------------------
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.mjpeg
+*.jpg
+*.jpeg
+*.png
+
+# Camera generated folders
+hls/
+streams/
+recordings/
+snapshots/
+
+# ------------------------------------------------------------
+# Redis / Celery
+# ------------------------------------------------------------
+celerybeat-schedule
+celerybeat.pid
+
+# ------------------------------------------------------------
+# Docker local files
+# ------------------------------------------------------------
+docker-compose.override.yml
+.docker/
+
+# ------------------------------------------------------------
+# Local development configuration
+# ------------------------------------------------------------
+*.local
+*.local.*
+config.local.*
+settings.local.*
+
+# ------------------------------------------------------------
+# Server / deployment generated files
+# ------------------------------------------------------------
+*.pid
+*.sock
+
+# ------------------------------------------------------------
+# Backup files
+# ------------------------------------------------------------
+*.tar
+*.tar.gz
+*.zip
+*.rar
+*.7z
+
+# ------------------------------------------------------------
+# Personal / temporary project files
+# ------------------------------------------------------------
+notes/
+scratch/
+temp/
+test_output/
+debug/

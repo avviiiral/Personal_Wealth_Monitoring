@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
 export interface AiChatResponse {
@@ -16,7 +16,34 @@ export class AiChatApiService {
 
   private readonly baseUrl = 'http://localhost:8000/api/ai';
 
+  // ======================================================
+  // CSRF
+  // ======================================================
+
+  private readCsrfToken(): string | null {
+    const cookies = document.cookie.split(';');
+
+    for (const cookie of cookies) {
+      const [name, ...valueParts] = cookie.trim().split('=');
+
+      if (name === 'csrftoken') {
+        return decodeURIComponent(valueParts.join('='));
+      }
+    }
+
+    return null;
+  }
+
   sendMessage(message: string): Observable<AiChatResponse> {
+    const csrfToken = this.readCsrfToken();
+
+    const headers = csrfToken
+      ? new HttpHeaders({
+          'X-CSRFToken': csrfToken,
+          'Content-Type': 'application/json',
+        })
+      : undefined;
+
     return this.http.post<AiChatResponse>(
       `${this.baseUrl}/chat/`,
       {
@@ -24,6 +51,7 @@ export class AiChatApiService {
       },
       {
         withCredentials: true,
+        headers,
       },
     );
   }

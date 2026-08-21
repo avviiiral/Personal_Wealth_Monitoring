@@ -18,34 +18,36 @@ from .services.portfolio_context import (
 )
 
 
-OPENAI_API_URL = "https://api.openai.com/v1/responses"
+GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
 
-def get_openai_api_key():
-    return os.getenv("OPENAI_API_KEY")
+def get_gemini_api_key():
+    # GEMINI_API_KEY is the primary name; GOOGLE_API_KEY is accepted too
+    # since that's what Google AI Studio sometimes calls it.
+    return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
 
-def get_openai_model():
+def get_gemini_model():
     return os.getenv(
-        "OPENAI_MODEL",
-        "gpt-5",
+        "GEMINI_MODEL",
+        "gemini-3.6-flash",
     )
 
 
 def extract_response_text(data):
-    output = data.get("output", [])
+    candidates = data.get("candidates", [])
 
     text_parts = []
 
-    for item in output:
-        content = item.get("content", [])
+    for candidate in candidates:
+        content = candidate.get("content", {})
+        parts = content.get("parts", [])
 
-        for content_item in content:
-            if content_item.get("type") == "output_text":
-                text = content_item.get("text", "")
+        for part in parts:
+            text = part.get("text", "")
 
-                if text:
-                    text_parts.append(text)
+            if text:
+                text_parts.append(text)
 
     return "\n".join(text_parts).strip()
 
@@ -87,13 +89,13 @@ def portfolio_chat(request):
             status=400,
         )
 
-    api_key = get_openai_api_key()
+    api_key = get_gemini_api_key()
 
     if not api_key:
         return Response(
             {
                 "error": (
-                    "OPENAI_API_KEY is not configured "
+                    "GEMINI_API_KEY is not configured "
                     "on the backend."
                 )
             },
@@ -190,9 +192,8 @@ IMPORTANT RULES:
 The user's current PWMS portfolio context follows.
 """
 
-    prompt = (
-        system_instructions
-        + "\n\nPORTFOLIO CONTEXT:\n"
+    user_content = (
+        "PORTFOLIO CONTEXT:\n"
         + json.dumps(
             portfolio_context,
             ensure_ascii=False,
@@ -203,19 +204,34 @@ The user's current PWMS portfolio context follows.
     )
 
     payload = {
-        "model": get_openai_model(),
+        "system_instruction": {
+            "parts": [
+                {"text": system_instructions}
+            ]
+        },
 
-        "input": prompt,
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    {"text": user_content}
+                ],
+            }
+        ],
     }
+
+    model = get_gemini_model()
+
+    gemini_url = (
+        f"{GEMINI_API_BASE}/{model}:generateContent"
+    )
 
     try:
         response = requests.post(
-            OPENAI_API_URL,
+            gemini_url,
 
             headers={
-                "Authorization": (
-                    f"Bearer {api_key}"
-                ),
+                "x-goog-api-key": api_key,
                 "Content-Type": "application/json",
             },
 
@@ -264,7 +280,7 @@ The user's current PWMS portfolio context follows.
         return Response(
             {
                 "error": (
-                    "OpenAI API request failed."
+                    "Gemini API request failed."
                 ),
                 "detail": error_data,
             },

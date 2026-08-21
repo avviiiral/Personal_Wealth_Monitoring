@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 
 import { AuthService } from '../../../core/services/auth.service';
+import { AiChatApiService } from '../../../core/services/ai-chat-api.service';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -19,6 +20,7 @@ interface ChatMessage {
 })
 export class HeaderComponent {
   private readonly authService = inject(AuthService);
+  private readonly aiChatApi = inject(AiChatApiService);
   private readonly router = inject(Router);
 
   profileMenuOpen = false;
@@ -162,22 +164,27 @@ export class HeaderComponent {
     this.chatMessage = '';
     this.chatLoading = true;
 
-    /*
-     * AI API will be connected here later.
-     *
-     * For now we only provide a temporary response so
-     * that the chatbot window can be tested without
-     * an API key.
-     */
+    this.aiChatApi.sendMessage(message).subscribe({
+      next: (response) => {
+        this.chatLoading = false;
 
-    setTimeout(() => {
-      this.chatMessages.push({
-        role: 'assistant',
-        text: 'AI chatbot is ready. The AI API connection will be added next.',
-      });
+        this.chatMessages.push({
+          role: 'assistant',
+          text: response.answer || response.error || 'The AI returned an empty response.',
+        });
+      },
 
-      this.chatLoading = false;
-    }, 500);
+      error: (error) => {
+        console.error('AI chat error:', error);
+
+        this.chatLoading = false;
+
+        this.chatMessages.push({
+          role: 'assistant',
+          text: error?.error?.error || 'Unable to reach the AI assistant.',
+        });
+      },
+    });
   }
 
   /*
