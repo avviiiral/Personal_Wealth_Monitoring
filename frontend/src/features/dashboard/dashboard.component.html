@@ -135,47 +135,110 @@
         class="investment-summary-table-wrapper"
         *ngIf="!investmentSummaryError && investmentSummary"
       >
-        <div class="empty-state" *ngIf="investmentSummaryRows.length === 0">
+        <div class="empty-state" *ngIf="investmentSummaryGroups.length === 0">
           No investment summary data available.
         </div>
 
-        <table class="investment-summary-table" *ngIf="investmentSummaryRows.length > 0">
+        <table class="investment-summary-table" *ngIf="investmentSummaryGroups.length > 0">
           <thead>
             <tr>
               <th>Asset Category</th>
-              <th>Asset Class</th>
+
               <th class="align-right">Current Value</th>
+
               <th class="align-right">% of Total Investment</th>
+
               <th class="arrow-column"></th>
             </tr>
           </thead>
 
           <tbody>
-            <tr
-              *ngFor="let row of investmentSummaryRows; trackBy: trackByAssetClass"
-              class="asset-class-row"
-              [class.clickable]="row.raw_asset_classes.length > 0"
-              [title]="row.raw_asset_classes.length > 0 ? 'View in Portfolio' : ''"
-              (click)="goToPortfolio(row)"
+            <!-- =====================================================
+                 LEVEL 1: ASSET CATEGORY
+                 ===================================================== -->
+            <ng-container
+              *ngFor="let group of investmentSummaryGroups; trackBy: trackByInvestmentCategory"
             >
-              <td
-                *ngIf="row.isFirstInCategory"
-                [attr.rowspan]="row.categoryRowSpan"
-                class="category-cell"
+              <tr
+                class="investment-category-row"
+                [class.expanded]="expandedInvestmentCategory === group.asset_category"
+                (click)="toggleInvestmentCategory(group.asset_category)"
               >
-                {{ row.asset_category }}
-              </td>
+                <td class="category-cell">
+                  <span
+                    class="row-chevron"
+                    [class.open]="expandedInvestmentCategory === group.asset_category"
+                  >
+                    ›
+                  </span>
 
-              <td>{{ row.asset_class }}</td>
+                  {{ group.asset_category }}
+                </td>
 
-              <td class="align-right">{{ formatCurrency(row.current_value) }}</td>
+                <td class="align-right">
+                  {{ formatCurrency(group.current_value) }}
+                </td>
 
-              <td class="align-right">{{ formatPercentage(row.percentage_of_total) }}</td>
+                <td class="align-right">
+                  {{ formatPercentage(group.percentage_of_total) }}
+                </td>
 
-              <td class="arrow-column">
-                <span *ngIf="row.raw_asset_classes.length > 0" class="row-arrow">›</span>
-              </td>
-            </tr>
+                <td class="arrow-column">
+                  <span
+                    class="row-chevron right"
+                    [class.open]="expandedInvestmentCategory === group.asset_category"
+                  >
+                    ›
+                  </span>
+                </td>
+              </tr>
+
+              <!-- =====================================================
+                   LEVEL 2: ASSET CLASS
+                   ===================================================== -->
+              <tr
+                *ngIf="expandedInvestmentCategory === group.asset_category"
+                class="asset-class-detail-row"
+              >
+                <td colspan="4">
+                  <div class="asset-class-detail-container">
+                    <table class="asset-class-table">
+                      <thead>
+                        <tr>
+                          <th>Asset Class</th>
+
+                          <th class="align-right">Current Value</th>
+
+                          <th class="align-right">% of Total Investment</th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        <tr
+                          *ngFor="
+                            let assetClass of group.asset_classes;
+                            trackBy: trackByInvestmentAssetClass
+                          "
+                          class="asset-class-detail-item"
+                        >
+                          <td>
+                            {{ assetClass.asset_class }}
+                          </td>
+
+                          <td class="align-right">
+                            {{ formatCurrency(assetClass.current_value) }}
+                          </td>
+
+                          <td class="align-right">
+                            {{ formatPercentage(assetClass.percentage_of_total) }}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </td>
+              </tr>
+            </ng-container>
           </tbody>
         </table>
       </div>

@@ -10,7 +10,6 @@ import {
 } from '@angular/core';
 
 import { CommonModule } from '@angular/common';
-import { Router } from '@angular/router';
 
 import { Chart, ChartConfiguration, registerables } from 'chart.js';
 
@@ -28,7 +27,6 @@ Chart.register(...registerables);
 export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   private readonly wealthApi = inject(WealthApiService);
   private readonly cdr = inject(ChangeDetectorRef);
-  private readonly router = inject(Router);
 
   @ViewChild('wealthChart')
   wealthChartRef?: ElementRef<HTMLCanvasElement>;
@@ -49,6 +47,12 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   private allocationChart?: Chart;
 
   private viewReady = false;
+
+  /*
+   * Currently expanded Asset Category in the
+   * Investment Summary table.
+   */
+  expandedInvestmentCategory = '';
 
   ngOnInit(): void {
     this.loadDashboard();
@@ -434,85 +438,112 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /**
-   * Groups the flat Investment Summary rows returned by the API by
-   * Asset Category, so the template can render a rowspan-style
-   * grouped table without repeating the category on every row.
+   * Groups the flat Investment Summary API rows by Asset Category.
    *
-   * Each row keeps raw_asset_classes — the exact Sub Class label(s)
-   * as stored on the transaction/scheme — so a click can link
-   * straight to the matching row(s) on the Portfolio page. The
-   * canonical asset_class label shown here can differ from that raw
-   * value (e.g. "Commodity ETFs" is shown as "Commodity"), so the
-   * link must use the raw value, not the display label.
+   * Level 1:
+   *   Asset Category
+   *
+   * Level 2:
+   *   Asset Class
+   *
+   * Clicking an Asset Category expands its Asset Classes directly
+   * inside the Dashboard. No Portfolio navigation is performed.
    */
-  get investmentSummaryRows(): Array<{
+  get investmentSummaryGroups(): Array<{
     asset_category: string;
-    asset_class: string;
     current_value: number;
     percentage_of_total: number;
-    isFirstInCategory: boolean;
-    categoryRowSpan: number;
-    raw_asset_classes: string[];
-  }> {
-    const results = this.investmentSummary?.results ?? [];
-
-    const rows: Array<{
-      asset_category: string;
+    asset_classes: Array<{
       asset_class: string;
       current_value: number;
       percentage_of_total: number;
-      isFirstInCategory: boolean;
-      categoryRowSpan: number;
-      raw_asset_classes: string[];
-    }> = [];
+    }>;
+  }> {
+    const results = this.investmentSummary?.results ?? [];
 
-    let index = 0;
+    const groups = new Map<
+      string,
+      {
+        asset_category: string;
+        current_value: number;
+        percentage_of_total: number;
+        asset_classes: Array<{
+          asset_class: string;
+          current_value: number;
+          percentage_of_total: number;
+        }>;
+      }
+    >();
 
-    while (index < results.length) {
-      const category = results[index].asset_category;
+    for (const row of results) {
+      const category = row.asset_category || 'Unassigned';
+      const assetClass = row.asset_class || 'Unassigned';
 
-      let end = index;
+      let group = groups.get(category);
 
-      while (end < results.length && results[end].asset_category === category) {
-        end++;
+      if (!group) {
+        group = {
+          asset_category: category,
+          current_value: 0,
+          percentage_of_total: 0,
+          asset_classes: [],
+        };
+
+        groups.set(category, group);
       }
 
-      const categoryRowSpan = end - index;
+      const currentValue = this.toNumber(row.current_value);
+      const percentage = this.toNumber(row.percentage_of_total);
 
-      for (let i = index; i < end; i++) {
-        rows.push({
-          asset_category: results[i].asset_category,
-          asset_class: results[i].asset_class,
-          current_value: this.toNumber(results[i].current_value),
-          percentage_of_total: this.toNumber(results[i].percentage_of_total),
-          isFirstInCategory: i === index,
-          categoryRowSpan,
-          raw_asset_classes: results[i].raw_asset_classes ?? [],
-        });
+      group.current_value += currentValue;
+      group.percentage_of_total += percentage;
+
+      let classRow = group.asset_classes.find((item) => item.asset_class === assetClass);
+
+      if (!classRow) {
+        classRow = {
+          asset_class: assetClass,
+          current_value: 0,
+          percentage_of_total: 0,
+        };
+
+        group.asset_classes.push(classRow);
       }
 
-      index = end;
+      classRow.current_value += currentValue;
+      classRow.percentage_of_total += percentage;
     }
 
-    return rows;
+    return Array.from(groups.values()).map((group) => ({
+      ...group,
+
+      percentage_of_total: Math.round(group.percentage_of_total * 100) / 100,
+
+      asset_classes: group.asset_classes.map((assetClass) => ({
+        ...assetClass,
+
+        percentage_of_total: Math.round(assetClass.percentage_of_total * 100) / 100,
+      })),
+    }));
   }
 
   /**
-   * Navigates to the Portfolio page and asks it to auto-expand the
-   * matching Sub Class row(s). Only meaningful for rows that actually
-   * have holdings behind them.
+   * Expand / collapse an Asset Category in Investment Summary.
    */
-  goToPortfolio(row: { raw_asset_classes: string[] }): void {
-    if (!row.raw_asset_classes.length) {
+  toggleInvestmentCategory(category: string): void {
+    if (this.expandedInvestmentCategory === category) {
+      this.expandedInvestmentCategory = '';
       return;
     }
 
-    this.router.navigate(['/portfolio'], {
-      queryParams: { subClass: row.raw_asset_classes },
-    });
+    this.expandedInvestmentCategory = category;
   }
 
-  trackByAssetClass(_index: number, row: { asset_class: string }): string {
+  trackByInvestmentCategory(_index: number, group: { asset_category: string }): string {
+    return group.asset_category;
+  }
+
+  trackByInvestmentAssetClass(_index: number, row: { asset_class: string }): string {
     return row.asset_class;
   }
 
