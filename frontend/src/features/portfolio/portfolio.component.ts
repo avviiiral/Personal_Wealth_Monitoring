@@ -15,6 +15,7 @@ import { ManualPriceService } from '../../core/services/manual-price.service';
 interface SubClassSummary {
   sub_class: string;
   current_value: number;
+  invested_value: number;
   pnl: number;
   quantity: number;
   xirr: number | null;
@@ -213,6 +214,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
               summary = {
                 sub_class: key,
                 current_value: 0,
+                invested_value: 0,
                 pnl: 0,
                 quantity: 0,
                 xirr: null,
@@ -223,6 +225,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
             }
 
             summary.current_value += this.getAssetsCurrentValue(filteredAssets);
+            summary.invested_value += this.getAssetsInvestedValue(filteredAssets);
             summary.pnl += this.getAssetsPnl(filteredAssets);
             summary.quantity += this.getAssetsQuantity(filteredAssets);
             summary.assets.push(...filteredAssets);
@@ -603,6 +606,10 @@ export class PortfolioComponent implements OnInit, OnDestroy {
 
   private getAssetsCurrentValue(assets: PortfolioAssetNode[]): number {
     return assets.reduce((total, asset) => total + this.toNumber(asset.current_value), 0);
+  }
+
+  private getAssetsInvestedValue(assets: PortfolioAssetNode[]): number {
+    return assets.reduce((total, asset) => total + this.toNumber(asset.invested_value), 0);
   }
 
   private getAssetsPnl(assets: PortfolioAssetNode[]): number {

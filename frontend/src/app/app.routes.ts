@@ -5,6 +5,7 @@ import { ShellComponent } from './layout/shell/shell.component';
 import { DashboardComponent } from '../features/dashboard/dashboard.component';
 import { LoginComponent } from '../features/login/login.component';
 import { PortfolioComponent } from '../features/portfolio/portfolio.component';
+import { ReportsComponent } from '../features/reports/reports.component';
 
 import { AnalyticsComponent } from '../features/analytics/analytics.component';
 import { SettingsComponent } from '../features/settings/settings.component';
@@ -49,6 +50,11 @@ export const routes: Routes = [
       {
         path: 'portfolio',
         component: PortfolioComponent,
+      },
+
+      {
+        path: 'reports',
+        component: ReportsComponent,
       },
 
       {

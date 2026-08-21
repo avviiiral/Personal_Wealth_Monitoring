@@ -105,6 +105,8 @@
 
             <th>Quantity</th>
 
+            <th>Invested Value</th>
+
             <th>Current Value</th>
 
             <th>Gain</th>
@@ -137,6 +139,8 @@
                 {{ formatNumber(summary.quantity) }}
               </td>
 
+              <td>₹{{ formatCurrency(summary.invested_value) }}</td>
+
               <td>₹{{ formatCurrency(summary.current_value) }}</td>
 
               <td class="pnl-cell" [ngClass]="getPnlClass(summary.pnl)">
@@ -164,7 +168,7 @@
                  LEVEL 2: ASSET NAME
                  ================================================= -->
             <tr *ngIf="expandedSubClass === summary.sub_class" class="asset-detail-row">
-              <td colspan="6">
+              <td colspan="7">
                 <div class="asset-detail-container">
                   <div class="asset-detail-title">
                     {{ summary.sub_class }}
@@ -376,7 +380,7 @@
           </ng-container>
 
           <tr *ngIf="subClassSummaries.length === 0">
-            <td colspan="6" class="empty-table">No portfolio data available.</td>
+            <td colspan="7" class="empty-table">No portfolio data available.</td>
           </tr>
         </tbody>
       </table>
