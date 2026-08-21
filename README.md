@@ -17,6 +17,7 @@ A full-stack personal wealth and investment tracking platform for centralized mo
 - [Core Workflows](#core-workflows)
 - [API Reference](#api-reference)
 - [Installation on a New Computer](#installation-on-a-new-computer)
+- [Transaction File Requirement (transactions.xlsx)](#transaction-file-requirement-transactionsxlsx)
 - [Environment Variables](#environment-variables)
 - [Running the App](#running-the-app)
 - [Useful Management Commands](#useful-management-commands)
@@ -133,7 +134,10 @@ Personal_Wealth_Monitoring/
 │       ├── features/           login, dashboard, portfolio, holdings,
 │       │                       mutual-funds, sips, analytics, settings
 │       └── shared/
-├── data/                       sample transaction data for import testing
+├── backend/data/
+│   ├── security_master.xlsx    committed reference data (ISIN/security lookup)
+│   └── transactions.xlsx       NOT committed — you must add this yourself
+│                                (see Transaction File Requirement below)
 ├── memory.md                   project rules/notes for continued dev
 ├── structure.md                detailed structure & domain relationship notes
 └── README.md
@@ -359,6 +363,11 @@ Create a `.env` file in `backend/` if you want the AI chat feature (see [Environ
 python manage.py migrate
 python manage.py check
 python manage.py createsuperuser
+```
+
+Before starting the server, add your transaction file — **`GET /api/portfolio/tree/` will return HTTP 500 without it.** See [Transaction File Requirement](#transaction-file-requirement-transactionsxlsx) below for the exact format, then:
+
+```powershell
 python manage.py runserver
 ```
 
@@ -382,6 +391,91 @@ Frontend runs at `http://localhost:4200/` and is pre-configured (via `CORS_ALLOW
 ### 4. Log in
 
 Use the superuser account created above at `http://localhost:4200/login`.
+
+## Transaction File Requirement (transactions.xlsx)
+
+The portfolio tree endpoint (`GET /api/portfolio/tree/`) syncs transactions from a local Excel file on every request, **before** it builds the response. If that file is missing, the endpoint fails with HTTP 500:
+
+```text
+FileNotFoundError: Transaction file not found: <repo>/backend/data/transactions.xlsx
+```
+
+### Where it must live
+
+```text
+backend/data/transactions.xlsx
+```
+
+This path is resolved relative to the `backend/` directory (`investments/services/file_transaction_sync.py`), **not** the repository root. This file is intentionally not committed to the repo (it's personal financial data), so every fresh clone needs one added manually — `backend/data/security_master.xlsx` is the only file that ships with the repo.
+
+### How the sync behaves
+
+- `FileTransactionSyncService.sync()` checks the file's modified time on every call to `portfolio/tree/`. If the file hasn't changed since the last successful sync, it's a no-op.
+- On a change, it re-imports the whole file inside a single DB transaction — nothing is committed if any row fails validation.
+- Transient file-lock/OS errors (e.g. the file is still being saved by Excel) are retried up to 5 times, 1 second apart, before failing.
+
+### Required format
+
+The workbook needs **two sheets**, named exactly `Transactions` and `Summary`.
+
+**`Transactions` sheet** — header on the first row, with these columns:
+
+| Column      | Notes                                                                                                                                                                                      |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Family Name | Free text, used for grouping                                                                                                                                                               |
+| Asset Class | One of: `EQUITY`, `STOCK`, `DEBT`, `BOND`, `CASH`, `COMMODITY`, `REITS/INVITS`, `REIT`, `INVIT`, `AIF`, `ALTERNATE`, `LRS`, `MUTUAL FUND`, `ETF`, `GOLD`, `REAL ESTATE`, `CRYPTO`, `OTHER` |
+| Sub Class   | Free text                                                                                                                                                                                  |
+| Asset Name  | Security/scheme name                                                                                                                                                                       |
+| Underlying  | Underlying security name (used to resolve identity, can mirror Asset Name)                                                                                                                 |
+| Advisors    | Free text                                                                                                                                                                                  |
+| ISIN        | Security ISIN                                                                                                                                                                              |
+| Date        | Transaction date                                                                                                                                                                           |
+| Trans. Type | See transaction types below (differs for mutual funds vs. everything else)                                                                                                                 |
+| Quantity    | Numeric — commas and `₹` are stripped automatically                                                                                                                                        |
+| Price       | Numeric — commas and `₹` are stripped automatically                                                                                                                                        |
+| Amount      | Numeric — commas and `₹` are stripped automatically                                                                                                                                        |
+
+**Trans. Type values:**
+
+- For rows where **Asset Class = `MUTUAL FUND`**: `BUY` / `PURCHASE`, `SIP`, `SELL` / `REDEMPTION`, `DIVIDEND`, `DIVIDEND REINVESTMENT`
+- For every other asset class: `BUY`, `SELL`, `SIP`, `DIVIDEND`, `INTEREST`, `DEPOSIT`, `WITHDRAWAL`, `BONUS`, `SPLIT`, `OTHER`, `BUYBACK`, `DIVIDEND REINVESTMENT`
+
+**Example `Transactions` rows** (one stock, one ETF, one mutual fund lump sum, one SIP — values are illustrative, not real holdings):
+
+| Family Name | Asset Class | Sub Class          | Asset Name                                          | Underlying                                          | Advisors | ISIN         | Date       | Trans. Type | Quantity | Price    | Amount    |
+| ----------- | ----------- | ------------------ | --------------------------------------------------- | --------------------------------------------------- | -------- | ------------ | ---------- | ----------- | -------- | -------- | --------- |
+| Aviral      | EQUITY      | Large Cap          | Reliance Industries Ltd                             | Reliance Industries Ltd                             | Direct   | INE002A01018 | 2025-04-10 | BUY         | 25       | 2,450.50 | 61,262.50 |
+| Aviral      | ETF         | Commodity ETFs     | ICICI Prudential Silver ETF                         | ICICI Prudential Silver ETF                         | Direct   | INF109KC1Y56 | 2025-05-02 | BUY         | 100      | 78.20    | 7,820.00  |
+| Aviral      | MUTUAL FUND | Equity Mutual Fund | HDFC Focused Fund - Growth Option - Direct Plan     | HDFC Focused Fund - Growth Option - Direct Plan     | Direct   | INF179K01VK7 | 2025-04-15 | PURCHASE    | 152.634  | 65.51    | 10,000.00 |
+| Aviral      | MUTUAL FUND | Cash Mutual Fund   | ICICI Prudential Liquid Fund - Direct Plan - Growth | ICICI Prudential Liquid Fund - Direct Plan - Growth | Direct   | INF109K01Q49 | 2025-05-01 | SIP         | 39.842   | 376.48   | 15,000.00 |
+
+**`Summary` sheet** — header on the **second** row (row 1 is skipped, e.g. a title row), with these columns:
+
+| Column         |
+| -------------- |
+| Family Name    |
+| Portfolio Name |
+| Asset Class    |
+| Advisors       |
+| Asset Name     |
+| ISIN           |
+
+The importer uses `Summary` to resolve which portfolio each transaction belongs to; if no match is found there, it falls back to a portfolio derived from the transaction row itself.
+
+**Example `Summary` rows** (row 1 is a free-text title/blank row and is skipped — headers go on row 2, data from row 3):
+
+| Family Name | Portfolio Name   | Asset Class | Advisors | Asset Name                                          | ISIN         |
+| ----------- | ---------------- | ----------- | -------- | --------------------------------------------------- | ------------ |
+| Aviral      | Core Portfolio   | EQUITY      | Direct   | Reliance Industries Ltd                             | INE002A01018 |
+| Aviral      | Core Portfolio   | ETF         | Direct   | ICICI Prudential Silver ETF                         | INF109KC1Y56 |
+| Aviral      | Mutual Fund Book | MUTUAL FUND | Direct   | HDFC Focused Fund - Growth Option - Direct Plan     | INF179K01VK7 |
+| Aviral      | Mutual Fund Book | MUTUAL FUND | Direct   | ICICI Prudential Liquid Fund - Direct Plan - Growth | INF109K01Q49 |
+
+### Notes
+
+- Duplicate rows (identical values across all columns) are detected and skipped automatically, so the file can safely be re-synced after adding new rows without duplicating existing transactions.
+- Only `.xlsx` is accepted for this file (a separate `.csv` path exists in the importer but is not wired up to the `portfolio/tree/` sync flow).
+- If you don't have real transaction data yet, create a workbook with just the two correctly-named, correctly-headered empty sheets — the sync will succeed with zero rows imported, and `portfolio/tree/` will return an empty tree instead of a 500.
 
 ## Environment Variables
 
