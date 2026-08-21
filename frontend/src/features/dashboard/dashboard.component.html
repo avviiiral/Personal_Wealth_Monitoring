@@ -108,138 +108,67 @@
       </div>
     </div>
 
-    <!-- PERFORMANCE -->
-    <div class="dashboard-card performance-card">
+    <!-- INVESTMENT SUMMARY -->
+    <div class="dashboard-card investment-summary-card">
       <div class="card-header">
         <div>
-          <h2>Investment Performance</h2>
+          <h2>Investment Summary</h2>
 
-          <p>Return percentage by holding</p>
+          <p>Current value by asset category and asset class</p>
         </div>
       </div>
 
+      <!-- INVESTMENT SUMMARY ERROR -->
+      <div class="error-card" *ngIf="investmentSummaryError">
+        {{ investmentSummaryError }}
+      </div>
+
+      <!-- INVESTMENT SUMMARY LOADING -->
+      <div class="loading-card" *ngIf="!investmentSummaryError && !investmentSummary">
+        <div class="loading-spinner"></div>
+
+        <span> Loading investment summary... </span>
+      </div>
+
+      <!-- INVESTMENT SUMMARY TABLE -->
       <div
-        class="performance-chart-container"
-        *ngIf="performance && performance.results && performance.results.length > 0"
+        class="investment-summary-table-wrapper"
+        *ngIf="!investmentSummaryError && investmentSummary"
       >
-        <canvas #performanceChart></canvas>
-      </div>
-
-      <div
-        class="empty-state"
-        *ngIf="!performance || !performance.results || performance.results.length === 0"
-      >
-        No performance data available.
-      </div>
-    </div>
-
-    <!-- P&L -->
-    <div class="dashboard-card">
-      <div class="card-header">
-        <div>
-          <h2>Profit &amp; Loss Trend</h2>
-
-          <p>Historical portfolio P&amp;L</p>
-        </div>
-      </div>
-
-      <div class="chart-container pnl-container">
-        <canvas #pnlChart></canvas>
-      </div>
-    </div>
-
-    <!-- BOTTOM SUMMARY -->
-    <div class="bottom-grid">
-      <!-- PORTFOLIO SUMMARY -->
-      <div class="dashboard-card">
-        <div class="card-header">
-          <div>
-            <h2>Portfolio Summary</h2>
-
-            <p>Current portfolio statistics</p>
-          </div>
+        <div class="empty-state" *ngIf="investmentSummaryRows.length === 0">
+          No investment summary data available.
         </div>
 
-        <div class="summary-list">
-          <div class="summary-row">
-            <span> Number of holdings </span>
+        <table class="investment-summary-table" *ngIf="investmentSummaryRows.length > 0">
+          <thead>
+            <tr>
+              <th>Asset Category</th>
+              <th>Asset Class</th>
+              <th class="align-right">Current Value</th>
+              <th class="align-right">% of Total Investment</th>
+            </tr>
+          </thead>
 
-            <strong>
-              {{ summary?.number_of_holdings ?? 0 }}
-            </strong>
-          </div>
+          <tbody>
+            <ng-container *ngFor="let row of investmentSummaryRows">
+              <tr>
+                <td
+                  *ngIf="row.isFirstInCategory"
+                  [attr.rowspan]="row.categoryRowSpan"
+                  class="category-cell"
+                >
+                  {{ row.asset_category }}
+                </td>
 
-          <div class="summary-row">
-            <span> Realized P&amp;L </span>
+                <td>{{ row.asset_class }}</td>
 
-            <strong
-              [class.positive]="(summary?.realized_pnl ?? 0) >= 0"
-              [class.negative]="(summary?.realized_pnl ?? 0) < 0"
-            >
-              {{ formatCurrency(summary?.realized_pnl ?? 0) }}
-            </strong>
-          </div>
+                <td class="align-right">{{ formatCurrency(row.current_value) }}</td>
 
-          <div class="summary-row">
-            <span> Unrealized P&amp;L </span>
-
-            <strong
-              [class.positive]="(summary?.unrealized_pnl ?? 0) >= 0"
-              [class.negative]="(summary?.unrealized_pnl ?? 0) < 0"
-            >
-              {{ formatCurrency(summary?.unrealized_pnl ?? 0) }}
-            </strong>
-          </div>
-
-          <div class="summary-row">
-            <span> Total return </span>
-
-            <strong> {{ summary?.return_percentage ?? 0 }}% </strong>
-          </div>
-        </div>
-      </div>
-
-      <!-- HISTORICAL PERIOD -->
-      <div class="dashboard-card">
-        <div class="card-header">
-          <div>
-            <h2>Historical Period</h2>
-
-            <p>Data currently displayed</p>
-          </div>
-        </div>
-
-        <div class="summary-list">
-          <div class="summary-row">
-            <span> Period </span>
-
-            <strong> {{ historical?.days ?? 30 }} days </strong>
-          </div>
-
-          <div class="summary-row">
-            <span> Start date </span>
-
-            <strong>
-              {{ historical?.start_date ?? '-' }}
-            </strong>
-          </div>
-
-          <div class="summary-row">
-            <span> End date </span>
-
-            <strong>
-              {{ historical?.end_date ?? '-' }}
-            </strong>
-          </div>
-
-          <div class="summary-row">
-            <span> Data points </span>
-
-            <strong>
-              {{ historical?.results?.length ?? 0 }}
-            </strong>
-          </div>
-        </div>
+                <td class="align-right">{{ formatPercentage(row.percentage_of_total) }}</td>
+              </tr>
+            </ng-container>
+          </tbody>
+        </table>
       </div>
     </div>
   </ng-container>

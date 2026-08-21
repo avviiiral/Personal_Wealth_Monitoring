@@ -34,25 +34,18 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild('allocationChart')
   allocationChartRef?: ElementRef<HTMLCanvasElement>;
 
-  @ViewChild('performanceChart')
-  performanceChartRef?: ElementRef<HTMLCanvasElement>;
-
-  @ViewChild('pnlChart')
-  pnlChartRef?: ElementRef<HTMLCanvasElement>;
-
   loading = true;
   error = '';
 
   summary: any = null;
   allocation: any = null;
-  performance: any = null;
   xirr: any = null;
   historical: any = null;
+  investmentSummary: any = null;
+  investmentSummaryError = '';
 
   private wealthChart?: Chart;
   private allocationChart?: Chart;
-  private performanceChart?: Chart;
-  private pnlChart?: Chart;
 
   private viewReady = false;
 
@@ -123,26 +116,6 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       },
     });
 
-    // PERFORMANCE
-    this.wealthApi.getPerformance().subscribe({
-      next: (data) => {
-        console.log('PERFORMANCE RESPONSE:', data);
-
-        this.performance = data;
-
-        this.cdr.markForCheck();
-
-        setTimeout(() => {
-          this.renderPerformanceChart();
-          this.cdr.markForCheck();
-        });
-      },
-
-      error: (error) => {
-        console.error('PERFORMANCE API ERROR:', error);
-      },
-    });
-
     // XIRR
     this.wealthApi.getXirr().subscribe({
       next: (data) => {
@@ -158,6 +131,28 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       },
     });
 
+    // INVESTMENT SUMMARY
+    this.investmentSummary = null;
+    this.investmentSummaryError = '';
+
+    this.wealthApi.getInvestmentSummary().subscribe({
+      next: (data) => {
+        console.log('INVESTMENT SUMMARY RESPONSE:', data);
+
+        this.investmentSummary = data;
+
+        this.cdr.markForCheck();
+      },
+
+      error: (error) => {
+        console.error('INVESTMENT SUMMARY API ERROR:', error);
+
+        this.investmentSummaryError = 'Unable to load investment summary.';
+
+        this.cdr.markForCheck();
+      },
+    });
+
     // HISTORICAL
     this.wealthApi.getHistorical(30).subscribe({
       next: (data) => {
@@ -169,7 +164,6 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
         setTimeout(() => {
           this.renderWealthChart();
-          this.renderPnlChart();
           this.cdr.markForCheck();
         });
       },
@@ -187,8 +181,6 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
     this.renderWealthChart();
     this.renderAllocationChart();
-    this.renderPerformanceChart();
-    this.renderPnlChart();
   }
 
   private renderWealthChart(): void {
@@ -384,192 +376,12 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     this.allocationChart = new Chart(canvas, config);
   }
 
-  private renderPerformanceChart(): void {
-    const canvas = this.performanceChartRef?.nativeElement;
-
-    if (!canvas) {
-      console.warn('Performance chart canvas not available.');
-      return;
-    }
-
-    this.performanceChart?.destroy();
-
-    const results = this.performance?.results ?? [];
-
-    if (!results.length) {
-      console.warn('No performance data available.');
-      return;
-    }
-
-    const sortedResults = [...results].sort(
-      (a: any, b: any) => this.toNumber(b.pnl_percentage) - this.toNumber(a.pnl_percentage),
-    );
-
-    const labels = sortedResults.map(
-      (item: any) => item.symbol || item.asset_name || item.name || 'Unknown',
-    );
-
-    const values = sortedResults.map((item: any) => this.toNumber(item.pnl_percentage));
-
-    const backgroundColors = values.map((value) => (value >= 0 ? '#111827' : '#9ca3af'));
-
-    const config: ChartConfiguration<'bar'> = {
-      type: 'bar',
-
-      data: {
-        labels,
-
-        datasets: [
-          {
-            label: 'Return %',
-            data: values,
-            backgroundColor: backgroundColors,
-            borderRadius: 5,
-            barThickness: 22,
-          },
-        ],
-      },
-
-      options: {
-        indexAxis: 'y',
-
-        responsive: true,
-        maintainAspectRatio: false,
-
-        plugins: {
-          legend: {
-            display: false,
-          },
-
-          tooltip: {
-            callbacks: {
-              label: (context) => `Return: ${this.toNumber(context.parsed.x).toFixed(2)}%`,
-            },
-          },
-        },
-
-        scales: {
-          x: {
-            ticks: {
-              callback: (value) => `${Number(value).toFixed(0)}%`,
-            },
-
-            grid: {
-              color: '#eef0f3',
-            },
-          },
-
-          y: {
-            grid: {
-              display: false,
-            },
-          },
-        },
-      },
-    };
-
-    this.performanceChart = new Chart(canvas, config);
-  }
-
-  private renderPnlChart(): void {
-    const canvas = this.pnlChartRef?.nativeElement;
-
-    if (!canvas) {
-      console.warn('P&L chart canvas not available.');
-      return;
-    }
-
-    this.pnlChart?.destroy();
-
-    const results = this.historical?.results ?? [];
-
-    if (!results.length) {
-      console.warn('No historical data available for P&L chart.');
-      return;
-    }
-
-    const labels = results.map((item: any) => this.formatDate(item.date));
-
-    const values = results.map((item: any) => this.toNumber(item.pnl));
-
-    const config: ChartConfiguration<'line'> = {
-      type: 'line',
-
-      data: {
-        labels,
-
-        datasets: [
-          {
-            label: 'P&L',
-            data: values,
-
-            borderColor: '#334155',
-            backgroundColor: 'rgba(51, 65, 85, 0.08)',
-
-            borderWidth: 2,
-            fill: true,
-            tension: 0.35,
-
-            pointRadius: 0,
-            pointHoverRadius: 5,
-          },
-        ],
-      },
-
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-
-        interaction: {
-          mode: 'index',
-          intersect: false,
-        },
-
-        plugins: {
-          legend: {
-            display: false,
-          },
-
-          tooltip: {
-            callbacks: {
-              label: (context) => `P&L: ${this.formatCurrency(context.parsed.y ?? 0)}`,
-            },
-          },
-        },
-
-        scales: {
-          x: {
-            grid: {
-              display: false,
-            },
-
-            ticks: {
-              maxTicksLimit: 8,
-            },
-          },
-
-          y: {
-            ticks: {
-              callback: (value) => this.formatAxisCurrency(Number(value)),
-            },
-          },
-        },
-      },
-    };
-
-    this.pnlChart = new Chart(canvas, config);
-  }
-
   private destroyCharts(): void {
     this.wealthChart?.destroy();
     this.allocationChart?.destroy();
-    this.performanceChart?.destroy();
-    this.pnlChart?.destroy();
 
     this.wealthChart = undefined;
     this.allocationChart = undefined;
-    this.performanceChart = undefined;
-    this.pnlChart = undefined;
   }
 
   ngOnDestroy(): void {
@@ -586,6 +398,64 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     return `₹${value.toLocaleString('en-IN', {
       maximumFractionDigits: 0,
     })}`;
+  }
+
+  formatPercentage(value: number): string {
+    return `${this.toNumber(value).toFixed(2)}%`;
+  }
+
+  /**
+   * Groups the flat Investment Summary rows returned by the API by
+   * Asset Category, so the template can render a rowspan-style
+   * grouped table without repeating the category on every row.
+   */
+  get investmentSummaryRows(): Array<{
+    asset_category: string;
+    asset_class: string;
+    current_value: number;
+    percentage_of_total: number;
+    isFirstInCategory: boolean;
+    categoryRowSpan: number;
+  }> {
+    const results = this.investmentSummary?.results ?? [];
+
+    const rows: Array<{
+      asset_category: string;
+      asset_class: string;
+      current_value: number;
+      percentage_of_total: number;
+      isFirstInCategory: boolean;
+      categoryRowSpan: number;
+    }> = [];
+
+    let index = 0;
+
+    while (index < results.length) {
+      const category = results[index].asset_category;
+
+      let end = index;
+
+      while (end < results.length && results[end].asset_category === category) {
+        end++;
+      }
+
+      const categoryRowSpan = end - index;
+
+      for (let i = index; i < end; i++) {
+        rows.push({
+          asset_category: results[i].asset_category,
+          asset_class: results[i].asset_class,
+          current_value: this.toNumber(results[i].current_value),
+          percentage_of_total: this.toNumber(results[i].percentage_of_total),
+          isFirstInCategory: i === index,
+          categoryRowSpan,
+        });
+      }
+
+      index = end;
+    }
+
+    return rows;
   }
 
   private formatAxisCurrency(value: number): string {

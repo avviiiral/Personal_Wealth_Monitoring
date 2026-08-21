@@ -47,6 +47,12 @@ export class WealthApiService {
     });
   }
 
+  getInvestmentSummary(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/investment-summary/`, {
+      withCredentials: true,
+    });
+  }
+
   getHistorical(days: number = 30): Observable<any> {
     const params = new HttpParams().set('days', days);
 
