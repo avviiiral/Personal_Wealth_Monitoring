@@ -15,6 +15,11 @@ import { Chart, ChartConfiguration, registerables } from 'chart.js';
 
 import { WealthApiService } from '../../core/services/wealth-api.service';
 
+import {
+  PortfolioApiService,
+  PortfolioTreeResponse,
+} from '../../core/services/portfolio-api.service';
+
 Chart.register(...registerables);
 
 @Component({
@@ -26,6 +31,7 @@ Chart.register(...registerables);
 })
 export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   private readonly wealthApi = inject(WealthApiService);
+  private readonly portfolioApi = inject(PortfolioApiService);
   private readonly cdr = inject(ChangeDetectorRef);
 
   @ViewChild('wealthChart')
@@ -43,6 +49,8 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   investmentSummary: any = null;
   investmentSummaryError = '';
 
+  portfolioTree: PortfolioTreeResponse | null = null;
+
   private wealthChart?: Chart;
   private allocationChart?: Chart;
 
@@ -53,6 +61,12 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
    * Investment Summary table.
    */
   expandedInvestmentCategory = '';
+
+  /*
+   * Currently selected Asset Category in the
+   * XIRR Performance section.
+   */
+  xirrPerformanceAssetCategoryIndex = 0;
 
   ngOnInit(): void {
     this.loadDashboard();
@@ -138,6 +152,33 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
         console.error('INVESTMENT SUMMARY API ERROR:', error);
 
         this.investmentSummaryError = 'Unable to load investment summary.';
+
+        this.cdr.markForCheck();
+      },
+    });
+
+    // PORTFOLIO TREE
+    /*
+     * Reuse the existing Portfolio tree because every portfolio
+     * asset already contains its calculated XIRR and Underlying.
+     *
+     * This is used only for the Dashboard XIRR Performance section.
+     */
+    this.portfolioApi.getPortfolioTree().subscribe({
+      next: (data) => {
+        console.log('PORTFOLIO TREE RESPONSE:', data);
+
+        this.portfolioTree = data;
+
+        this.ensureValidXirrCategoryIndex();
+
+        this.cdr.markForCheck();
+      },
+
+      error: (error) => {
+        console.error('PORTFOLIO TREE API ERROR:', error);
+
+        this.portfolioTree = null;
 
         this.cdr.markForCheck();
       },
@@ -408,19 +449,30 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     const results = this.investmentSummary?.results ?? [];
 
     const order: string[] = [];
-    const totals = new Map<string, { value: number; percentage: number }>();
+    const totals = new Map<
+      string,
+      {
+        value: number;
+        percentage: number;
+      }
+    >();
 
     for (const row of results) {
       const category = row.asset_category;
 
       if (!totals.has(category)) {
-        totals.set(category, { value: 0, percentage: 0 });
+        totals.set(category, {
+          value: 0,
+          percentage: 0,
+        });
+
         order.push(category);
       }
 
       const entry = totals.get(category)!;
 
       entry.value += this.toNumber(row.current_value);
+
       entry.percentage += this.toNumber(row.percentage_of_total);
     }
 
@@ -457,6 +509,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       asset_class: string;
       current_value: number;
       percentage_of_total: number;
+      raw_asset_classes: string[];
     }>;
   }> {
     const results = this.investmentSummary?.results ?? [];
@@ -471,12 +524,14 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
           asset_class: string;
           current_value: number;
           percentage_of_total: number;
+          raw_asset_classes: string[];
         }>;
       }
     >();
 
     for (const row of results) {
       const category = row.asset_category || 'Unassigned';
+
       const assetClass = row.asset_class || 'Unassigned';
 
       let group = groups.get(category);
@@ -493,9 +548,11 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       }
 
       const currentValue = this.toNumber(row.current_value);
+
       const percentage = this.toNumber(row.percentage_of_total);
 
       group.current_value += currentValue;
+
       group.percentage_of_total += percentage;
 
       let classRow = group.asset_classes.find((item) => item.asset_class === assetClass);
@@ -505,13 +562,23 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
           asset_class: assetClass,
           current_value: 0,
           percentage_of_total: 0,
+          raw_asset_classes: [],
         };
 
         group.asset_classes.push(classRow);
       }
 
       classRow.current_value += currentValue;
+
       classRow.percentage_of_total += percentage;
+
+      const rawAssetClasses = Array.isArray(row.raw_asset_classes) ? row.raw_asset_classes : [];
+
+      for (const rawAssetClass of rawAssetClasses) {
+        if (rawAssetClass && !classRow.raw_asset_classes.includes(rawAssetClass)) {
+          classRow.raw_asset_classes.push(rawAssetClass);
+        }
+      }
     }
 
     return Array.from(groups.values()).map((group) => ({
@@ -539,12 +606,343 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     this.expandedInvestmentCategory = category;
   }
 
-  trackByInvestmentCategory(_index: number, group: { asset_category: string }): string {
+  trackByInvestmentCategory(
+    _index: number,
+    group: {
+      asset_category: string;
+    },
+  ): string {
     return group.asset_category;
   }
 
-  trackByInvestmentAssetClass(_index: number, row: { asset_class: string }): string {
+  trackByInvestmentAssetClass(
+    _index: number,
+    row: {
+      asset_class: string;
+    },
+  ): string {
     return row.asset_class;
+  }
+
+  /* ============================================================
+     XIRR PERFORMANCE
+     ============================================================ */
+
+  /**
+   * Asset Categories available for the XIRR selector.
+   *
+   * The order comes from Investment Summary:
+   *
+   * Other
+   * Alternate
+   * Equities
+   * Fixed Income
+   * Liquids
+   */
+  get xirrPerformanceCategories(): string[] {
+    const categories = this.investmentSummaryGroups.map((group) => group.asset_category);
+
+    return categories.filter((category) => this.hasXirrDataForCategory(category));
+  }
+
+  /**
+   * Currently selected Asset Category.
+   */
+  get selectedXirrAssetCategory(): string {
+    const categories = this.xirrPerformanceCategories;
+
+    if (!categories.length) {
+      return '';
+    }
+
+    this.ensureValidXirrCategoryIndex();
+
+    return categories[this.xirrPerformanceAssetCategoryIndex] ?? categories[0];
+  }
+
+  /**
+   * Move to the previous Asset Category.
+   */
+  previousXirrAssetCategory(): void {
+    const categories = this.xirrPerformanceCategories;
+
+    if (!categories.length) {
+      return;
+    }
+
+    this.ensureValidXirrCategoryIndex();
+
+    this.xirrPerformanceAssetCategoryIndex =
+      this.xirrPerformanceAssetCategoryIndex <= 0
+        ? categories.length - 1
+        : this.xirrPerformanceAssetCategoryIndex - 1;
+  }
+
+  /**
+   * Move to the next Asset Category.
+   */
+  nextXirrAssetCategory(): void {
+    const categories = this.xirrPerformanceCategories;
+
+    if (!categories.length) {
+      return;
+    }
+
+    this.ensureValidXirrCategoryIndex();
+
+    this.xirrPerformanceAssetCategoryIndex =
+      this.xirrPerformanceAssetCategoryIndex >= categories.length - 1
+        ? 0
+        : this.xirrPerformanceAssetCategoryIndex + 1;
+  }
+
+  /**
+   * Return the XIRR rows for the currently selected
+   * Asset Category.
+   *
+   * Each row represents the exact portfolio-tree asset
+   * position, so the XIRR is the XIRR already calculated
+   * by the existing PortfolioMetricsService.
+   */
+  get selectedXirrRows(): Array<{
+    underlying: string;
+    xirr: number;
+    assetClass: string;
+  }> {
+    const category = this.selectedXirrAssetCategory;
+
+    if (!category || !this.portfolioTree) {
+      return [];
+    }
+
+    const rows: Array<{
+      underlying: string;
+      xirr: number;
+      assetClass: string;
+    }> = [];
+
+    for (const family of this.portfolioTree.families ?? []) {
+      for (const portfolio of family.portfolios ?? []) {
+        for (const assetClass of portfolio.asset_classes ?? []) {
+          const assetCategory = this.getAssetCategoryForTreeAssetClass(assetClass.asset_class);
+
+          if (assetCategory !== category) {
+            continue;
+          }
+
+          for (const subClass of assetClass.sub_classes ?? []) {
+            for (const asset of subClass.assets ?? []) {
+              const xirr = Number(asset.xirr);
+
+              if (!Number.isFinite(xirr)) {
+                continue;
+              }
+
+              const underlying =
+                asset.underlying?.trim() || asset.asset_name?.trim() || 'Unnamed Underlying';
+
+              rows.push({
+                underlying,
+                xirr,
+                assetClass: assetClass.asset_class,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return rows.sort((a, b) => b.xirr - a.xirr);
+  }
+
+  /**
+   * Top 5 Underlyings by XIRR.
+   */
+  get topXirrRows(): Array<{
+    underlying: string;
+    xirr: number;
+    assetClass: string;
+  }> {
+    return this.selectedXirrRows.slice(0, 5);
+  }
+
+  /**
+   * Bottom 5 Underlyings by XIRR.
+   */
+  get bottomXirrRows(): Array<{
+    underlying: string;
+    xirr: number;
+    assetClass: string;
+  }> {
+    return [...this.selectedXirrRows].sort((a, b) => a.xirr - b.xirr).slice(0, 5);
+  }
+
+  /**
+   * Return true when a category contains at least one
+   * valid XIRR record.
+   */
+  private hasXirrDataForCategory(category: string): boolean {
+    if (!this.portfolioTree) {
+      return false;
+    }
+
+    for (const family of this.portfolioTree.families ?? []) {
+      for (const portfolio of family.portfolios ?? []) {
+        for (const assetClass of portfolio.asset_classes ?? []) {
+          const assetCategory = this.getAssetCategoryForTreeAssetClass(assetClass.asset_class);
+
+          if (assetCategory !== category) {
+            continue;
+          }
+
+          for (const subClass of assetClass.sub_classes ?? []) {
+            for (const asset of subClass.assets ?? []) {
+              const xirr = Number(asset.xirr);
+
+              if (Number.isFinite(xirr)) {
+                return true;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Resolve the Asset Category for the raw Asset Class
+   * returned by the Portfolio Tree.
+   *
+   * Investment Summary already contains both:
+   *
+   *   canonical Asset Class
+   *   raw Asset Class values
+   *
+   * so this avoids changing the backend Portfolio Tree.
+   */
+  private getAssetCategoryForTreeAssetClass(treeAssetClass: string): string | null {
+    const cleaned = (treeAssetClass || '').trim();
+
+    if (!cleaned) {
+      return null;
+    }
+
+    for (const group of this.investmentSummaryGroups) {
+      for (const assetClass of group.asset_classes) {
+        if (assetClass.asset_class === cleaned) {
+          return group.asset_category;
+        }
+
+        if (assetClass.raw_asset_classes.some((raw) => raw.trim() === cleaned)) {
+          return group.asset_category;
+        }
+      }
+    }
+
+    /*
+     * The Portfolio Tree can contain a raw Excel
+     * classification that was normalized by the backend.
+     *
+     * These fallbacks mirror the existing Investment
+     * Summary normalization rules.
+     */
+    const upper = cleaned.toUpperCase();
+
+    if (upper.includes('EQUITY AIF') || upper === 'AIF') {
+      return 'Equities';
+    }
+
+    if (upper.includes('EQUITY PMS') || upper === 'PMS') {
+      return 'Equities';
+    }
+
+    if (upper.includes('EQUITY MUTUAL FUND')) {
+      return 'Equities';
+    }
+
+    if (upper.includes('EQUITY LRS') || upper === 'LRS') {
+      return 'Equities';
+    }
+
+    if (upper.includes('DIRECT EQUITY') || upper === 'EQUITY' || upper === 'STOCK') {
+      return 'Equities';
+    }
+
+    if (upper.includes('DEBT MUTUAL FUND')) {
+      return 'Fixed Income';
+    }
+
+    if (upper.includes('GOLD BOND') || upper === 'SGB' || upper.includes('SOVEREIGN GOLD')) {
+      return 'Fixed Income';
+    }
+
+    if (upper.includes('ARBITRAGE')) {
+      return 'Liquids';
+    }
+
+    if (upper.includes('LIQUID')) {
+      return 'Liquids';
+    }
+
+    if (upper.includes('PRIVATE EQUITY')) {
+      return 'Alternate';
+    }
+
+    if (upper.includes('REIT')) {
+      return 'Alternate';
+    }
+
+    if (upper.includes('INVIT')) {
+      return 'Alternate';
+    }
+
+    if (upper.includes('COMMODITY')) {
+      return 'Alternate';
+    }
+
+    if (upper.includes('UNLISTED')) {
+      return 'Other';
+    }
+
+    return null;
+  }
+
+  /**
+   * Keep the selected category index valid after API
+   * responses arrive or the available categories change.
+   */
+  private ensureValidXirrCategoryIndex(): void {
+    const categories = this.xirrPerformanceCategories;
+
+    if (!categories.length) {
+      this.xirrPerformanceAssetCategoryIndex = 0;
+      return;
+    }
+
+    if (this.xirrPerformanceAssetCategoryIndex >= categories.length) {
+      this.xirrPerformanceAssetCategoryIndex = 0;
+    }
+
+    if (this.xirrPerformanceAssetCategoryIndex < 0) {
+      this.xirrPerformanceAssetCategoryIndex = categories.length - 1;
+    }
+  }
+
+  formatXirr(value: number): string {
+    return `${this.toNumber(value).toFixed(2)}%`;
+  }
+
+  trackByXirrUnderlying(
+    index: number,
+    row: {
+      underlying: string;
+      xirr: number;
+      assetClass: string;
+    },
+  ): string {
+    return `${row.underlying}::${row.assetClass}::${index}`;
   }
 
   private formatAxisCurrency(value: number): string {
