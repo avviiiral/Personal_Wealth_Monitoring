@@ -363,6 +363,27 @@ class HistoricalWealthAnalytics:
 
         Returns:
             (value, updated_pointer)
+
+        IMPORTANT:
+
+        When target_date is BEFORE the earliest known value
+        (pointer stays at -1), fall back to that earliest known
+        value instead of returning None.
+
+        This matters for manually-priced holdings (AIF, PMS,
+        Commodity ETFs, etc.) where MarketPrice only ever stores
+        ONE snapshot dated to whenever the price was last edited -
+        older manual snapshots are deleted on every update. Without
+        this fallback, every day before that single snapshot's date
+        has no price at all, so the asset is silently valued at ₹0
+        for that stretch even though invested_value already counts
+        it in full - producing a false "sudden jump" on the chart
+        the moment the snapshot date is reached, rather than an
+        actual portfolio change.
+
+        Using the earliest known price as a flat estimate for
+        earlier days is the best available data point - it reflects
+        an actual entered/observed price, not a fabricated one.
         """
 
         if not values:
@@ -383,7 +404,12 @@ class HistoricalWealthAnalytics:
                 pointer,
             )
 
-        return None, pointer
+        # Before the earliest known value: use it as the best
+        # available estimate rather than treating it as unknown.
+        return (
+            values[0][1],
+            pointer,
+        )
 
     # ==========================================================
     # LEGACY EQUITY POSITION

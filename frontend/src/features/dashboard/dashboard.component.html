@@ -108,138 +108,263 @@
       </div>
     </div>
 
-    <!-- PERFORMANCE -->
-    <div class="dashboard-card performance-card">
+    <!-- INVESTMENT SUMMARY -->
+    <div class="dashboard-card investment-summary-card">
       <div class="card-header">
         <div>
-          <h2>Investment Performance</h2>
+          <h2>Investment Summary</h2>
 
-          <p>Return percentage by holding</p>
+          <p>Current value by asset category and asset class</p>
         </div>
       </div>
 
-      <div
-        class="performance-chart-container"
-        *ngIf="performance && performance.results && performance.results.length > 0"
-      >
-        <canvas #performanceChart></canvas>
+      <!-- INVESTMENT SUMMARY ERROR -->
+      <div class="error-card" *ngIf="investmentSummaryError">
+        {{ investmentSummaryError }}
       </div>
 
+      <!-- INVESTMENT SUMMARY LOADING -->
+      <div class="loading-card" *ngIf="!investmentSummaryError && !investmentSummary">
+        <div class="loading-spinner"></div>
+
+        <span> Loading investment summary... </span>
+      </div>
+
+      <!-- INVESTMENT SUMMARY TABLE -->
       <div
-        class="empty-state"
-        *ngIf="!performance || !performance.results || performance.results.length === 0"
+        class="investment-summary-table-wrapper"
+        *ngIf="!investmentSummaryError && investmentSummary"
       >
-        No performance data available.
+        <div class="empty-state" *ngIf="investmentSummaryGroups.length === 0">
+          No investment summary data available.
+        </div>
+
+        <table class="investment-summary-table" *ngIf="investmentSummaryGroups.length > 0">
+          <thead>
+            <tr>
+              <th>Asset Category</th>
+
+              <th class="align-right">Current Value</th>
+
+              <th class="align-right">% of Total Investment</th>
+
+              <th class="arrow-column"></th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <!-- LEVEL 1: ASSET CATEGORY -->
+            <ng-container
+              *ngFor="let group of investmentSummaryGroups; trackBy: trackByInvestmentCategory"
+            >
+              <tr
+                class="investment-category-row"
+                [class.expanded]="expandedInvestmentCategory === group.asset_category"
+                (click)="toggleInvestmentCategory(group.asset_category)"
+              >
+                <td class="category-cell">
+                  <span
+                    class="row-chevron"
+                    [class.open]="expandedInvestmentCategory === group.asset_category"
+                  >
+                    ›
+                  </span>
+
+                  {{ group.asset_category }}
+                </td>
+
+                <td class="align-right">
+                  {{ formatCurrency(group.current_value) }}
+                </td>
+
+                <td class="align-right">
+                  {{ formatPercentage(group.percentage_of_total) }}
+                </td>
+
+                <td class="arrow-column">
+                  <span
+                    class="row-chevron right"
+                    [class.open]="expandedInvestmentCategory === group.asset_category"
+                  >
+                    ›
+                  </span>
+                </td>
+              </tr>
+
+              <!-- LEVEL 2: ASSET CLASS -->
+              <tr
+                *ngIf="expandedInvestmentCategory === group.asset_category"
+                class="asset-class-detail-row"
+              >
+                <td colspan="4">
+                  <div class="asset-class-detail-container">
+                    <table class="asset-class-table">
+                      <thead>
+                        <tr>
+                          <th>Asset Class</th>
+
+                          <th class="align-right">Current Value</th>
+
+                          <th class="align-right">% of Total Investment</th>
+                        </tr>
+                      </thead>
+
+                      <tbody>
+                        <tr
+                          *ngFor="
+                            let assetClass of group.asset_classes;
+                            trackBy: trackByInvestmentAssetClass
+                          "
+                          class="asset-class-detail-item"
+                        >
+                          <td>
+                            {{ assetClass.asset_class }}
+                          </td>
+
+                          <td class="align-right">
+                            {{ formatCurrency(assetClass.current_value) }}
+                          </td>
+
+                          <td class="align-right">
+                            {{ formatPercentage(assetClass.percentage_of_total) }}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </td>
+              </tr>
+            </ng-container>
+          </tbody>
+        </table>
       </div>
     </div>
 
-    <!-- P&L -->
-    <div class="dashboard-card">
+    <!-- =========================================================
+         XIRR PERFORMANCE
+         ========================================================= -->
+    <div class="dashboard-card xirr-performance-card" *ngIf="xirrPerformanceCategories.length > 0">
       <div class="card-header">
         <div>
-          <h2>Profit &amp; Loss Trend</h2>
+          <h2>XIRR Performance</h2>
 
-          <p>Historical portfolio P&amp;L</p>
+          <p>Top and bottom underlying investments by XIRR</p>
         </div>
       </div>
 
-      <div class="chart-container pnl-container">
-        <canvas #pnlChart></canvas>
-      </div>
-    </div>
+      <!-- ASSET CATEGORY SELECTOR -->
+      <div class="xirr-category-selector">
+        <button
+          type="button"
+          class="xirr-category-arrow"
+          aria-label="Previous asset category"
+          (click)="previousXirrAssetCategory()"
+        >
+          ←
+        </button>
 
-    <!-- BOTTOM SUMMARY -->
-    <div class="bottom-grid">
-      <!-- PORTFOLIO SUMMARY -->
-      <div class="dashboard-card">
-        <div class="card-header">
-          <div>
-            <h2>Portfolio Summary</h2>
-
-            <p>Current portfolio statistics</p>
-          </div>
+        <div class="xirr-category-name">
+          {{ selectedXirrAssetCategory }}
         </div>
 
-        <div class="summary-list">
-          <div class="summary-row">
-            <span> Number of holdings </span>
-
-            <strong>
-              {{ summary?.number_of_holdings ?? 0 }}
-            </strong>
-          </div>
-
-          <div class="summary-row">
-            <span> Realized P&amp;L </span>
-
-            <strong
-              [class.positive]="(summary?.realized_pnl ?? 0) >= 0"
-              [class.negative]="(summary?.realized_pnl ?? 0) < 0"
-            >
-              {{ formatCurrency(summary?.realized_pnl ?? 0) }}
-            </strong>
-          </div>
-
-          <div class="summary-row">
-            <span> Unrealized P&amp;L </span>
-
-            <strong
-              [class.positive]="(summary?.unrealized_pnl ?? 0) >= 0"
-              [class.negative]="(summary?.unrealized_pnl ?? 0) < 0"
-            >
-              {{ formatCurrency(summary?.unrealized_pnl ?? 0) }}
-            </strong>
-          </div>
-
-          <div class="summary-row">
-            <span> Total return </span>
-
-            <strong> {{ summary?.return_percentage ?? 0 }}% </strong>
-          </div>
-        </div>
+        <button
+          type="button"
+          class="xirr-category-arrow"
+          aria-label="Next asset category"
+          (click)="nextXirrAssetCategory()"
+        >
+          →
+        </button>
       </div>
 
-      <!-- HISTORICAL PERIOD -->
-      <div class="dashboard-card">
-        <div class="card-header">
-          <div>
-            <h2>Historical Period</h2>
+      <!-- TOP / BOTTOM -->
+      <div class="xirr-ranking-grid" *ngIf="topXirrRows.length > 0 || bottomXirrRows.length > 0">
+        <!-- TOP 5 -->
+        <div class="xirr-ranking-panel">
+          <div class="xirr-ranking-header">
+            <h3>Top 5 Underlying</h3>
 
-            <p>Data currently displayed</p>
+            <span> Highest XIRR </span>
+          </div>
+
+          <div class="xirr-ranking-table-wrapper">
+            <table class="xirr-ranking-table">
+              <thead>
+                <tr>
+                  <th>Underlying</th>
+
+                  <th class="align-right">XIRR</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                <tr *ngFor="let row of topXirrRows; trackBy: trackByXirrUnderlying">
+                  <td>
+                    <div class="xirr-underlying-name">
+                      {{ row.underlying }}
+                    </div>
+
+                    <div class="xirr-asset-class">
+                      {{ row.assetClass }}
+                    </div>
+                  </td>
+
+                  <td class="align-right" [ngClass]="getXirrClass(row.xirr)">
+                    {{ formatXirr(row.xirr) }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
 
-        <div class="summary-list">
-          <div class="summary-row">
-            <span> Period </span>
+        <!-- BOTTOM 5 -->
+        <div class="xirr-ranking-panel">
+          <div class="xirr-ranking-header">
+            <h3>Bottom 5 Underlying</h3>
 
-            <strong> {{ historical?.days ?? 30 }} days </strong>
+            <span> Lowest XIRR </span>
           </div>
 
-          <div class="summary-row">
-            <span> Start date </span>
+          <div class="xirr-ranking-table-wrapper">
+            <table class="xirr-ranking-table">
+              <thead>
+                <tr>
+                  <th>Underlying</th>
 
-            <strong>
-              {{ historical?.start_date ?? '-' }}
-            </strong>
-          </div>
+                  <th class="align-right">XIRR</th>
+                </tr>
+              </thead>
 
-          <div class="summary-row">
-            <span> End date </span>
+              <tbody>
+                <tr *ngFor="let row of bottomXirrRows; trackBy: trackByXirrUnderlying">
+                  <td>
+                    <div class="xirr-underlying-name">
+                      {{ row.underlying }}
+                    </div>
 
-            <strong>
-              {{ historical?.end_date ?? '-' }}
-            </strong>
-          </div>
+                    <div class="xirr-asset-class">
+                      {{ row.assetClass }}
+                    </div>
+                  </td>
 
-          <div class="summary-row">
-            <span> Data points </span>
-
-            <strong>
-              {{ historical?.results?.length ?? 0 }}
-            </strong>
+                  <td class="align-right" [ngClass]="getXirrClass(row.xirr)">
+                    {{ formatXirr(row.xirr) }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
+      </div>
+
+      <!-- NO XIRR -->
+      <div
+        class="empty-state xirr-empty-state"
+        *ngIf="topXirrRows.length === 0 && bottomXirrRows.length === 0"
+      >
+        No XIRR data available for
+        {{ selectedXirrAssetCategory }}.
       </div>
     </div>
   </ng-container>

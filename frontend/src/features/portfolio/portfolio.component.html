@@ -105,6 +105,8 @@
 
             <th>Quantity</th>
 
+            <th>Invested Value</th>
+
             <th>Current Value</th>
 
             <th>Gain</th>
@@ -137,7 +139,16 @@
                 {{ formatNumber(summary.quantity) }}
               </td>
 
-              <td>₹{{ formatCurrency(summary.current_value) }}</td>
+              <td>₹{{ formatCurrency(summary.invested_value) }}</td>
+
+              <td>
+                <span
+                  class="value-pill"
+                  [class.manual-price-cell]="subClassHasManualPrice(summary)"
+                >
+                  ₹{{ formatCurrency(summary.current_value) }}
+                </span>
+              </td>
 
               <td class="pnl-cell" [ngClass]="getPnlClass(summary.pnl)">
                 {{ summary.pnl >= 0 ? '+' : '-' }}₹{{ formatAbsoluteCurrency(summary.pnl) }}
@@ -164,11 +175,19 @@
                  LEVEL 2: ASSET NAME
                  ================================================= -->
             <tr *ngIf="expandedSubClass === summary.sub_class" class="asset-detail-row">
-              <td colspan="6">
+              <td colspan="7">
                 <div class="asset-detail-container">
                   <div class="asset-detail-title">
                     {{ summary.sub_class }}
                     Assets
+                  </div>
+
+                  <div class="asset-group-columns-header">
+                    <span class="asset-group-name-header">Asset Name</span>
+                    <span class="asset-group-col">Quantity</span>
+                    <span class="asset-group-col">Invested Value</span>
+                    <span class="asset-group-col">Current Value</span>
+                    <span class="asset-group-col">Gain</span>
                   </div>
 
                   <div class="asset-groups">
@@ -201,6 +220,30 @@
 
                           <span class="asset-group-name">
                             {{ assetGroup.asset_name }}
+                          </span>
+
+                          <span class="asset-group-col asset-group-quantity">
+                            {{ formatNumber(assetGroup.quantity) }}
+                          </span>
+
+                          <span class="asset-group-col">
+                            ₹{{ formatCurrency(assetGroup.invested_value) }}
+                          </span>
+
+                          <span
+                            class="asset-group-col"
+                            [class.manual-price-cell]="assetGroupHasManualPrice(assetGroup)"
+                          >
+                            ₹{{ formatCurrency(assetGroup.current_value) }}
+                          </span>
+
+                          <span
+                            class="asset-group-col pnl-cell"
+                            [ngClass]="getPnlClass(assetGroup.pnl)"
+                          >
+                            {{ assetGroup.pnl >= 0 ? '+' : '-' }}₹{{
+                              formatAbsoluteCurrency(assetGroup.pnl)
+                            }}
                           </span>
                         </div>
 
@@ -376,7 +419,7 @@
           </ng-container>
 
           <tr *ngIf="subClassSummaries.length === 0">
-            <td colspan="6" class="empty-table">No portfolio data available.</td>
+            <td colspan="7" class="empty-table">No portfolio data available.</td>
           </tr>
         </tbody>
       </table>

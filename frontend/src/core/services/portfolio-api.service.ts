@@ -40,6 +40,20 @@ export interface Transaction {
   fees: number;
   notes: string | null;
   created_at: string;
+
+  /* ========================================================
+     HIERARCHY / CLASSIFICATION
+     Already returned by the existing TransactionSerializer
+     (backend/portfolio/serializers.py); added here so the
+     Reports page can group by Family -> Sub Class -> Underlying
+     without any backend change.
+     ======================================================== */
+  family_name?: string | null;
+  portfolio?: string | null;
+  asset_class?: string | null;
+  sub_class?: string | null;
+  underlying?: string | null;
+  isin?: string | null;
 }
 
 export interface PortfolioAsset {

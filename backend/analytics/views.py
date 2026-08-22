@@ -4,6 +4,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from .services.investment_summary import InvestmentSummaryService
 from .services.portfolio_analytics import PortfolioAnalytics
 from .services.unified_wealth import UnifiedWealthAnalytics
 
@@ -182,6 +183,22 @@ def wealth_xirr(request):
     return Response({
         "xirr_percentage": data
     })
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def wealth_investment_summary(request):
+    """
+    Return the Dashboard Investment Summary: current value and
+    percentage of total portfolio value for every Asset Class in the
+    fixed master Asset Category / Asset Class mapping.
+    """
+
+    data = InvestmentSummaryService.calculate(
+        request.user
+    )
+
+    return Response(data)
 
 
 @api_view(["GET"])

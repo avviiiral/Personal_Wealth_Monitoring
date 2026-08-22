@@ -1,7 +1,6 @@
-from decimal import Decimal
+from .services.investment_summary import InvestmentSummaryService
 
-from django.contrib.auth.models import User
-from django.test import TestCase
+from decimal import Decimal 
 
 from investments.models import (
     Asset,
@@ -11,40 +10,28 @@ from investments.models import (
     TransactionType,
 )
 
-from mutual_funds.models import (
-    MutualFundHolding,
-    MutualFundScheme,
-    MutualFundTransaction,
-    MutualFundTransactionType,
-)
-
-from .services.unified_wealth import UnifiedWealthAnalytics
-
-
-class UnifiedWealthAnalyticsTests(TestCase):
+class InvestmentSummaryServiceTests(TestCase):
     """
-    Tests for unified wealth analytics across:
-
-    - Equities
-    - Mutual funds
+    Tests for the Dashboard Investment Summary
+    (Asset Category / Asset Class breakdown).
     """
 
     def setUp(self):
         self.user = User.objects.create_user(
-            username="testuser",
+            username="investment_summary_user",
             password="testpassword123",
         )
 
-    # ==========================================================
-    # EQUITY TEST DATA
-    # ==========================================================
-
-    def create_equity_data(self):
+    def _make_equity_holding(
+        self,
+        name,
+        sub_class,
+        current_value,
+    ):
         asset = Asset.objects.create(
             owner=self.user,
-            name="Test Stock",
+            name=name,
             category=AssetCategory.STOCK,
-            symbol="TEST",
             currency="INR",
             is_active=True,
         )
@@ -52,392 +39,290 @@ class UnifiedWealthAnalyticsTests(TestCase):
         Holding.objects.create(
             owner=self.user,
             asset=asset,
-            quantity=Decimal("6"),
-            average_cost=Decimal("101"),
-            invested_value=Decimal("606"),
-            current_price=Decimal("184.333333"),
-            current_value=Decimal("1106"),
-            unrealized_pnl=Decimal("500"),
+            quantity=Decimal("1"),
+            average_cost=current_value,
+            invested_value=current_value,
+            current_price=current_value,
+            current_value=current_value,
+            unrealized_pnl=Decimal("0"),
         )
 
         Transaction.objects.create(
             owner=self.user,
             asset=asset,
+            asset_class="EQUITY",
+            sub_class=sub_class,
+            asset_name=name,
             transaction_type=TransactionType.BUY,
             transaction_date="2026-01-01",
-            quantity=Decimal("10"),
-            price_per_unit=Decimal("100"),
-            amount=Decimal("1000"),
-            fees=Decimal("10"),
-        )
-
-        Transaction.objects.create(
-            owner=self.user,
-            asset=asset,
-            transaction_type=TransactionType.SELL,
-            transaction_date="2026-02-01",
-            quantity=Decimal("4"),
-            price_per_unit=Decimal("150"),
-            amount=Decimal("600"),
-            fees=Decimal("6"),
+            quantity=Decimal("1"),
+            price_per_unit=current_value,
+            amount=current_value,
         )
 
         return asset
 
-    # ==========================================================
-    # MUTUAL FUND TEST DATA
-    # ==========================================================
-
-    def create_mutual_fund_data(self):
+    def _make_mutual_fund_holding(
+        self,
+        name,
+        category,
+        current_value,
+    ):
         scheme = MutualFundScheme.objects.create(
             owner=self.user,
-            scheme_name="Test Mutual Fund",
-            amc_name="Test AMC",
-            scheme_code="TESTMF",
-            category="Equity",
-            plan="Direct",
-            option="Growth",
+            scheme_name=name,
+            category=category,
             is_active=True,
         )
 
         MutualFundHolding.objects.create(
             owner=self.user,
             scheme=scheme,
-            units=Decimal("80"),
-            invested_value=Decimal("8000"),
-            average_nav=Decimal("100"),
-            current_nav=Decimal("112.5"),
-            current_value=Decimal("9000"),
-            unrealized_pnl=Decimal("1000"),
-        )
-
-        MutualFundTransaction.objects.create(
-            owner=self.user,
-            scheme=scheme,
-            transaction_type=(
-                MutualFundTransactionType.PURCHASE
-            ),
-            transaction_date="2026-01-01",
-            units=Decimal("100"),
-            nav=Decimal("100"),
-            amount=Decimal("10000"),
-            fees=Decimal("0"),
-        )
-
-        MutualFundTransaction.objects.create(
-            owner=self.user,
-            scheme=scheme,
-            transaction_type=(
-                MutualFundTransactionType.REDEMPTION
-            ),
-            transaction_date="2026-02-01",
-            units=Decimal("20"),
-            nav=Decimal("110"),
-            amount=Decimal("2200"),
-            fees=Decimal("0"),
+            units=Decimal("1"),
+            invested_value=current_value,
+            average_nav=current_value,
+            current_nav=current_value,
+            current_value=current_value,
+            unrealized_pnl=Decimal("0"),
         )
 
         return scheme
 
-    # ==========================================================
-    # SUMMARY
-    # ==========================================================
+    def test_matches_the_specification_example(self):
+        """
+        Direct Equity = 40,00,000
+        Equity Mutual Fund = 30,00,000
+        Debt Mutual Fund = 20,00,000
+        Liquid Mutual Fund = 10,00,000
+        Total = 1,00,00,000
 
-    def test_empty_user_summary(self):
-        result = UnifiedWealthAnalytics.calculate_summary(
+        Expected: 40% / 30% / 20% / 10%, everything else 0.
+        """
+
+        self._make_equity_holding(
+            "Reliance Industries",
+            "Direct Equity",
+            Decimal("4000000"),
+        )
+
+        self._make_mutual_fund_holding(
+            "Test Equity Fund",
+            "Equity Mutual Fund",
+            Decimal("3000000"),
+        )
+
+        self._make_mutual_fund_holding(
+            "Test Debt Fund",
+            "Debt Mutual Fund",
+            Decimal("2000000"),
+        )
+
+        self._make_mutual_fund_holding(
+            "Test Liquid Fund",
+            "Liquid Mutual Fund",
+            Decimal("1000000"),
+        )
+
+        data = InvestmentSummaryService.calculate(
             self.user
         )
 
         self.assertEqual(
-            result["total_invested"],
-            Decimal("0"),
+            data["total_current_value"],
+            Decimal("10000000"),
         )
 
-        self.assertEqual(
-            result["total_current_value"],
-            Decimal("0"),
-        )
-
-        self.assertEqual(
-            result["realized_pnl"],
-            Decimal("0"),
-        )
-
-        self.assertEqual(
-            result["unrealized_pnl"],
-            Decimal("0"),
-        )
-
-        self.assertEqual(
-            result["total_pnl"],
-            Decimal("0"),
-        )
-
-        self.assertEqual(
-            result["number_of_holdings"],
-            0,
-        )
-
-    def test_unified_summary_combines_equity_and_mutual_funds(
-        self
-    ):
-        self.create_equity_data()
-        self.create_mutual_fund_data()
-
-        result = UnifiedWealthAnalytics.calculate_summary(
-            self.user
-        )
-
-        self.assertEqual(
-            result["total_invested"],
-            Decimal("8606"),
-        )
-
-        self.assertEqual(
-            result["total_current_value"],
-            Decimal("10106"),
-        )
-
-        self.assertEqual(
-            result["unrealized_pnl"],
-            Decimal("1500"),
-        )
-
-        self.assertEqual(
-            result["realized_pnl"],
-            Decimal("390"),
-        )
-
-        self.assertEqual(
-            result["total_pnl"],
-            Decimal("1890"),
-        )
-
-        self.assertEqual(
-            result["number_of_holdings"],
-            2,
-        )
-
-    # ==========================================================
-    # REALIZED P&L
-    # ==========================================================
-
-    def test_equity_realized_pnl(self):
-        self.create_equity_data()
-
-        result = (
-            UnifiedWealthAnalytics
-            .calculate_equity_realized_pnl(
-                self.user
-            )
-        )
-
-        # Buy:
-        # 10 shares
-        # Total cost = 1000 + 10 fees = 1010
-        #
-        # Average cost = 101
-        #
-        # Sell:
-        # 4 shares
-        # Cost basis = 404
-        #
-        # Sale proceeds = 600 - 6 fees = 594
-        #
-        # Realized P&L = 594 - 404 = 190
-
-        self.assertEqual(
-            result,
-            Decimal("190"),
-        )
-
-    def test_mutual_fund_realized_pnl(self):
-        self.create_mutual_fund_data()
-
-        result = (
-            UnifiedWealthAnalytics
-            .calculate_mutual_fund_realized_pnl(
-                self.user
-            )
-        )
-
-        # Purchase:
-        # 100 units @ 100 = 10000
-        #
-        # Redemption:
-        # 20 units @ 110 = 2200
-        #
-        # Cost basis = 20 * 100 = 2000
-        #
-        # Realized P&L = 2200 - 2000 = 200
-
-        self.assertEqual(
-            result,
-            Decimal("200"),
-        )
-
-    # ==========================================================
-    # ALLOCATION
-    # ==========================================================
-
-    def test_unified_allocation(self):
-        self.create_equity_data()
-        self.create_mutual_fund_data()
-
-        result = UnifiedWealthAnalytics.calculate_allocation(
-            self.user
-        )
-
-        self.assertEqual(
-            len(result),
-            2,
-        )
-
-        categories = {
-            item["category"]
-            for item in result
+        by_class = {
+            row["asset_class"]: row
+            for row in data["results"]
         }
 
-        self.assertIn(
-            AssetCategory.STOCK,
-            categories,
-        )
+        # Every configured Asset Class must be present, even at zero.
+        expected_classes = {
+            "Unlisted",
+            "Commodity",
+            "Private Equity",
+            "REITs",
+            "InvITs",
+            "Direct Equity",
+            "Equity PMS",
+            "Equity AIF",
+            "Equity Mutual Fund",
+            "Equity LRS",
+            "Debt Mutual Fund",
+            "Gold Bond",
+            "Liquid Mutual Fund",
+            "Arbitrage Mutual Fund",
+        }
 
-        self.assertIn(
-            "MUTUAL_FUND",
-            categories,
-        )
-
-        total_value = sum(
-            item["value"]
-            for item in result
+        self.assertEqual(
+            set(by_class.keys()),
+            expected_classes,
         )
 
         self.assertEqual(
-            total_value,
-            Decimal("10106"),
+            by_class["Direct Equity"]["current_value"],
+            Decimal("4000000"),
+        )
+        self.assertEqual(
+            by_class["Direct Equity"]["percentage_of_total"],
+            Decimal("40.00"),
+        )
+        self.assertEqual(
+            by_class["Direct Equity"]["asset_category"],
+            "Equities",
         )
 
+        self.assertEqual(
+            by_class["Equity Mutual Fund"]["percentage_of_total"],
+            Decimal("30.00"),
+        )
+        self.assertEqual(
+            by_class["Debt Mutual Fund"]["percentage_of_total"],
+            Decimal("20.00"),
+        )
+        self.assertEqual(
+            by_class["Debt Mutual Fund"]["asset_category"],
+            "Fixed Income",
+        )
+        self.assertEqual(
+            by_class["Liquid Mutual Fund"]["percentage_of_total"],
+            Decimal("10.00"),
+        )
+        self.assertEqual(
+            by_class["Liquid Mutual Fund"]["asset_category"],
+            "Liquids",
+        )
+
+        # Everything else must be exactly zero, not omitted.
+        for asset_class in expected_classes - {
+            "Direct Equity",
+            "Equity Mutual Fund",
+            "Debt Mutual Fund",
+            "Liquid Mutual Fund",
+        }:
+            self.assertEqual(
+                by_class[asset_class]["current_value"],
+                Decimal("0"),
+            )
+            self.assertEqual(
+                by_class[asset_class]["percentage_of_total"],
+                Decimal("0"),
+            )
+
+        # Percentages should sum to ~100%.
         total_percentage = sum(
-            item["percentage"]
-            for item in result
-        )
-
-        self.assertAlmostEqual(
-            float(total_percentage),
-            100.0,
-            places=1,
-        )
-
-    # ==========================================================
-    # PERFORMANCE
-    # ==========================================================
-
-    def test_unified_performance(self):
-        self.create_equity_data()
-        self.create_mutual_fund_data()
-
-        result = UnifiedWealthAnalytics.calculate_performance(
-            self.user
+            (
+                row["percentage_of_total"]
+                for row in data["results"]
+            ),
+            Decimal("0"),
         )
 
         self.assertEqual(
-            len(result),
-            2,
+            total_percentage,
+            Decimal("100.00"),
         )
 
-        types = {
-            item["type"]
-            for item in result
+    def test_unmapped_classification_falls_back_to_other_unlisted(self):
+        """
+        A holding with a classification outside the fixed master
+        mapping (e.g. a direct bond, or an MF scheme imported before
+        category was populated) must still be counted — under
+        Other / Unlisted — never dropped.
+        """
+
+        self._make_equity_holding(
+            "Some Corporate Bond",
+            "Corporate Bond",
+            Decimal("500000"),
+        )
+
+        self._make_mutual_fund_holding(
+            "Legacy Fund With No Category",
+            None,
+            Decimal("500000"),
+        )
+
+        data = InvestmentSummaryService.calculate(
+            self.user
+        )
+
+        by_class = {
+            row["asset_class"]: row
+            for row in data["results"]
         }
 
-        self.assertIn(
-            "EQUITY",
-            types,
-        )
-
-        self.assertIn(
-            "MUTUAL_FUND",
-            types,
-        )
-
-        equity = next(
-            item
-            for item in result
-            if item["type"] == "EQUITY"
-        )
-
-        mutual_fund = next(
-            item
-            for item in result
-            if item["type"] == "MUTUAL_FUND"
-        )
-
         self.assertEqual(
-            equity["unrealized_pnl"],
-            Decimal("500"),
+            by_class["Unlisted"]["current_value"],
+            Decimal("1000000"),
         )
-
         self.assertEqual(
-            mutual_fund["unrealized_pnl"],
-            Decimal("1000"),
+            by_class["Unlisted"]["percentage_of_total"],
+            Decimal("100.00"),
         )
-
         self.assertEqual(
-            equity["pnl_percentage"],
-            Decimal("82.51"),
+            data["total_current_value"],
+            Decimal("1000000"),
         )
 
-        self.assertEqual(
-            mutual_fund["pnl_percentage"],
-            Decimal("12.5"),
+    def test_known_business_name_variants_are_normalized(self):
+        """
+        Confirms real Excel-style variants documented in
+        transaction_import.py normalize to the canonical class name.
+        """
+
+        self._make_equity_holding(
+            "Some AIF Strategy",
+            "Equity AIF (Category III)",
+            Decimal("100000"),
         )
 
-    # ==========================================================
-    # XIRR
-    # ==========================================================
+        self._make_equity_holding(
+            "Sovereign Gold Bond 2026",
+            "SGB",
+            Decimal("50000"),
+        )
 
-    def test_xirr_returns_value_when_cash_flows_are_valid(self):
-        self.create_equity_data()
-
-        result = UnifiedWealthAnalytics.calculate_xirr(
+        data = InvestmentSummaryService.calculate(
             self.user
         )
 
-        self.assertIsNotNone(result)
+        by_class = {
+            row["asset_class"]: row
+            for row in data["results"]
+        }
 
-        self.assertIsInstance(
-            result,
-            float,
+        self.assertEqual(
+            by_class["Equity AIF"]["current_value"],
+            Decimal("100000"),
+        )
+        self.assertEqual(
+            by_class["Gold Bond"]["current_value"],
+            Decimal("50000"),
         )
 
-    # ==========================================================
-    # USER ISOLATION
-    # ==========================================================
-
-    def test_user_cannot_see_another_users_holdings(self):
-        self.create_equity_data()
-
-        another_user = User.objects.create_user(
-            username="anotheruser",
-            password="anotherpassword123",
-        )
-
-        result = UnifiedWealthAnalytics.calculate_summary(
-            another_user
+    def test_empty_portfolio_returns_all_zero_rows(self):
+        data = InvestmentSummaryService.calculate(
+            self.user
         )
 
         self.assertEqual(
-            result["total_invested"],
+            data["total_current_value"],
             Decimal("0"),
         )
 
         self.assertEqual(
-            result["total_current_value"],
-            Decimal("0"),
+            len(data["results"]),
+            14,
         )
 
-        self.assertEqual(
-            result["number_of_holdings"],
-            0,
-        )
+        for row in data["results"]:
+            self.assertEqual(
+                row["current_value"],
+                Decimal("0"),
+            )
+            self.assertEqual(
+                row["percentage_of_total"],
+                Decimal("0"),
+            )

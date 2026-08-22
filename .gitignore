@@ -191,7 +191,7 @@ output/
 outputs/
 generated/
 exports/
-reports/
+/reports/
 
 # ------------------------------------------------------------
 # AI / ML generated files

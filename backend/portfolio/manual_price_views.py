@@ -220,6 +220,28 @@ def manual_asset_price(
     # ==========================================================
     # SAVE MANUAL MARKET PRICE
     # ==========================================================
+    #
+    # IMPORTANT:
+    #
+    # Older manual price entries for this asset are intentionally
+    # KEPT, not deleted.
+    #
+    # get_current_price() / get_price_metadata() (portfolio_metrics.py)
+    # already select the latest row by date, so keeping older rows
+    # does not change the current/live price shown anywhere.
+    #
+    # But historical charts (HistoricalWealthAnalytics) rely on
+    # having a real price-on-date series to look up. Deleting every
+    # prior manual snapshot on each update meant only ONE data point
+    # ever existed for manually-priced holdings (AIF, PMS, Commodity
+    # ETFs, etc.) - so any historical window before that single date
+    # had no price to look up and those holdings were silently
+    # valued at ZERO for that period, producing a false "sudden
+    # jump" on the Wealth Overview chart once that date was reached.
+    #
+    # Keeping each dated snapshot lets manual-price history
+    # genuinely accumulate over time, the same way automatically
+    # fetched prices do.
 
     with transaction.atomic():
 
@@ -239,14 +261,6 @@ def manual_asset_price(
                 },
             )
         )
-
-        # Remove older manual prices for the same asset.
-        MarketPrice.objects.filter(
-            asset=asset,
-            source=DataSource.MANUAL,
-        ).exclude(
-            id=manual_price.id,
-        ).delete()
 
         # ======================================================
         # REBUILD HOLDING

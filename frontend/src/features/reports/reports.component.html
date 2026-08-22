@@ -1,0 +1,366 @@
+<div class="reports-page">
+  <div class="reports-header">
+    <div>
+      <h1>Reports</h1>
+    </div>
+
+    <div class="reports-header-actions">
+      <button type="button" class="refresh-button" [disabled]="loading" (click)="refresh()">
+        Refresh
+      </button>
+
+      <div class="download-menu-wrapper">
+        <button
+          type="button"
+          class="download-button"
+          [disabled]="loading || !!error"
+          (click)="toggleDownloadMenu()"
+        >
+          Download
+          <span class="download-caret" [class.open]="downloadMenuOpen">▾</span>
+        </button>
+
+        <div class="download-menu" *ngIf="downloadMenuOpen">
+          <button type="button" class="download-menu-item" (click)="openSummaryFamilyModal()">
+            <span class="download-menu-item-title">Summary View</span>
+          </button>
+
+          <button type="button" class="download-menu-item" (click)="openDetailedRangeModal()">
+            <span class="download-menu-item-title">Detailed View</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================================
+       SUMMARY VIEW - FAMILY MODAL
+       ========================================================== -->
+  <div *ngIf="summaryFamilyModalOpen" class="modal-overlay" (click)="cancelSummaryFamilyModal()">
+    <div class="modal-card" (click)="$event.stopPropagation()">
+      <div class="modal-title">Summary View — Select Family</div>
+      <div class="modal-subtitle">Leave as "All Families" to include everyone.</div>
+
+      <div class="modal-field">
+        <label for="summary-family">Family</label>
+        <select id="summary-family" class="modal-select" [(ngModel)]="summaryFamily">
+          <option value="">All Families</option>
+          <option *ngFor="let family of familyOptions" [value]="family">
+            {{ family }}
+          </option>
+        </select>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="modal-button" (click)="cancelSummaryFamilyModal()">
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="modal-button modal-button-primary"
+          (click)="confirmSummaryDownload()"
+        >
+          Download
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================================
+       DETAILED VIEW - DATE RANGE MODAL
+       ========================================================== -->
+  <div *ngIf="detailedRangeModalOpen" class="modal-overlay" (click)="cancelDetailedRangeModal()">
+    <div class="modal-card" (click)="$event.stopPropagation()">
+      <div class="modal-title">Detailed View — Select Date Range</div>
+      <div class="modal-subtitle">Only transactions within this range will be included.</div>
+
+      <div class="modal-field">
+        <label for="detailed-range-family">Family</label>
+        <select id="detailed-range-family" class="modal-select" [(ngModel)]="detailedRangeFamily">
+          <option value="">All Families</option>
+          <option *ngFor="let family of familyOptions" [value]="family">
+            {{ family }}
+          </option>
+        </select>
+      </div>
+
+      <div class="modal-field">
+        <label for="detailed-range-from">From</label>
+        <input
+          id="detailed-range-from"
+          type="date"
+          class="modal-date-input"
+          [(ngModel)]="detailedRangeFrom"
+        />
+      </div>
+
+      <div class="modal-field">
+        <label for="detailed-range-to">To</label>
+        <input
+          id="detailed-range-to"
+          type="date"
+          class="modal-date-input"
+          [(ngModel)]="detailedRangeTo"
+        />
+      </div>
+
+      <div *ngIf="detailedRangeError" class="modal-error">{{ detailedRangeError }}</div>
+
+      <div class="modal-actions">
+        <button type="button" class="modal-button" (click)="cancelDetailedRangeModal()">
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="modal-button modal-button-primary"
+          (click)="confirmDetailedRangeDownload()"
+        >
+          Download
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div *ngIf="loading" class="loading-state">Loading reports...</div>
+
+  <div *ngIf="!loading && error" class="error-state">
+    {{ error }}
+  </div>
+
+  <div *ngIf="!loading && !error" class="reports-table-card">
+    <div class="table-scroll">
+      <table class="reports-table">
+        <thead>
+          <tr>
+            <th class="family-name-col">Family</th>
+            <th>Sub Classes</th>
+            <th>Transactions</th>
+            <th class="arrow-column"></th>
+          </tr>
+        </thead>
+
+        <tbody>
+          <!-- =====================================================
+               LEVEL 1: FAMILY
+               ===================================================== -->
+          <ng-container *ngFor="let family of families; trackBy: trackByFamily">
+            <tr
+              class="family-row"
+              [class.expanded]="expandedFamily === family.family_name"
+              (click)="toggleFamily(family.family_name)"
+            >
+              <td class="family-name-col">
+                <span class="row-chevron" [class.open]="expandedFamily === family.family_name"
+                  >›</span
+                >
+                {{ family.family_name }}
+              </td>
+
+              <td>{{ family.sub_classes.length }}</td>
+
+              <td>{{ family.transaction_count }}</td>
+
+              <td class="arrow-column">
+                <span
+                  class="row-chevron right"
+                  [class.open]="expandedFamily === family.family_name"
+                >
+                  ›
+                </span>
+              </td>
+            </tr>
+
+            <!-- =================================================
+                 LEVEL 2: SUB CLASS
+                 ================================================= -->
+            <tr *ngIf="expandedFamily === family.family_name" class="nested-detail-row">
+              <td colspan="4">
+                <div class="nested-container">
+                  <table class="sub-class-table">
+                    <thead>
+                      <tr>
+                        <th class="sub-class-name-col">Sub Class</th>
+                        <th>Underlyings</th>
+                        <th>Transactions</th>
+                        <th class="arrow-column"></th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      <ng-container
+                        *ngFor="let subClass of family.sub_classes; trackBy: trackBySubClass"
+                      >
+                        <tr
+                          class="sub-class-row"
+                          [class.expanded]="
+                            expandedSubClass ===
+                            getSubClassKey(family.family_name, subClass.sub_class)
+                          "
+                          (click)="
+                            toggleSubClass(getSubClassKey(family.family_name, subClass.sub_class))
+                          "
+                        >
+                          <td class="sub-class-name-col">
+                            <span
+                              class="row-chevron"
+                              [class.open]="
+                                expandedSubClass ===
+                                getSubClassKey(family.family_name, subClass.sub_class)
+                              "
+                            >
+                              ›
+                            </span>
+                            {{ subClass.sub_class }}
+                          </td>
+
+                          <td>{{ subClass.underlyings.length }}</td>
+
+                          <td>{{ subClass.transaction_count }}</td>
+
+                          <td class="arrow-column">
+                            <span
+                              class="row-chevron right"
+                              [class.open]="
+                                expandedSubClass ===
+                                getSubClassKey(family.family_name, subClass.sub_class)
+                              "
+                            >
+                              ›
+                            </span>
+                          </td>
+                        </tr>
+
+                        <!-- =========================================
+                             LEVEL 3: UNDERLYING
+                             ========================================= -->
+                        <tr
+                          *ngIf="
+                            expandedSubClass ===
+                            getSubClassKey(family.family_name, subClass.sub_class)
+                          "
+                          class="nested-detail-row"
+                        >
+                          <td colspan="4">
+                            <div class="nested-container">
+                              <div class="underlying-groups">
+                                <ng-container
+                                  *ngFor="
+                                    let underlyingGroup of subClass.underlyings;
+                                    trackBy: trackByUnderlying
+                                  "
+                                >
+                                  <div class="underlying-group">
+                                    <div
+                                      class="underlying-group-header"
+                                      [class.expanded]="
+                                        expandedUnderlying ===
+                                        getUnderlyingKey(
+                                          family.family_name,
+                                          subClass.sub_class,
+                                          underlyingGroup.underlying
+                                        )
+                                      "
+                                      (click)="
+                                        toggleUnderlying(
+                                          getUnderlyingKey(
+                                            family.family_name,
+                                            subClass.sub_class,
+                                            underlyingGroup.underlying
+                                          )
+                                        )
+                                      "
+                                    >
+                                      <span
+                                        class="row-chevron"
+                                        [class.open]="
+                                          expandedUnderlying ===
+                                          getUnderlyingKey(
+                                            family.family_name,
+                                            subClass.sub_class,
+                                            underlyingGroup.underlying
+                                          )
+                                        "
+                                      >
+                                        ›
+                                      </span>
+
+                                      <span class="underlying-group-name">
+                                        {{ underlyingGroup.underlying }}
+                                      </span>
+
+                                      <span class="underlying-group-count">
+                                        {{ underlyingGroup.transactions.length }} transaction(s)
+                                      </span>
+                                    </div>
+
+                                    <!-- ===================================
+                                         LEVEL 4 / FINAL: TRANSACTIONS
+                                         =================================== -->
+                                    <div
+                                      *ngIf="
+                                        expandedUnderlying ===
+                                        getUnderlyingKey(
+                                          family.family_name,
+                                          subClass.sub_class,
+                                          underlyingGroup.underlying
+                                        )
+                                      "
+                                      class="transactions-container"
+                                    >
+                                      <div class="transactions-table-scroll">
+                                        <table class="transactions-table">
+                                          <thead>
+                                            <tr>
+                                              <th>Transaction Date</th>
+                                              <th>Type</th>
+                                              <th>ISIN</th>
+                                              <th>Quantity</th>
+                                              <th>Price</th>
+                                              <th>Amount</th>
+                                            </tr>
+                                          </thead>
+
+                                          <tbody>
+                                            <tr
+                                              *ngFor="
+                                                let tx of underlyingGroup.transactions;
+                                                trackBy: trackByTransaction
+                                              "
+                                            >
+                                              <td>{{ tx.transaction_date }}</td>
+                                              <td>
+                                                {{
+                                                  tx.transaction_type_display || tx.transaction_type
+                                                }}
+                                              </td>
+                                              <td class="isin">{{ tx.isin || '-' }}</td>
+                                              <td>{{ formatNumber(tx.quantity) }}</td>
+                                              <td>₹{{ formatDecimal(tx.price_per_unit) }}</td>
+                                              <td>₹{{ formatCurrency(tx.amount) }}</td>
+                                            </tr>
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </ng-container>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      </ng-container>
+                    </tbody>
+                  </table>
+                </div>
+              </td>
+            </tr>
+          </ng-container>
+
+          <tr *ngIf="families.length === 0">
+            <td colspan="4" class="empty-table">No transaction data available.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>

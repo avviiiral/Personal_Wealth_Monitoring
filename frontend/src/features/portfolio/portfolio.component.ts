@@ -15,6 +15,7 @@ import { ManualPriceService } from '../../core/services/manual-price.service';
 interface SubClassSummary {
   sub_class: string;
   current_value: number;
+  invested_value: number;
   pnl: number;
   quantity: number;
   xirr: number | null;
@@ -23,6 +24,10 @@ interface SubClassSummary {
 
 interface AssetGroup {
   asset_name: string;
+  quantity: number;
+  invested_value: number;
+  current_value: number;
+  pnl: number;
   assets: PortfolioAssetNode[];
 }
 
@@ -213,6 +218,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
               summary = {
                 sub_class: key,
                 current_value: 0,
+                invested_value: 0,
                 pnl: 0,
                 quantity: 0,
                 xirr: null,
@@ -223,6 +229,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
             }
 
             summary.current_value += this.getAssetsCurrentValue(filteredAssets);
+            summary.invested_value += this.getAssetsInvestedValue(filteredAssets);
             summary.pnl += this.getAssetsPnl(filteredAssets);
             summary.quantity += this.getAssetsQuantity(filteredAssets);
             summary.assets.push(...filteredAssets);
@@ -280,6 +287,10 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     return Array.from(groups.entries())
       .map(([asset_name, groupedAssets]) => ({
         asset_name,
+        quantity: this.getAssetsQuantity(groupedAssets),
+        invested_value: this.getAssetsInvestedValue(groupedAssets),
+        current_value: this.getAssetsCurrentValue(groupedAssets),
+        pnl: this.getAssetsPnl(groupedAssets),
         assets: groupedAssets,
       }))
       .sort((a, b) => a.asset_name.localeCompare(b.asset_name));
@@ -513,6 +524,29 @@ export class PortfolioComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Check whether ANY underlying asset inside a Sub Class (Level 1
+   * row) has a manually entered current price.
+   *
+   * Used to highlight the Level 1 row's Current Value cell in
+   * yellow, the same way Level 2 and Level 3 are highlighted.
+   */
+  subClassHasManualPrice(summary: SubClassSummary): boolean {
+    return summary.assets.some((asset) => this.isManualPrice(asset));
+  }
+
+  /**
+   * Check whether ANY underlying asset inside an Asset Name group
+   * (Level 2 row) has a manually entered current price.
+   *
+   * Used to highlight the Level 2 row's Current Value cell in
+   * yellow, the same way the individual underlying price cell is
+   * highlighted at Level 3.
+   */
+  assetGroupHasManualPrice(assetGroup: AssetGroup): boolean {
+    return assetGroup.assets.some((asset) => this.isManualPrice(asset));
+  }
+
+  /**
    * Check whether an asset price is currently being saved.
    */
   isSavingManualPrice(asset: PortfolioAssetNode): boolean {
@@ -603,6 +637,10 @@ export class PortfolioComponent implements OnInit, OnDestroy {
 
   private getAssetsCurrentValue(assets: PortfolioAssetNode[]): number {
     return assets.reduce((total, asset) => total + this.toNumber(asset.current_value), 0);
+  }
+
+  private getAssetsInvestedValue(assets: PortfolioAssetNode[]): number {
+    return assets.reduce((total, asset) => total + this.toNumber(asset.invested_value), 0);
   }
 
   private getAssetsPnl(assets: PortfolioAssetNode[]): number {

@@ -6,6 +6,7 @@ from .views import (
     analytics_performance,
     analytics_summary,
     wealth_allocation,
+    wealth_investment_summary,
     wealth_performance,
     wealth_summary,
     wealth_xirr,
@@ -63,7 +64,13 @@ urlpatterns = [
         wealth_xirr,
         name="wealth-xirr",
     ),
-    
+
+    path(
+        "wealth/investment-summary/",
+        wealth_investment_summary,
+        name="wealth-investment-summary",
+    ),
+
     path(
         "wealth/historical/",
         wealth_historical,
