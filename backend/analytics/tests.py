@@ -1,6 +1,15 @@
 from .services.investment_summary import InvestmentSummaryService
 
 from decimal import Decimal 
+
+from investments.models import (
+    Asset,
+    AssetCategory,
+    Holding,
+    Transaction,
+    TransactionType,
+)
+
 class InvestmentSummaryServiceTests(TestCase):
     """
     Tests for the Dashboard Investment Summary
