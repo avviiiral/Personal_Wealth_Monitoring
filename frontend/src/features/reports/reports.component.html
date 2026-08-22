@@ -21,7 +21,7 @@
         </button>
 
         <div class="download-menu" *ngIf="downloadMenuOpen">
-          <button type="button" class="download-menu-item" (click)="downloadSummary()">
+          <button type="button" class="download-menu-item" (click)="openSummaryFamilyModal()">
             <span class="download-menu-item-title">Summary View</span>
           </button>
 
@@ -34,12 +34,55 @@
   </div>
 
   <!-- ==========================================================
+       SUMMARY VIEW - FAMILY MODAL
+       ========================================================== -->
+  <div *ngIf="summaryFamilyModalOpen" class="modal-overlay" (click)="cancelSummaryFamilyModal()">
+    <div class="modal-card" (click)="$event.stopPropagation()">
+      <div class="modal-title">Summary View — Select Family</div>
+      <div class="modal-subtitle">Leave as "All Families" to include everyone.</div>
+
+      <div class="modal-field">
+        <label for="summary-family">Family</label>
+        <select id="summary-family" class="modal-select" [(ngModel)]="summaryFamily">
+          <option value="">All Families</option>
+          <option *ngFor="let family of familyOptions" [value]="family">
+            {{ family }}
+          </option>
+        </select>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="modal-button" (click)="cancelSummaryFamilyModal()">
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="modal-button modal-button-primary"
+          (click)="confirmSummaryDownload()"
+        >
+          Download
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==========================================================
        DETAILED VIEW - DATE RANGE MODAL
        ========================================================== -->
   <div *ngIf="detailedRangeModalOpen" class="modal-overlay" (click)="cancelDetailedRangeModal()">
     <div class="modal-card" (click)="$event.stopPropagation()">
       <div class="modal-title">Detailed View — Select Date Range</div>
       <div class="modal-subtitle">Only transactions within this range will be included.</div>
+
+      <div class="modal-field">
+        <label for="detailed-range-family">Family</label>
+        <select id="detailed-range-family" class="modal-select" [(ngModel)]="detailedRangeFamily">
+          <option value="">All Families</option>
+          <option *ngFor="let family of familyOptions" [value]="family">
+            {{ family }}
+          </option>
+        </select>
+      </div>
 
       <div class="modal-field">
         <label for="detailed-range-from">From</label>

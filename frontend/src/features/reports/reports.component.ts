@@ -79,13 +79,34 @@ export class ReportsComponent implements OnInit {
   detailedRangeModalOpen = false;
   detailedRangeFrom = '';
   detailedRangeTo = '';
+  detailedRangeFamily = '';
   detailedRangeError = '';
+
+  summaryFamilyModalOpen = false;
+  summaryFamily = '';
 
   expandedFamily = '';
   expandedSubClass = '';
   expandedUnderlying = '';
 
   downloadMenuOpen = false;
+
+  /**
+   * Distinct Family names for the download modals' Family filter,
+   * alphabetically sorted. "All Families" is prepended in the
+   * template, not here, since it isn't a real family value.
+   */
+  get familyOptions(): string[] {
+    const names = new Set<string>();
+
+    for (const family of this.families) {
+      if (family.family_name) {
+        names.add(family.family_name);
+      }
+    }
+
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }
 
   ngOnInit(): void {
     this.loadReports();
@@ -285,14 +306,31 @@ export class ReportsComponent implements OnInit {
     }
   }
 
-  async downloadSummary(): Promise<void> {
+  /**
+   * Opens the Family prompt for the Summary View download.
+   */
+  openSummaryFamilyModal(): void {
     this.downloadMenuOpen = false;
+    this.summaryFamily = '';
+    this.summaryFamilyModalOpen = true;
+  }
 
-    const rows = this.buildSummaryRows();
+  cancelSummaryFamilyModal(): void {
+    this.summaryFamilyModalOpen = false;
+  }
+
+  async confirmSummaryDownload(): Promise<void> {
+    this.summaryFamilyModalOpen = false;
+
+    const rows = this.buildSummaryRows(this.summaryFamily);
+
+    const familyLabel = this.summaryFamily || 'All Families';
+
+    const familySlug = this.summaryFamily ? `_${this.slugify(this.summaryFamily)}` : '';
 
     await this.exportWorkbook({
       sheetName: 'Summary',
-      title: `Portfolio Summary — Family → Sub Class (as of ${this.todayLabel()})`,
+      title: `Portfolio Summary — ${familyLabel} (as of ${this.todayLabel()})`,
       columns: [
         { header: 'Family', key: 'family_name', width: 24 },
         { header: 'Sub Class', key: 'sub_class', width: 22 },
@@ -312,7 +350,7 @@ export class ReportsComponent implements OnInit {
         xirr: row.xirr,
       })),
       gainKey: 'gain',
-      filename: `portfolio_summary_${this.todayStamp()}.xlsx`,
+      filename: `portfolio_summary${familySlug}_${this.todayStamp()}.xlsx`,
     });
   }
 
@@ -325,6 +363,7 @@ export class ReportsComponent implements OnInit {
   openDetailedRangeModal(): void {
     this.downloadMenuOpen = false;
     this.detailedRangeError = '';
+    this.detailedRangeFamily = '';
 
     const dates = this.allTransactionDates();
 
@@ -352,13 +391,21 @@ export class ReportsComponent implements OnInit {
     this.detailedRangeError = '';
     this.detailedRangeModalOpen = false;
 
-    const rows = this.buildDetailedRows(this.detailedRangeFrom, this.detailedRangeTo);
+    const rows = this.buildDetailedRows(
+      this.detailedRangeFrom,
+      this.detailedRangeTo,
+      this.detailedRangeFamily,
+    );
 
     const rangeLabel = this.formatRangeLabel(this.detailedRangeFrom, this.detailedRangeTo);
 
+    const familyLabel = this.detailedRangeFamily || 'All Families';
+
+    const familySlug = this.detailedRangeFamily ? `_${this.slugify(this.detailedRangeFamily)}` : '';
+
     await this.exportWorkbook({
       sheetName: 'Detailed',
-      title: `Portfolio Detailed — Family → Sub Class → Underlying → Transactions (${rangeLabel})`,
+      title: `Portfolio Detailed — ${familyLabel} (${rangeLabel})`,
       columns: [
         { header: 'Family', key: 'family_name', width: 24 },
         { header: 'Sub Class', key: 'sub_class', width: 20 },
@@ -371,8 +418,21 @@ export class ReportsComponent implements OnInit {
         { header: 'Amount', key: 'amount', width: 18, numFmt: '"₹"#,##,##0' },
       ],
       rows,
-      filename: `portfolio_detailed_${this.detailedRangeFrom || 'start'}_to_${this.detailedRangeTo || 'end'}.xlsx`,
+      filename: `portfolio_detailed${familySlug}_${this.detailedRangeFrom || 'start'}_to_${this.detailedRangeTo || 'end'}.xlsx`,
     });
+  }
+
+  /**
+   * Lowercases and replaces anything that isn't alphanumeric with
+   * an underscore, for building a safe filename segment from a
+   * Family name.
+   */
+  private slugify(value: string): string {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '');
   }
 
   /**
@@ -402,13 +462,14 @@ export class ReportsComponent implements OnInit {
    * Flattens the Family -> Sub Class -> Underlying -> Transactions
    * tree into rows for the Detailed download, filtered to the
    * given date range (inclusive; an empty bound means unbounded on
-   * that side) and sorted by Transaction Date across the whole
+   * that side) and optionally to one Family (an empty value means
+   * all Families), and sorted by Transaction Date across the whole
    * sheet (most recent first) - so the export is indexed by date
    * rather than clustered by Underlying. Family/Sub Class/Underlying
    * are still included as columns on every row so the hierarchy
    * stays identifiable per the Detailed View's requirements.
    */
-  private buildDetailedRows(from: string, to: string): Record<string, unknown>[] {
+  private buildDetailedRows(from: string, to: string, family?: string): Record<string, unknown>[] {
     const flat: {
       family_name: string;
       sub_class: string;
@@ -416,8 +477,12 @@ export class ReportsComponent implements OnInit {
       tx: Transaction;
     }[] = [];
 
-    for (const family of this.families) {
-      for (const subClass of family.sub_classes) {
+    for (const familyGroup of this.families) {
+      if (family && familyGroup.family_name !== family) {
+        continue;
+      }
+
+      for (const subClass of familyGroup.sub_classes) {
         for (const underlyingGroup of subClass.underlyings) {
           for (const tx of underlyingGroup.transactions) {
             if (!tx.transaction_date) {
@@ -433,7 +498,7 @@ export class ReportsComponent implements OnInit {
             }
 
             flat.push({
-              family_name: family.family_name,
+              family_name: familyGroup.family_name,
               sub_class: subClass.sub_class,
               underlying: underlyingGroup.underlying,
               tx,
@@ -483,24 +548,31 @@ export class ReportsComponent implements OnInit {
    * Portfolio page's own subClassSummaries getter aggregates from -
    * this only adds Family as an additional grouping key, since the
    * Summary View must be Family -> Sub Class, not just Sub Class.
+   *
+   * An optional family filters the result to that one Family; an
+   * empty value returns all Families.
    */
-  private buildSummaryRows(): SubClassSummaryRow[] {
+  private buildSummaryRows(family?: string): SubClassSummaryRow[] {
     const rowMap = new Map<
       string,
       SubClassSummaryRow & { assets: { invested_value: number; xirr: number | null }[] }
     >();
 
-    for (const family of this.portfolioTree) {
-      for (const portfolio of family.portfolios) {
+    for (const familyNode of this.portfolioTree) {
+      if (family && familyNode.family_name !== family) {
+        continue;
+      }
+
+      for (const portfolio of familyNode.portfolios) {
         for (const assetClass of portfolio.asset_classes) {
           for (const subClass of assetClass.sub_classes) {
-            const key = `${family.family_name}::${subClass.sub_class}`;
+            const key = `${familyNode.family_name}::${subClass.sub_class}`;
 
             let row = rowMap.get(key);
 
             if (!row) {
               row = {
-                family_name: family.family_name,
+                family_name: familyNode.family_name,
                 sub_class: subClass.sub_class,
                 quantity: 0,
                 invested_value: 0,
