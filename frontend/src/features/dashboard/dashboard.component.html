@@ -309,7 +309,7 @@
                     </div>
                   </td>
 
-                  <td class="align-right xirr-positive">
+                  <td class="align-right" [ngClass]="getXirrClass(row.xirr)">
                     {{ formatXirr(row.xirr) }}
                   </td>
                 </tr>
@@ -348,7 +348,7 @@
                     </div>
                   </td>
 
-                  <td class="align-right xirr-negative">
+                  <td class="align-right" [ngClass]="getXirrClass(row.xirr)">
                     {{ formatXirr(row.xirr) }}
                   </td>
                 </tr>

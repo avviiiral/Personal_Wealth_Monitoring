@@ -930,6 +930,22 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
+  /**
+   * Color class for an XIRR value based on its actual sign,
+   * not on whether it appears in the Top or Bottom panel.
+   */
+  getXirrClass(value: number): string {
+    if (value > 0) {
+      return 'xirr-positive';
+    }
+
+    if (value < 0) {
+      return 'xirr-negative';
+    }
+
+    return 'xirr-neutral';
+  }
+
   formatXirr(value: number): string {
     return `${this.toNumber(value).toFixed(2)}%`;
   }
