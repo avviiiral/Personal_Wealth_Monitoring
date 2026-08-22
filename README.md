@@ -17,7 +17,7 @@ A full-stack personal wealth and investment tracking platform for centralized mo
 - [Core Workflows](#core-workflows)
 - [API Reference](#api-reference)
 - [Installation on a New Computer](#installation-on-a-new-computer)
-- [Transaction File Requirement (transactions.xlsx)](#transaction-file-requirement-transactionsxlsx)
+- [Importing Transaction Data (transactions.xlsx)](#importing-transaction-data-transactionsxlsx)
   - [Disaster recovery (accidentally deleted db.sqlite3)](#disaster-recovery-accidentally-deleted-dbsqlite3)
 - [Environment Variables](#environment-variables)
 - [Running the App](#running-the-app)
@@ -137,8 +137,11 @@ Personal_Wealth_Monitoring/
 │       └── shared/
 ├── backend/data/
 │   ├── security_master.xlsx    committed reference data (ISIN/security lookup)
-│   └── transactions.xlsx       NOT committed — you must add this yourself
-│                                (see Transaction File Requirement below)
+│   └── transactions.xlsx       NOT committed, optional — only used as input
+│                                for the one-time `import_transactions`
+│                                command (see Importing Transaction Data below).
+│                                The database, not this file, is the
+│                                application's source of truth at runtime.
 ├── memory.md                   project rules/notes for continued dev
 ├── structure.md                detailed structure & domain relationship notes
 └── README.md
@@ -366,7 +369,7 @@ python manage.py check
 python manage.py createsuperuser
 ```
 
-Before starting the server, add your transaction file — **`GET /api/portfolio/tree/` will return HTTP 500 without it.** See [Transaction File Requirement](#transaction-file-requirement-transactionsxlsx) below for the exact format, then:
+The server runs fine with an empty database — `GET /api/portfolio/tree/` simply returns an empty tree until transactions exist. If you have existing transaction data (e.g. from a prior spreadsheet-based tracker), import it once with the `import_transactions` management command — see [Importing Transaction Data](#importing-transaction-data-transactionsxlsx) below for the exact file format — then:
 
 ```powershell
 python manage.py runserver
@@ -393,27 +396,35 @@ Frontend runs at `http://localhost:4200/` and is pre-configured (via `CORS_ALLOW
 
 Use the superuser account created above at `http://localhost:4200/login`.
 
-## Transaction File Requirement (transactions.xlsx)
+## Importing Transaction Data (transactions.xlsx)
 
-The portfolio tree endpoint (`GET /api/portfolio/tree/`) syncs transactions from a local Excel file on every request, **before** it builds the response. If that file is missing, the endpoint fails with HTTP 500:
+The database is the application's runtime source of truth for transactions, holdings, portfolio hierarchy, and reports. **No endpoint reads an Excel file at request time**, and the app runs and serves data correctly even if `backend/data/transactions.xlsx` was never added or has been deleted — `GET /api/portfolio/tree/` just returns an empty tree until transactions exist in the database.
 
-```text
-FileNotFoundError: Transaction file not found: <repo>/backend/data/transactions.xlsx
-```
+There are two ways to get transaction data into the database:
 
-### Where it must live
+1. **One-time (or repeatable) bulk import from a workbook** — the `import_transactions` management command, for migrating existing spreadsheet-based transaction history:
+
+   ```powershell
+   python manage.py import_transactions --username <your-username>
+   ```
+
+   By default it reads `backend/data/transactions.xlsx`; pass `--file <path>` to use a different location. It is **safe to run more than once** — imported rows are deduplicated (via `Transaction.source_key` for investments, and an equivalent check for mutual funds), so re-running against the same file, or a file with new rows appended, only inserts what isn't already in the database.
+
+2. **The upload API**, for adding transactions from the UI/another client without touching the filesystem at all:
+
+   ```text
+   POST /api/investments/import-transactions/   (multipart/form-data field: file)
+   ```
+
+   Both paths use the same underlying importer (`TransactionImporter`), so the resulting data, hierarchy, and calculations are identical either way. Individual transactions can also be created directly via `POST /api/portfolio/transactions/`.
+
+### Where the file lives (for the import command)
 
 ```text
 backend/data/transactions.xlsx
 ```
 
-This path is resolved relative to the `backend/` directory (`investments/services/file_transaction_sync.py`), **not** the repository root. This file is intentionally not committed to the repo (it's personal financial data), so every fresh clone needs one added manually — `backend/data/security_master.xlsx` is the only file that ships with the repo.
-
-### How the sync behaves
-
-- `FileTransactionSyncService.sync()` checks the file's modified time on every call to `portfolio/tree/`. If the file hasn't changed since the last successful sync, it's a no-op.
-- On a change, it re-imports the whole file inside a single DB transaction — nothing is committed if any row fails validation.
-- Transient file-lock/OS errors (e.g. the file is still being saved by Excel) are retried up to 5 times, 1 second apart, before failing.
+This path is resolved relative to the `backend/` directory, **not** the repository root. This file is intentionally not committed to the repo (it's personal financial data) — `backend/data/security_master.xlsx` is the only Excel file that ships with the repo, and it's unrelated reference data (ISIN/security lookups), not transactions.
 
 ### Required format
 
@@ -474,30 +485,23 @@ The importer uses `Summary` to resolve which portfolio each transaction belongs 
 
 ### Notes
 
-- Duplicate rows (identical values across all columns) are detected and skipped automatically, so the file can safely be re-synced after adding new rows without duplicating existing transactions.
-- Only `.xlsx` is accepted for this file (a separate `.csv` path exists in the importer but is not wired up to the `portfolio/tree/` sync flow).
-- If you don't have real transaction data yet, create a workbook with just the two correctly-named, correctly-headered empty sheets — the sync will succeed with zero rows imported, and `portfolio/tree/` will return an empty tree instead of a 500.
+- Duplicate rows (identical values across all columns) are detected and skipped automatically, so `import_transactions` can safely be re-run after adding new rows to the workbook without duplicating existing transactions.
+- Only `.xlsx` is accepted by `import_transactions` (a separate `.csv` path exists in the importer and is reachable via the upload API).
+- The database, not this file, is authoritative once import has run. Treat `transactions.xlsx` as an input/migration artifact and a convenient backup of your raw data — not as something the running application depends on.
 
 ### Disaster recovery (accidentally deleted `db.sqlite3`)
 
-Because `backend/data/transactions.xlsx` is the source of truth that `portfolio/tree/` syncs from on every request, losing `db.sqlite3` is recoverable as long as `transactions.xlsx` still exists:
-
 1. Recreate the schema: `python manage.py migrate` (empty DB, correct tables).
 2. Recreate your login: `python manage.py createsuperuser`.
-3. Repopulate Assets, Mutual Fund Schemes, and Transactions from the Excel file. Either:
-   - hit `GET /api/portfolio/tree/` once (the sync runs automatically on that endpoint), or
-   - trigger it manually via `python manage.py shell`:
-     ```python
-     from investments.services.file_transaction_sync import FileTransactionSyncService
-     from django.contrib.auth import get_user_model
-     owner = get_user_model().objects.get(username="<your-username>")
-     FileTransactionSyncService.sync(owner)
-     ```
+3. If you still have a `transactions.xlsx` backup, repopulate Assets, Mutual Fund Schemes, and Transactions from it:
+   ```powershell
+   python manage.py import_transactions --username <your-username> --file <path-to-backup>\transactions.xlsx
+   ```
 4. Market/NAV data (prices, history) is **not** recoverable this way — it will repopulate over time as the price scheduler runs, or immediately via `python manage.py update_market_prices --user-id <USER_ID>` / `python manage.py fetch_amfi_nav --user-id <USER_ID>`.
 
-If `transactions.xlsx` itself is also lost, this recovery path doesn't apply — fall back to OS-level file recovery (Recycle Bin, editor local history, File History/OneDrive, or a tool like Recuva) for `db.sqlite3` and/or `transactions.xlsx`, or re-enter data manually.
+If no `transactions.xlsx` backup exists, this recovery path doesn't apply — fall back to OS-level file recovery (Recycle Bin, editor local history, File History/OneDrive, or a tool like Recuva) for `db.sqlite3`, or re-enter data manually via `POST /api/portfolio/transactions/`.
 
-**Takeaway:** since `transactions.xlsx` is the effective backup for all portfolio data, treat it as such — keep a copy outside `backend/data/` (a separate drive, cloud storage, etc.) so a single accidental deletion in that folder can't take out both the database and its only recovery source at once.
+**Takeaway:** the database is now the single source of truth, so back it up like one (e.g. periodic copies of `db.sqlite3`). Keeping a `transactions.xlsx` snapshot around is still a reasonable extra safety net, since it can be replayed with `import_transactions` at any time.
 
 ## Environment Variables
 
@@ -554,6 +558,11 @@ python manage.py execute_sips
 python manage.py rebuild_holdings
 python manage.py backfill_price_history
 python manage.py repair_asset_identity
+
+# Transaction import (see "Importing Transaction Data" above)
+python manage.py import_transactions --username <USERNAME>
+python manage.py import_transactions --username <USERNAME> --file <PATH>
+python manage.py import_transactions --all-users
 
 python manage.py help
 ```
