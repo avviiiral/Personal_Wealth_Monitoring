@@ -724,13 +724,13 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     for (const family of this.portfolioTree.families ?? []) {
       for (const portfolio of family.portfolios ?? []) {
         for (const assetClass of portfolio.asset_classes ?? []) {
-          const assetCategory = this.getAssetCategoryForTreeAssetClass(assetClass.asset_class);
-
-          if (assetCategory !== category) {
-            continue;
-          }
-
           for (const subClass of assetClass.sub_classes ?? []) {
+            const assetCategory = this.getAssetCategoryForTreeAssetClass(subClass.sub_class);
+
+            if (assetCategory !== category) {
+              continue;
+            }
+
             for (const asset of subClass.assets ?? []) {
               const xirr = Number(asset.xirr);
 
@@ -744,7 +744,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
               rows.push({
                 underlying,
                 xirr,
-                assetClass: assetClass.asset_class,
+                assetClass: subClass.sub_class,
               });
             }
           }
@@ -789,13 +789,13 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     for (const family of this.portfolioTree.families ?? []) {
       for (const portfolio of family.portfolios ?? []) {
         for (const assetClass of portfolio.asset_classes ?? []) {
-          const assetCategory = this.getAssetCategoryForTreeAssetClass(assetClass.asset_class);
-
-          if (assetCategory !== category) {
-            continue;
-          }
-
           for (const subClass of assetClass.sub_classes ?? []) {
+            const assetCategory = this.getAssetCategoryForTreeAssetClass(subClass.sub_class);
+
+            if (assetCategory !== category) {
+              continue;
+            }
+
             for (const asset of subClass.assets ?? []) {
               const xirr = Number(asset.xirr);
 
@@ -812,8 +812,22 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   /**
-   * Resolve the Asset Category for the raw Asset Class
-   * returned by the Portfolio Tree.
+   * Resolve the Asset Category for a Portfolio Tree Sub Class.
+   *
+   * IMPORTANT:
+   *
+   * This must be called with the Portfolio Tree's SUB CLASS value
+   * (e.g. "Debt Mutual Fund", "Arbitrage Mutual Fund", "Direct
+   * Equity"), NOT the broader top-level Asset Class value.
+   *
+   * The backend's Investment Summary categorization
+   * (investment_summary.py) resolves its own "Asset Class" concept
+   * as the SUB CLASS of each transaction, not the Portfolio Tree's
+   * separate, broader asset_class field. Matching against the
+   * wrong field meant categories like Fixed Income, Liquids, and
+   * Other never matched anything and silently dropped out of the
+   * XIRR Performance selector, even though their underlying assets
+   * had valid XIRR data.
    *
    * Investment Summary already contains both:
    *
@@ -822,8 +836,8 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
    *
    * so this avoids changing the backend Portfolio Tree.
    */
-  private getAssetCategoryForTreeAssetClass(treeAssetClass: string): string | null {
-    const cleaned = (treeAssetClass || '').trim();
+  private getAssetCategoryForTreeAssetClass(treeSubClass: string): string | null {
+    const cleaned = (treeSubClass || '').trim();
 
     if (!cleaned) {
       return null;
