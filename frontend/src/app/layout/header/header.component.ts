@@ -36,6 +36,7 @@ export class HeaderComponent {
    * AI CHAT
    */
   chatOpen = false;
+  chatExpanded = false;
   chatMessage = '';
   chatLoading = false;
 
@@ -131,6 +132,13 @@ export class HeaderComponent {
 
   closeChat(): void {
     this.chatOpen = false;
+    this.chatExpanded = false;
+  }
+
+  toggleChatExpand(event: MouseEvent): void {
+    event.stopPropagation();
+
+    this.chatExpanded = !this.chatExpanded;
   }
 
   /*
