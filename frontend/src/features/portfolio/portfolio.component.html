@@ -4,9 +4,28 @@
       <h1>Portfolio</h1>
     </div>
 
-    <button type="button" class="refresh-button" [disabled]="loading" (click)="refresh()">
-      Refresh
-    </button>
+    <div class="portfolio-header-actions">
+      <input
+        #transactionFileInput
+        type="file"
+        accept=".xlsx,.csv"
+        class="upload-input-hidden"
+        (change)="onTransactionFileSelected($event)"
+      />
+
+      <button
+        type="button"
+        class="upload-button"
+        [disabled]="uploadingTransactions"
+        (click)="transactionFileInput.click()"
+      >
+        {{ uploadingTransactions ? 'Uploading…' : 'Upload Transactions' }}
+      </button>
+
+      <button type="button" class="refresh-button" [disabled]="loading" (click)="refresh()">
+        Refresh
+      </button>
+    </div>
   </div>
 
   <!-- FILTERS -->

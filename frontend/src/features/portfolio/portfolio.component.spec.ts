@@ -9,6 +9,8 @@ import {
 } from '../../core/services/portfolio-api.service';
 
 import { ManualPriceService } from '../../core/services/manual-price.service';
+import { InvestmentsApiService } from '../../core/services/investments-api.service';
+import { ToastService } from '../../core/services/toast.service';
 
 describe('PortfolioComponent', () => {
   let component: PortfolioComponent;
@@ -20,6 +22,10 @@ describe('PortfolioComponent', () => {
 
   let manualPriceService: {
     updatePrice: ReturnType<typeof vi.fn>;
+  };
+
+  let investmentsApi: {
+    importTransactions: ReturnType<typeof vi.fn>;
   };
 
   const mockResponse: PortfolioTreeResponse = {
@@ -49,6 +55,7 @@ describe('PortfolioComponent', () => {
                     assets: [
                       {
                         id: 1,
+                        family_name: 'Family A',
                         asset_name: 'Test Equity',
                         underlying: '',
                         isin: 'INE000TEST001',
@@ -68,6 +75,8 @@ describe('PortfolioComponent', () => {
 
                         sector: 'Technology',
                         cap_type: 'Large Cap',
+
+                        price_source: 'MANUAL',
                       },
                     ],
                   },
@@ -94,6 +103,21 @@ describe('PortfolioComponent', () => {
       ),
     };
 
+    investmentsApi = {
+      importTransactions: vi.fn().mockReturnValue(
+        of({
+          success: true,
+          message: 'Transaction file imported successfully.',
+          data: {
+            imported_investments: 1,
+            imported_mutual_funds: 0,
+            skipped_duplicates: 0,
+            total_imported: 1,
+          },
+        }),
+      ),
+    };
+
     await TestBed.configureTestingModule({
       imports: [PortfolioComponent],
 
@@ -107,6 +131,13 @@ describe('PortfolioComponent', () => {
           provide: ManualPriceService,
           useValue: manualPriceService,
         },
+
+        {
+          provide: InvestmentsApiService,
+          useValue: investmentsApi,
+        },
+
+        ToastService,
       ],
     }).compileComponents();
 
@@ -447,5 +478,67 @@ describe('PortfolioComponent', () => {
     component.loadPortfolio();
 
     expect(component.error).toBe('Authentication failed. Please log in again.');
+  });
+
+  // ==========================================================
+  // TRANSACTION UPLOAD
+  // ==========================================================
+
+  it('should upload the selected file and refresh the tree', () => {
+    const file = new File(['dummy'], 'transactions.xlsx');
+
+    const input = document.createElement('input');
+    input.type = 'file';
+
+    Object.defineProperty(input, 'files', {
+      value: [file],
+    });
+
+    portfolioApi.getPortfolioTree.mockClear();
+
+    component.onTransactionFileSelected({ target: input } as unknown as Event);
+
+    expect(investmentsApi.importTransactions).toHaveBeenCalledWith(file);
+    expect(component.uploadingTransactions).toBe(false);
+
+    // loadPortfolio(true) should have been triggered after a
+    // successful import so the tree reflects the new data.
+    expect(portfolioApi.getPortfolioTree).toHaveBeenCalled();
+  });
+
+  it('should do nothing when no file was selected', () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+
+    Object.defineProperty(input, 'files', {
+      value: [],
+    });
+
+    component.onTransactionFileSelected({ target: input } as unknown as Event);
+
+    expect(investmentsApi.importTransactions).not.toHaveBeenCalled();
+  });
+
+  it('should surface an error toast when the upload fails', () => {
+    investmentsApi.importTransactions.mockReturnValue(
+      throwError(() => ({
+        error: {
+          message: 'The transaction file contains no data.',
+        },
+      })),
+    );
+
+    const file = new File(['dummy'], 'transactions.xlsx');
+
+    const input = document.createElement('input');
+    input.type = 'file';
+
+    Object.defineProperty(input, 'files', {
+      value: [file],
+    });
+
+    component.onTransactionFileSelected({ target: input } as unknown as Event);
+
+    expect(component.uploadingTransactions).toBe(false);
   });
 });
