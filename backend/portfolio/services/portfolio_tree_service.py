@@ -447,6 +447,9 @@ class PortfolioTreeService:
                 owner=owner,
                 transactions=asset_transactions,
             )
+            
+            if asset_data["quantity"] <= 0:
+                continue
 
             family_data = tree.setdefault(
                 family,
