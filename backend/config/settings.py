@@ -189,3 +189,10 @@ TIME_ZONE = 'Asia/Kolkata'
 USE_I18N = True
 
 USE_TZ = True
+
+CELERY_BEAT_SCHEDULE = {
+    "run-news-pipeline-every-30-min": {
+        "task": "news_agent.tasks.run_news_pipeline",
+        "schedule": 1800.0,
+    },
+}
