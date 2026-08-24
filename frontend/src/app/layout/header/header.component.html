@@ -123,14 +123,30 @@
   </div>
 
   <!-- AI CHAT PANEL -->
-  <div class="ai-chat-panel" *ngIf="chatOpen" (click)="$event.stopPropagation()">
+  <div
+    class="ai-chat-panel"
+    [class.expanded]="chatExpanded"
+    *ngIf="chatOpen"
+    (click)="$event.stopPropagation()"
+  >
     <div class="ai-chat-header">
-      <div>
+      <div class="ai-chat-header-info">
         <strong>Bagla Group AI Assistant</strong>
         <span>Ask about your portfolio</span>
       </div>
 
-      <button type="button" class="panel-close-button" (click)="closeChat()">×</button>
+      <div class="ai-chat-header-actions">
+        <button
+          type="button"
+          class="panel-expand-button"
+          [attr.aria-label]="chatExpanded ? 'Collapse chat' : 'Expand chat'"
+          (click)="toggleChatExpand($event)"
+        >
+          {{ chatExpanded ? '⤡' : '⤢' }}
+        </button>
+
+        <button type="button" class="panel-close-button" (click)="closeChat()">×</button>
+      </div>
     </div>
 
     <div class="ai-chat-messages">
