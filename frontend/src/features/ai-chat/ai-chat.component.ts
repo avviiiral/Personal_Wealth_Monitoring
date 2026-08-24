@@ -1,4 +1,11 @@
-import { ChangeDetectorRef, Component, ElementRef, ViewChild, inject } from '@angular/core';
+import {
+  ChangeDetectorRef,
+  Component,
+  ElementRef,
+  HostListener,
+  ViewChild,
+  inject,
+} from '@angular/core';
 
 import { CommonModule } from '@angular/common';
 
@@ -33,6 +40,25 @@ export class AiChatComponent {
   sending = false;
 
   error = '';
+
+  expanded = false;
+
+  // ======================================================
+  // EXPAND / COLLAPSE
+  // ======================================================
+
+  toggleExpand(): void {
+    this.expanded = !this.expanded;
+
+    this.scrollToBottom();
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscapeKey(): void {
+    if (this.expanded) {
+      this.expanded = false;
+    }
+  }
 
   // ======================================================
   // SEND
