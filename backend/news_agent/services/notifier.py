@@ -3,10 +3,10 @@ from django.conf import settings
 from ..models import NewsAlert
 
 def send_pending_email_alerts():
-    pending = NewsAlert.objects.filter(email_sent=False).select_related("user", "holding", "article")
+    pending = NewsAlert.objects.filter(email_sent=False).select_related("user", "holding__asset", "article")
     for alert in pending:
         send_mail(
-            subject=f"News alert: {alert.holding.company_name}",
+            subject=f"News alert: {alert.holding.asset.name}",
             message=(
                 f"{alert.article.title}\n\n"
                 f"{alert.llm_summary}\n\n"

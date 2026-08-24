@@ -19,10 +19,11 @@ SUMMARY: <2-3 sentence summary of what this means for the holding, if relevant; 
 def evaluate_and_alert(keyword_matches):
     for km in keyword_matches:
         holding = km.holding
+        asset = holding.asset
         article = km.article
         prompt = PROMPT_TEMPLATE.format(
-            company_name=holding.company_name,
-            ticker=holding.ticker,
+            company_name=asset.name,
+            ticker=asset.symbol or "N/A",
             title=article.title,
             snippet=article.raw_content[:800],
         )
@@ -38,7 +39,7 @@ def evaluate_and_alert(keyword_matches):
 
         if parsed["relevant"]:
             NewsAlert.objects.get_or_create(
-                user=holding.user,
+                user=holding.owner,
                 article=article,
                 holding=holding,
                 defaults={
