@@ -17,7 +17,14 @@
   }
 }
 
-.refresh-button {
+.portfolio-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.refresh-button,
+.upload-button {
   border: 1px solid #d9dee7;
   background: #ffffff;
   border-radius: 6px;
@@ -34,6 +41,20 @@
     opacity: 0.6;
     cursor: not-allowed;
   }
+}
+
+.upload-button {
+  color: #ffffff;
+  background: #111827;
+  border-color: #111827;
+
+  &:hover {
+    background: #1f2937;
+  }
+}
+
+.upload-input-hidden {
+  display: none;
 }
 
 .selection-area {

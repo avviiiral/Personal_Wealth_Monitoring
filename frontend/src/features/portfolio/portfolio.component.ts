@@ -11,6 +11,8 @@ import {
 } from '../../core/services/portfolio-api.service';
 
 import { ManualPriceService } from '../../core/services/manual-price.service';
+import { InvestmentsApiService } from '../../core/services/investments-api.service';
+import { ToastService } from '../../core/services/toast.service';
 
 interface SubClassSummary {
   sub_class: string;
@@ -41,6 +43,8 @@ interface AssetGroup {
 export class PortfolioComponent implements OnInit, OnDestroy {
   private readonly portfolioApi = inject(PortfolioApiService);
   private readonly manualPriceService = inject(ManualPriceService);
+  private readonly investmentsApi = inject(InvestmentsApiService);
+  private readonly toast = inject(ToastService);
   private readonly cdr = inject(ChangeDetectorRef);
 
   private refreshSubscription: Subscription | null = null;
@@ -76,6 +80,11 @@ export class PortfolioComponent implements OnInit, OnDestroy {
    * Per-asset error messages.
    */
   manualPriceErrors: Record<number, string> = {};
+
+  /**
+   * Transaction workbook upload state.
+   */
+  uploadingTransactions = false;
 
   ngOnInit(): void {
     this.loadPortfolio();
@@ -124,6 +133,61 @@ export class PortfolioComponent implements OnInit, OnDestroy {
 
   refresh(): void {
     this.loadPortfolio();
+  }
+
+  /**
+   * Triggered by the hidden <input type="file"> in the template.
+   * Uploads the selected workbook to the existing
+   * /api/investments/import-transactions/ endpoint, then
+   * refreshes the tree so newly-imported transactions show up
+   * immediately.
+   */
+  onTransactionFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+
+    // Allow re-selecting the same file consecutively.
+    input.value = '';
+
+    if (!file) {
+      return;
+    }
+
+    this.uploadingTransactions = true;
+
+    this.investmentsApi.importTransactions(file).subscribe({
+      next: (response) => {
+        this.uploadingTransactions = false;
+
+        const data = response.data;
+
+        if (data) {
+          this.toast.success(
+            `Imported ${data.total_imported} transaction(s)` +
+              (data.skipped_duplicates
+                ? ` (${data.skipped_duplicates} duplicate(s) skipped).`
+                : '.'),
+          );
+        } else {
+          this.toast.success(response.message || 'Transactions imported.');
+        }
+
+        this.loadPortfolio(true);
+
+        this.cdr.detectChanges();
+      },
+
+      error: (error) => {
+        this.uploadingTransactions = false;
+
+        const message =
+          error?.error?.message || error?.error?.error || 'Unable to import the transaction file.';
+
+        this.toast.error(message, 6000);
+
+        this.cdr.detectChanges();
+      },
+    });
   }
 
   get familyOptions(): string[] {

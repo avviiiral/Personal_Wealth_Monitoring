@@ -12,10 +12,6 @@ from investments.models import (
     Transaction,
 )
 
-from investments.services.file_transaction_sync import (
-    FileTransactionSyncService,
-)
-
 from investments.services.portfolio_metrics import (
     PortfolioMetricsService,
 )
@@ -451,18 +447,13 @@ def portfolio_holdings(request):
 @permission_classes([IsAuthenticated])
 def portfolio_tree(request):
 
-    try:
-        FileTransactionSyncService.sync(
-            owner=request.user
-        )
+    from portfolio.services.portfolio_tree_service import (
+        PortfolioTreeService,
+    )
 
-    except FileNotFoundError as exc:
-        return Response(
-            {
-                "success": False,
-                "message": str(exc),
-            },
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    try:
+        tree = PortfolioTreeService.build(
+            owner=request.user
         )
 
     except Exception as exc:
@@ -472,21 +463,12 @@ def portfolio_tree(request):
             {
                 "success": False,
                 "message": (
-                    "Unable to synchronize "
-                    "transaction file."
+                    "Unable to build the portfolio tree."
                 ),
                 "error": str(exc),
             },
             status=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
-
-    from portfolio.services.portfolio_tree_service import (
-        PortfolioTreeService,
-    )
-
-    tree = PortfolioTreeService.build(
-        owner=request.user
-    )
 
     return Response(
         {

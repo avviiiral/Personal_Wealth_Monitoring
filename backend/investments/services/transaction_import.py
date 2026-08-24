@@ -1,5 +1,6 @@
 from decimal import Decimal, InvalidOperation
 import hashlib
+import logging
 
 import pandas as pd
 from django.db import transaction as db_transaction
@@ -21,6 +22,7 @@ from mutual_funds.models import (
     MutualFundTransactionType,
 )
 
+logger = logging.getLogger(__name__)
 
 TRANSACTIONS_REQUIRED_COLUMNS = [
     "Family Name",
@@ -840,6 +842,35 @@ class TransactionImporter:
                 "Unsupported Asset Class at "
                 f"Excel row {row_number}: "
                 f"{asset_class}"
+            )
+
+        # ---------------------------------------------------------
+        # PMS/AIF strategy rows MUST identify the actual underlying
+        # security (via Underlying or ISIN). Without one, the row
+        # would silently be filed under the strategy's own name,
+        # merging unrelated stocks into a single fake "asset" with
+        # no real ISIN/market price -- which corrupts quantity,
+        # invested value, and XIRR for every stock caught in it.
+        # ---------------------------------------------------------
+        normalized_sub_class = sub_class.strip().upper()
+
+        if (
+            normalized_sub_class in {
+                "EQUITY PMS",
+                "EQUITY AIF (CATEGORY III)",
+            }
+            and not underlying
+            and not isin
+        ):
+            logger.warning(
+                "Row identifies neither an Underlying "
+                "nor an ISIN for a PMS/AIF strategy at "
+                "Excel row %s (%s). Imported using Asset "
+                "Name as identity — verify this isn't a "
+                "look-through holding that needs a real "
+                "underlying security.",
+                row_number,
+                asset_name,
             )
 
         raw_date = row["Date"]
