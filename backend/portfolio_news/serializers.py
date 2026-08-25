@@ -1,0 +1,110 @@
+from rest_framework import serializers
+
+from .models import PortfolioNewsAlert
+
+
+class PortfolioNewsAlertListSerializer(serializers.ModelSerializer):
+    """
+    Compact representation for the news feed and the
+    notification bell dropdown.
+    """
+
+    article_title = serializers.CharField(
+        source="article.title",
+        read_only=True,
+    )
+
+    article_source = serializers.CharField(
+        source="article.source",
+        read_only=True,
+    )
+
+    article_published_at = serializers.DateTimeField(
+        source="article.published_at",
+        read_only=True,
+    )
+
+    class Meta:
+        model = PortfolioNewsAlert
+
+        fields = [
+            "id",
+            "holding_display_name",
+            "holding_type",
+            "category",
+            "sentiment",
+            "impact",
+            "impact_score",
+            "alert_score",
+            "notification_tier",
+            "article_title",
+            "article_source",
+            "article_published_at",
+            "is_read",
+            "notification_sent",
+            "created_at",
+        ]
+
+
+class PortfolioNewsAlertDetailSerializer(serializers.ModelSerializer):
+    """
+    Full representation for the news detail page - includes
+    the AI's reasoning, the portfolio-weight context behind
+    "why this matters to you", and a link to the original
+    article (never the article body itself).
+    """
+
+    article_title = serializers.CharField(
+        source="article.title",
+        read_only=True,
+    )
+
+    article_source = serializers.CharField(
+        source="article.source",
+        read_only=True,
+    )
+
+    article_url = serializers.URLField(
+        source="article.url",
+        read_only=True,
+    )
+
+    article_published_at = serializers.DateTimeField(
+        source="article.published_at",
+        read_only=True,
+    )
+
+    article_description = serializers.CharField(
+        source="article.description",
+        read_only=True,
+    )
+
+    class Meta:
+        model = PortfolioNewsAlert
+
+        fields = [
+            "id",
+            "holding_display_name",
+            "holding_type",
+            "category",
+            "sentiment",
+            "time_horizon",
+            "relevance_score",
+            "impact",
+            "impact_score",
+            "confidence",
+            "portfolio_weight_at_alert",
+            "alert_score",
+            "notification_tier",
+            "summary",
+            "portfolio_implication",
+            "reason",
+            "is_read",
+            "notification_sent",
+            "created_at",
+            "article_title",
+            "article_source",
+            "article_url",
+            "article_published_at",
+            "article_description",
+        ]

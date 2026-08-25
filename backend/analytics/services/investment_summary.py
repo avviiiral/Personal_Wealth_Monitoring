@@ -2,6 +2,7 @@ import logging
 from decimal import Decimal
 
 from investments.models import Transaction
+from mutual_funds.models import MutualFundTransaction
 
 from .unified_wealth import UnifiedWealthAnalytics
 
@@ -231,17 +232,31 @@ class InvestmentSummaryService:
         return cls.FALLBACK_ASSET_CLASS
 
     @staticmethod
-    def _equity_asset_class_by_asset_id(user):
+    def _equity_asset_class_by_asset_id(user, family_name=None):
         """
         Resolve every asset's raw Asset Class as the sub_class of its
         most recent transaction that has one set.
+
+        family_name:
+            Optional. When provided, only that Family Name's
+            transactions are considered, so the resolved Asset Class
+            reflects how the asset was classified within that family.
         """
 
-        rows = (
+        rows_qs = (
             Transaction.objects
             .filter(owner=user)
             .exclude(sub_class__isnull=True)
             .exclude(sub_class__exact="")
+        )
+
+        if family_name:
+            rows_qs = rows_qs.filter(
+                family_name=family_name
+            )
+
+        rows = (
+            rows_qs
             .order_by(
                 "asset_id",
                 "-transaction_date",
@@ -263,87 +278,173 @@ class InvestmentSummaryService:
         return resolved
 
     @classmethod
-    def calculate(cls, user):
+    def _family_equity_positions(cls, user, family_name):
         """
-        Return the Investment Summary rows and the total current
-        value they were computed against.
+        Rebuild open (quantity > 0) equity positions for one exact
+        Family Name directly from Transaction, since Holding has no
+        family_name (one aggregated row per asset across ALL
+        families).
+
+        Quantity/invested value are recomputed with the same
+        average-cost method HistoricalWealthAnalytics already uses.
+        Current price is read from the asset's existing Holding
+        (Asset.holding.current_price) rather than re-derived, since
+        price is asset-level market data - identical for every
+        family - so this stays consistent with the price already
+        shown everywhere else and adds no new price-freshness logic.
+
+        Returns a list of (asset_id, current_value) tuples for assets
+        with an open position and a known current price.
         """
 
-        totals = {
-            asset_class: cls.ZERO
-            for _, asset_classes in cls.MASTER_MAPPING
-            for asset_class in asset_classes
-        }
+        from .historical_wealth import HistoricalWealthAnalytics
 
-        raw_values_by_asset_class = {
-            asset_class: set()
-            for _, asset_classes in cls.MASTER_MAPPING
-            for asset_class in asset_classes
-        }
-
-        # ------------------------------------------------------------
-        # EQUITY / OTHER INVESTMENT HOLDINGS
-        # ------------------------------------------------------------
-        asset_class_by_asset_id = (
-            cls._equity_asset_class_by_asset_id(user)
+        transactions = (
+            Transaction.objects
+            .filter(
+                owner=user,
+                family_name=family_name,
+            )
+            .select_related("asset__holding")
+            .order_by(
+                "asset_id",
+                "transaction_date",
+                "created_at",
+                "id",
+            )
         )
 
-        equity_holdings = (
-            UnifiedWealthAnalytics
-            .get_equity_holdings(user)
+        positions = {}
+        assets_by_id = {}
+
+        for transaction in transactions:
+            assets_by_id[transaction.asset_id] = transaction.asset
+
+            position = positions.setdefault(
+                transaction.asset_id,
+                {
+                    "quantity": cls.ZERO,
+                    "invested_value": cls.ZERO,
+                },
+            )
+
+            HistoricalWealthAnalytics._apply_equity_transaction(
+                position,
+                transaction,
+            )
+
+        results = []
+
+        for asset_id, position in positions.items():
+            if position["quantity"] <= 0:
+                continue
+
+            asset = assets_by_id[asset_id]
+            holding = getattr(asset, "holding", None)
+
+            current_price = (
+                getattr(holding, "current_price", None)
+                if holding
+                else None
+            )
+
+            if current_price is None:
+                continue
+
+            current_value = (
+                position["quantity"] * current_price
+            )
+
+            results.append((asset_id, current_value))
+
+        return results
+
+    @classmethod
+    def _family_mutual_fund_positions(cls, user, family_name):
+        """
+        Rebuild open (units > 0) mutual-fund positions for one exact
+        Family Name directly from MutualFundTransaction, since
+        MutualFundHolding has no family_name either.
+
+        Same approach as _family_equity_positions: recompute
+        units/invested value from transactions, read current NAV from
+        the scheme's existing MutualFundHolding.
+
+        Returns a list of (scheme, current_value) tuples for schemes
+        with an open position and a known current NAV.
+        """
+
+        from .historical_wealth import HistoricalWealthAnalytics
+
+        transactions = (
+            MutualFundTransaction.objects
+            .filter(
+                owner=user,
+                family_name=family_name,
+            )
+            .select_related("scheme__holding")
+            .order_by(
+                "scheme_id",
+                "transaction_date",
+                "created_at",
+                "id",
+            )
         )
 
-        for holding in equity_holdings:
-            value = (
-                holding.current_value
-                or cls.ZERO
+        positions = {}
+        schemes_by_id = {}
+
+        for transaction in transactions:
+            schemes_by_id[transaction.scheme_id] = transaction.scheme
+
+            position = positions.setdefault(
+                transaction.scheme_id,
+                {
+                    "units": cls.ZERO,
+                    "invested_value": cls.ZERO,
+                },
             )
 
-            raw_class = asset_class_by_asset_id.get(
-                holding.asset_id
+            HistoricalWealthAnalytics._apply_mutual_fund_transaction(
+                position,
+                transaction,
             )
 
-            asset_class = cls._normalize_asset_class(
-                raw_class
+        results = []
+
+        for scheme_id, position in positions.items():
+            if position["units"] <= 0:
+                continue
+
+            scheme = schemes_by_id[scheme_id]
+            holding = getattr(scheme, "holding", None)
+
+            current_nav = (
+                getattr(holding, "current_nav", None)
+                if holding
+                else None
             )
 
-            totals[asset_class] += value
+            if current_nav is None:
+                continue
 
-            if raw_class:
-                raw_values_by_asset_class[asset_class].add(
-                    raw_class
-                )
-
-        # ------------------------------------------------------------
-        # MUTUAL FUND HOLDINGS
-        # ------------------------------------------------------------
-        mutual_fund_holdings = (
-            UnifiedWealthAnalytics
-            .get_mutual_fund_holdings(user)
-        )
-
-        for holding in mutual_fund_holdings:
-            value = (
-                holding.current_value
-                or cls.ZERO
+            current_value = (
+                position["units"] * current_nav
             )
 
-            raw_class = getattr(
-                holding.scheme,
-                "category",
-                None,
-            )
+            results.append((scheme, current_value))
 
-            asset_class = cls._normalize_asset_class(
-                raw_class
-            )
+        return results
 
-            totals[asset_class] += value
-
-            if raw_class:
-                raw_values_by_asset_class[asset_class].add(
-                    raw_class
-                )
+    @classmethod
+    def _build_results(cls, totals, raw_values_by_asset_class):
+        """
+        Shared tail: turn a filled totals/raw_values_by_asset_class
+        pair into the same {results, total_current_value} shape used
+        by both the all-families and family-filtered calculate()
+        paths, so the two paths can never drift apart in how rows are
+        assembled.
+        """
 
         total_current_value = sum(
             totals.values(),
@@ -382,3 +483,523 @@ class InvestmentSummaryService:
             "results": results,
             "total_current_value": total_current_value,
         }
+
+    @classmethod
+    def calculate(cls, user, family_name=None):
+        """
+        Return the Investment Summary rows and the total current
+        value they were computed against.
+
+        family_name:
+            Optional. When omitted, this is byte-for-byte the
+            original all-families calculation (Holding /
+            MutualFundHolding based) - unchanged.
+
+            When provided, Holding/MutualFundHolding cannot be used
+            (neither carries a family_name), so positions are instead
+            rebuilt directly from Transaction / MutualFundTransaction
+            for that one family via _family_equity_positions /
+            _family_mutual_fund_positions.
+        """
+
+        totals = {
+            asset_class: cls.ZERO
+            for _, asset_classes in cls.MASTER_MAPPING
+            for asset_class in asset_classes
+        }
+
+        raw_values_by_asset_class = {
+            asset_class: set()
+            for _, asset_classes in cls.MASTER_MAPPING
+            for asset_class in asset_classes
+        }
+
+        if not family_name:
+            # --------------------------------------------------------
+            # EQUITY / OTHER INVESTMENT HOLDINGS
+            # --------------------------------------------------------
+            asset_class_by_asset_id = (
+                cls._equity_asset_class_by_asset_id(user)
+            )
+
+            equity_holdings = (
+                UnifiedWealthAnalytics
+                .get_equity_holdings(user)
+            )
+
+            for holding in equity_holdings:
+                value = (
+                    holding.current_value
+                    or cls.ZERO
+                )
+
+                raw_class = asset_class_by_asset_id.get(
+                    holding.asset_id
+                )
+
+                asset_class = cls._normalize_asset_class(
+                    raw_class
+                )
+
+                totals[asset_class] += value
+
+                if raw_class:
+                    raw_values_by_asset_class[asset_class].add(
+                        raw_class
+                    )
+
+            # --------------------------------------------------------
+            # MUTUAL FUND HOLDINGS
+            # --------------------------------------------------------
+            mutual_fund_holdings = (
+                UnifiedWealthAnalytics
+                .get_mutual_fund_holdings(user)
+            )
+
+            for holding in mutual_fund_holdings:
+                value = (
+                    holding.current_value
+                    or cls.ZERO
+                )
+
+                raw_class = getattr(
+                    holding.scheme,
+                    "category",
+                    None,
+                )
+
+                asset_class = cls._normalize_asset_class(
+                    raw_class
+                )
+
+                totals[asset_class] += value
+
+                if raw_class:
+                    raw_values_by_asset_class[asset_class].add(
+                        raw_class
+                    )
+
+            return cls._build_results(
+                totals,
+                raw_values_by_asset_class,
+            )
+
+        # ==================================================
+        # FAMILY-FILTERED PATH
+        # ==================================================
+
+        asset_class_by_asset_id = (
+            cls._equity_asset_class_by_asset_id(
+                user,
+                family_name=family_name,
+            )
+        )
+
+        for asset_id, value in cls._family_equity_positions(
+            user,
+            family_name,
+        ):
+            raw_class = asset_class_by_asset_id.get(asset_id)
+
+            asset_class = cls._normalize_asset_class(
+                raw_class
+            )
+
+            totals[asset_class] += value
+
+            if raw_class:
+                raw_values_by_asset_class[asset_class].add(
+                    raw_class
+                )
+
+        for scheme, value in cls._family_mutual_fund_positions(
+            user,
+            family_name,
+        ):
+            raw_class = getattr(
+                scheme,
+                "category",
+                None,
+            )
+
+            asset_class = cls._normalize_asset_class(
+                raw_class
+            )
+
+            totals[asset_class] += value
+
+            if raw_class:
+                raw_values_by_asset_class[asset_class].add(
+                    raw_class
+                )
+
+        return cls._build_results(
+            totals,
+            raw_values_by_asset_class,
+        )
+
+    # ==========================================================
+    # PERFORMANCE BY SUB CLASS
+    # ==========================================================
+
+    @classmethod
+    def calculate_performance_by_subclass(cls, user):
+        """
+        Aggregate invested value, current value, and unrealized P&L
+        by Asset Class (the same canonical Sub Class classification
+        used above for the Investment Summary table), for the
+        Analytics "Investment Performance" chart.
+
+        Unlike calculate(), which reports every Asset Class in
+        MASTER_MAPPING (including empty ones, for a stable table
+        layout), this only returns Asset Classes that actually hold
+        value, since the performance chart should not plot empty
+        bars.
+        """
+
+        totals = {
+            asset_class: {
+                "invested": cls.ZERO,
+                "current": cls.ZERO,
+            }
+            for _, asset_classes in cls.MASTER_MAPPING
+            for asset_class in asset_classes
+        }
+
+        category_by_asset_class = {
+            asset_class: category
+            for category, asset_classes in cls.MASTER_MAPPING
+            for asset_class in asset_classes
+        }
+
+        asset_class_by_asset_id = (
+            cls._equity_asset_class_by_asset_id(user)
+        )
+
+        equity_holdings = (
+            UnifiedWealthAnalytics
+            .get_equity_holdings(user)
+        )
+
+        for holding in equity_holdings:
+            raw_class = asset_class_by_asset_id.get(
+                holding.asset_id
+            )
+
+            asset_class = cls._normalize_asset_class(
+                raw_class
+            )
+
+            totals[asset_class]["invested"] += (
+                holding.invested_value or cls.ZERO
+            )
+
+            totals[asset_class]["current"] += (
+                holding.current_value or cls.ZERO
+            )
+
+        mutual_fund_holdings = (
+            UnifiedWealthAnalytics
+            .get_mutual_fund_holdings(user)
+        )
+
+        for holding in mutual_fund_holdings:
+            raw_class = getattr(
+                holding.scheme,
+                "category",
+                None,
+            )
+
+            asset_class = cls._normalize_asset_class(
+                raw_class
+            )
+
+            totals[asset_class]["invested"] += (
+                holding.invested_value or cls.ZERO
+            )
+
+            totals[asset_class]["current"] += (
+                holding.current_value or cls.ZERO
+            )
+
+        results = []
+
+        for category, asset_classes in cls.MASTER_MAPPING:
+            for asset_class in asset_classes:
+                invested = totals[asset_class]["invested"]
+                current = totals[asset_class]["current"]
+
+                if not invested and not current:
+                    continue
+
+                pnl = current - invested
+
+                pnl_percentage = (
+                    (pnl / invested) * 100
+                    if invested
+                    else cls.ZERO
+                )
+
+                results.append({
+                    "asset_category": category,
+                    "asset_class": asset_class,
+                    "invested_value": invested,
+                    "current_value": current,
+                    "unrealized_pnl": pnl,
+                    "pnl_percentage": round(
+                        pnl_percentage,
+                        2,
+                    ),
+                })
+
+        return sorted(
+            results,
+            key=lambda item: item["pnl_percentage"],
+            reverse=True,
+        )
+
+    # ==========================================================
+    # ALLOCATION BY ADVISOR
+    # ==========================================================
+
+    UNASSIGNED_ADVISOR = "Unassigned"
+
+    @staticmethod
+    def _advisor_by_asset_id(user):
+        """
+        Resolve every equity/other-investment asset's Advisor as the
+        advisors value of its most recent transaction that has one
+        set.
+
+        NOTE: Mutual fund holdings are tracked through a separate
+        MutualFundTransaction model that does not carry the original
+        Excel Advisors column (see the class docstring for the same
+        limitation on asset-class classification). Mutual fund value
+        is therefore bucketed under UNASSIGNED_ADVISOR below rather
+        than dropped.
+        """
+
+        rows = (
+            Transaction.objects
+            .filter(owner=user)
+            .exclude(advisors__isnull=True)
+            .exclude(advisors__exact="")
+            .order_by(
+                "asset_id",
+                "-transaction_date",
+                "-created_at",
+                "-id",
+            )
+            .values_list(
+                "asset_id",
+                "advisors",
+            )
+        )
+
+        resolved = {}
+
+        for asset_id, advisor in rows:
+            if asset_id not in resolved:
+                resolved[asset_id] = advisor
+
+        return resolved
+
+    @classmethod
+    def calculate_allocation_by_advisor(cls, user):
+        """
+        Aggregate current value by Advisor, for the Analytics
+        "Allocation by Advisor" pie chart.
+        """
+
+        totals = {}
+
+        advisor_by_asset_id = (
+            cls._advisor_by_asset_id(user)
+        )
+
+        equity_holdings = (
+            UnifiedWealthAnalytics
+            .get_equity_holdings(user)
+        )
+
+        for holding in equity_holdings:
+            advisor = (
+                advisor_by_asset_id.get(holding.asset_id)
+                or ""
+            ).strip() or cls.UNASSIGNED_ADVISOR
+
+            value = (
+                holding.current_value
+                or cls.ZERO
+            )
+
+            totals[advisor] = (
+                totals.get(advisor, cls.ZERO)
+                + value
+            )
+
+        mutual_fund_holdings = (
+            UnifiedWealthAnalytics
+            .get_mutual_fund_holdings(user)
+        )
+
+        mutual_fund_value = sum(
+            (
+                holding.current_value
+                or cls.ZERO
+            )
+            for holding in mutual_fund_holdings
+        )
+
+        if mutual_fund_value:
+            totals[cls.UNASSIGNED_ADVISOR] = (
+                totals.get(
+                    cls.UNASSIGNED_ADVISOR,
+                    cls.ZERO,
+                )
+                + mutual_fund_value
+            )
+
+        total_value = sum(
+            totals.values(),
+            cls.ZERO,
+        )
+
+        results = []
+
+        for advisor, value in totals.items():
+            if value <= 0:
+                continue
+
+            percentage = (
+                (value / total_value) * 100
+                if total_value
+                else cls.ZERO
+            )
+
+            results.append({
+                "advisor": advisor,
+                "value": value,
+                "percentage": round(
+                    percentage,
+                    2,
+                ),
+            })
+
+        return {
+            "results": sorted(
+                results,
+                key=lambda item: item["value"],
+                reverse=True,
+            ),
+            "total_current_value": total_value,
+        }
+
+    # ==========================================================
+    # PERFORMANCE BY ADVISOR
+    # ==========================================================
+
+    @classmethod
+    def calculate_performance_by_advisor(cls, user):
+        """
+        Aggregate invested value, current value, and unrealized P&L
+        by Advisor, for the Analytics "Advisor Performance" chart —
+        i.e. how much return each advisor's recommendations have
+        actually generated, not just how much value they manage.
+
+        Same advisor resolution as calculate_allocation_by_advisor:
+        the advisors value on each asset's most recent Transaction.
+        Mutual funds have no advisor data in their transaction model
+        (see _advisor_by_asset_id), so their invested/current value
+        is bucketed under UNASSIGNED_ADVISOR rather than dropped —
+        that bucket's return is meaningful (it is the blended return
+        of every un-attributed holding), just not attributable to a
+        named advisor.
+        """
+
+        totals = {}
+
+        advisor_by_asset_id = (
+            cls._advisor_by_asset_id(user)
+        )
+
+        equity_holdings = (
+            UnifiedWealthAnalytics
+            .get_equity_holdings(user)
+        )
+
+        for holding in equity_holdings:
+            advisor = (
+                advisor_by_asset_id.get(holding.asset_id)
+                or ""
+            ).strip() or cls.UNASSIGNED_ADVISOR
+
+            if advisor not in totals:
+                totals[advisor] = {
+                    "invested": cls.ZERO,
+                    "current": cls.ZERO,
+                }
+
+            totals[advisor]["invested"] += (
+                holding.invested_value or cls.ZERO
+            )
+
+            totals[advisor]["current"] += (
+                holding.current_value or cls.ZERO
+            )
+
+        mutual_fund_holdings = (
+            UnifiedWealthAnalytics
+            .get_mutual_fund_holdings(user)
+        )
+
+        for holding in mutual_fund_holdings:
+            advisor = cls.UNASSIGNED_ADVISOR
+
+            if advisor not in totals:
+                totals[advisor] = {
+                    "invested": cls.ZERO,
+                    "current": cls.ZERO,
+                }
+
+            totals[advisor]["invested"] += (
+                holding.invested_value or cls.ZERO
+            )
+
+            totals[advisor]["current"] += (
+                holding.current_value or cls.ZERO
+            )
+
+        results = []
+
+        for advisor, entry in totals.items():
+            invested = entry["invested"]
+            current = entry["current"]
+
+            if not invested and not current:
+                continue
+
+            pnl = current - invested
+
+            pnl_percentage = (
+                (pnl / invested) * 100
+                if invested
+                else cls.ZERO
+            )
+
+            results.append({
+                "advisor": advisor,
+                "invested_value": invested,
+                "current_value": current,
+                "unrealized_pnl": pnl,
+                "pnl_percentage": round(
+                    pnl_percentage,
+                    2,
+                ),
+            })
+
+        return sorted(
+            results,
+            key=lambda item: item["pnl_percentage"],
+            reverse=True,
+        )

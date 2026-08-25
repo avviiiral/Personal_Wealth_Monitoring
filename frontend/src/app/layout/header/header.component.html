@@ -28,9 +28,16 @@
     </button>
 
     <!-- NOTIFICATIONS -->
-    <button type="button" class="header-icon-button notification-button" aria-label="Notifications">
+    <button
+      type="button"
+      class="header-icon-button notification-button"
+      aria-label="Notifications"
+      (click)="toggleNotifications($event)"
+    >
       <span class="bell-icon">♧</span>
-      <span class="notification-dot"></span>
+      <span class="notification-count" *ngIf="unreadCount > 0">{{
+        unreadCount > 9 ? '9+' : unreadCount
+      }}</span>
     </button>
 
     <!-- USER -->
@@ -120,6 +127,48 @@
     <div class="search-empty">
       Search your portfolio holdings, stocks, mutual funds and other investments.
     </div>
+  </div>
+
+  <!-- NOTIFICATIONS PANEL -->
+  <div class="notifications-panel" *ngIf="notificationsOpen" (click)="$event.stopPropagation()">
+    <div class="notifications-panel-header">
+      <span>Notifications</span>
+
+      <button
+        type="button"
+        class="mark-all-read-button"
+        *ngIf="unreadCount > 0"
+        (click)="markAllNotificationsRead($event)"
+      >
+        Mark all read
+      </button>
+    </div>
+
+    <div class="notifications-list">
+      <button
+        type="button"
+        class="notification-item"
+        *ngFor="let item of notifications"
+        [class.unread]="!item.is_read"
+        (click)="openNotification(item)"
+      >
+        <span [class]="impactDotClass(item)"></span>
+
+        <div class="notification-item-body">
+          <strong>{{ item.holding_display_name }}</strong>
+          <span class="notification-item-title">{{ item.article_title }}</span>
+          <span class="notification-item-time">{{ timeAgo(item.created_at) }}</span>
+        </div>
+      </button>
+
+      <div class="notifications-empty" *ngIf="notifications.length === 0">
+        No new high-impact news on your holdings right now.
+      </div>
+    </div>
+
+    <a class="notifications-view-all" routerLink="/portfolio-news" (click)="closeNotifications()">
+      View all portfolio news
+    </a>
   </div>
 
   <!-- AI CHAT PANEL -->

@@ -10,8 +10,10 @@ describe('AnalyticsComponent', () => {
 
   let wealthApi: {
     getSummary: ReturnType<typeof vi.fn>;
-    getAllocation: ReturnType<typeof vi.fn>;
-    getPerformance: ReturnType<typeof vi.fn>;
+    getInvestmentSummary: ReturnType<typeof vi.fn>;
+    getPerformanceBySubclass: ReturnType<typeof vi.fn>;
+    getAllocationByAdvisor: ReturnType<typeof vi.fn>;
+    getPerformanceByAdvisor: ReturnType<typeof vi.fn>;
     getXirr: ReturnType<typeof vi.fn>;
     getHistorical: ReturnType<typeof vi.fn>;
   };
@@ -27,33 +29,78 @@ describe('AnalyticsComponent', () => {
     number_of_holdings: 3,
   };
 
-  const mockAllocation = {
+  const mockInvestmentSummary = {
     results: [
       {
-        category: 'STOCK',
-        value: 75000,
-        percentage: 60,
+        asset_category: 'Equities',
+        asset_class: 'Direct Equity',
+        current_value: 75000,
+        percentage_of_total: 60,
+        raw_asset_classes: ['Direct Equity'],
       },
       {
-        category: 'MUTUAL_FUND',
-        value: 50000,
-        percentage: 40,
+        asset_category: 'Fixed Income',
+        asset_class: 'Debt Mutual Fund',
+        current_value: 50000,
+        percentage_of_total: 40,
+        raw_asset_classes: ['Debt Mutual Fund'],
       },
     ],
+    total_current_value: 125000,
   };
 
   const mockPerformance = {
     results: [
       {
-        type: 'EQUITY',
-        symbol: 'TEST',
-        asset_name: 'Test Stock',
+        asset_category: 'Equities',
+        asset_class: 'Direct Equity',
+        invested_value: 60000,
+        current_value: 75000,
+        unrealized_pnl: 15000,
         pnl_percentage: 30,
       },
       {
-        type: 'MUTUAL_FUND',
-        scheme_name: 'Test Fund',
+        asset_category: 'Fixed Income',
+        asset_class: 'Debt Mutual Fund',
+        invested_value: 45000,
+        current_value: 50000,
+        unrealized_pnl: 5000,
         pnl_percentage: 10,
+      },
+    ],
+  };
+
+  const mockAdvisorAllocation = {
+    results: [
+      {
+        advisor: 'Advisor A',
+        value: 75000,
+        percentage: 60,
+      },
+      {
+        advisor: 'Unassigned',
+        value: 50000,
+        percentage: 40,
+      },
+    ],
+    total_current_value: 125000,
+  };
+
+  const mockAdvisorPerformance = {
+    results: [
+      {
+        advisor: 'Advisor A',
+        invested_value: 60000,
+        current_value: 75000,
+        unrealized_pnl: 15000,
+        pnl_percentage: 25,
+      },
+      {
+        advisor: 'Unassigned',
+        invested_value: 45000,
+        current_value: 50000,
+        unrealized_pnl: 5000,
+        pnl_percentage: 11.11,
       },
     ],
   };
@@ -83,8 +130,10 @@ describe('AnalyticsComponent', () => {
   beforeEach(async () => {
     wealthApi = {
       getSummary: vi.fn().mockReturnValue(of(mockSummary)),
-      getAllocation: vi.fn().mockReturnValue(of(mockAllocation)),
-      getPerformance: vi.fn().mockReturnValue(of(mockPerformance)),
+      getInvestmentSummary: vi.fn().mockReturnValue(of(mockInvestmentSummary)),
+      getPerformanceBySubclass: vi.fn().mockReturnValue(of(mockPerformance)),
+      getAllocationByAdvisor: vi.fn().mockReturnValue(of(mockAdvisorAllocation)),
+      getPerformanceByAdvisor: vi.fn().mockReturnValue(of(mockAdvisorPerformance)),
       getXirr: vi.fn().mockReturnValue(of(mockXirr)),
       getHistorical: vi.fn().mockReturnValue(of(mockHistorical)),
     };
@@ -115,24 +164,40 @@ describe('AnalyticsComponent', () => {
 
   it('should load analytics data', () => {
     expect(component.summary).toEqual(mockSummary);
-    expect(component.allocation).toEqual(mockAllocation);
+    expect(component.investmentSummary).toEqual(mockInvestmentSummary);
+    expect(component.allocation).toEqual({
+      results: [
+        {
+          category: 'Equities',
+          value: 75000,
+          percentage: 60,
+        },
+        {
+          category: 'Fixed Income',
+          value: 50000,
+          percentage: 40,
+        },
+      ],
+    });
     expect(component.performance).toEqual(mockPerformance);
+    expect(component.advisorAllocation).toEqual(mockAdvisorAllocation);
+    expect(component.advisorPerformance).toEqual(mockAdvisorPerformance);
     expect(component.xirr).toEqual(mockXirr);
     expect(component.historical).toEqual(mockHistorical);
   });
 
   it('should calculate best performer', () => {
-    expect(component.getBestPerformerName()).toBe('TEST');
+    expect(component.getBestPerformerName()).toBe('Direct Equity');
     expect(component.getBestPerformerReturn()).toBe(30);
   });
 
   it('should calculate worst performer', () => {
-    expect(component.getWorstPerformerName()).toBe('Test Fund');
+    expect(component.getWorstPerformerName()).toBe('Debt Mutual Fund');
     expect(component.getWorstPerformerReturn()).toBe(10);
   });
 
   it('should calculate largest allocation', () => {
-    expect(component.getLargestAllocationName()).toBe('Stock');
+    expect(component.getLargestAllocationName()).toBe('Equities');
     expect(component.getLargestAllocationPercentage()).toBe(60);
   });
 

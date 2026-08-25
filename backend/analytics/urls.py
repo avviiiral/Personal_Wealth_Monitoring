@@ -6,8 +6,11 @@ from .views import (
     analytics_performance,
     analytics_summary,
     wealth_allocation,
+    wealth_allocation_by_advisor,
     wealth_investment_summary,
     wealth_performance,
+    wealth_performance_by_advisor,
+    wealth_performance_by_subclass,
     wealth_summary,
     wealth_xirr,
     wealth_historical,
@@ -69,6 +72,24 @@ urlpatterns = [
         "wealth/investment-summary/",
         wealth_investment_summary,
         name="wealth-investment-summary",
+    ),
+
+    path(
+        "wealth/performance-by-subclass/",
+        wealth_performance_by_subclass,
+        name="wealth-performance-by-subclass",
+    ),
+
+    path(
+        "wealth/allocation-by-advisor/",
+        wealth_allocation_by_advisor,
+        name="wealth-allocation-by-advisor",
+    ),
+
+    path(
+        "wealth/performance-by-advisor/",
+        wealth_performance_by_advisor,
+        name="wealth-performance-by-advisor",
     ),
 
     path(

@@ -44,6 +44,7 @@
 
 /* ==========================================================
    DOWNLOAD MENU
+   (left exactly as-is - do not touch)
    ========================================================== */
 
 .download-menu-wrapper {
@@ -147,7 +148,8 @@
 }
 
 /* ==========================================================
-   DETAILED VIEW DATE RANGE MODAL
+   DETAILED VIEW DATE RANGE MODAL / SUMMARY VIEW MODAL
+   (left exactly as-is - do not touch)
    ========================================================== */
 
 .modal-overlay {
@@ -267,6 +269,8 @@
 
 /* ==========================================================
    LEVEL 1 - FAMILY TABLE
+   (identical shell/behavior to Portfolio page's Level 1 -
+   Sub Class - table)
    ========================================================== */
 
 .reports-table-card {
@@ -363,13 +367,124 @@
   background: #ffffff;
 }
 
+.asset-detail-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 14px;
+  color: #101828;
+}
+
 /* ==========================================================
-   LEVEL 2 - SUB CLASS TABLE
+   LEVEL 2 - SUB CLASS
+   Same flex-row group pattern as the Portfolio page's Level 2
+   (Asset Name) groups - not a nested table.
    ========================================================== */
 
-.sub-class-table {
+.asset-groups {
   width: 100%;
-  min-width: 600px;
+}
+
+.asset-group-columns-header {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 14px;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #344054;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.asset-group-name-header {
+  flex: 1 1 auto;
+  min-width: 220px;
+  padding-left: 23px;
+  box-sizing: border-box;
+}
+
+.asset-group {
+  width: 100%;
+  border-bottom: 1px solid #eef0f3;
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.asset-group-header {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 13px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #101828;
+  transition: background 0.15s ease;
+
+  &:hover {
+    background: #f8fafc;
+  }
+
+  &.expanded {
+    background: #f5f8fc;
+  }
+}
+
+.asset-group-name {
+  flex: 1 1 auto;
+  min-width: 220px;
+  font-weight: 600;
+}
+
+.asset-group-col {
+  flex: 0 0 160px;
+  box-sizing: border-box;
+  padding-right: 16px;
+  font-weight: 600;
+}
+
+/* ==========================================================
+   LEVEL 3 - ASSET NAME
+   One level further indented than Sub Class, but the exact
+   same flex-row group pattern (reuses .asset-groups /
+   .asset-group / .asset-group-header / .asset-group-name /
+   .asset-group-col). Clicking an Asset Name reveals its own
+   Underlyings below it.
+   ========================================================== */
+
+.asset-name-container {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 14px 14px 37px;
+  background: #ffffff;
+}
+
+/* ==========================================================
+   LEVEL 4 - UNDERLYING (FINAL, but CLICKABLE)
+   Same table shell as the Portfolio page's final Underlying
+   table, indented one level further than Asset Name. Unlike
+   Portfolio, rows here ARE clickable - clicking one reveals
+   that Underlying's own Transactions below it.
+   ========================================================== */
+
+.underlying-container {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 14px 14px 60px;
+  background: #ffffff;
+}
+
+.underlying-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.asset-table {
+  width: 100%;
+  min-width: 500px;
   border-collapse: collapse;
 
   th {
@@ -396,78 +511,46 @@
   }
 }
 
-.sub-class-name-col {
-  font-weight: 700;
-}
-
-.sub-class-row {
-  cursor: pointer;
-  transition: background 0.15s ease;
-
-  &:hover {
-    background: #f8fafc;
-  }
-
-  &.expanded {
-    background: #f5f8fc;
-  }
-}
-
-/* ==========================================================
-   LEVEL 3 - UNDERLYING
-   ========================================================== */
-
-.underlying-groups {
-  width: 100%;
-}
-
-.underlying-group {
-  width: 100%;
-  border-bottom: 1px solid #eef0f3;
-
-  &:last-child {
-    border-bottom: none;
-  }
-}
-
-.underlying-group-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  box-sizing: border-box;
-  padding: 13px 14px;
-  cursor: pointer;
-  font-size: 13px;
-  color: #101828;
-  transition: background 0.15s ease;
-
-  &:hover {
-    background: #f8fafc;
-  }
-
-  &.expanded {
-    background: #f5f8fc;
-  }
-}
-
-.underlying-group-name {
+.asset-name {
   font-weight: 600;
+  min-width: 220px;
 }
 
-.underlying-group-count {
-  color: #667085;
-  font-size: 11px;
+/*
+ * IMPORTANT:
+ * Unlike Portfolio's final-underlying rows, these ARE clickable -
+ * clicking one expands its own Transactions panel underneath.
+ */
+.underlying-row {
+  cursor: pointer;
+  transition: background 0.15s ease;
+
+  &:hover {
+    background: #f8fafc;
+  }
+
+  &.expanded {
+    background: #f5f8fc;
+  }
 }
 
 /* ==========================================================
-   LEVEL 4 / FINAL - TRANSACTIONS
+   LEVEL 5 / FINAL - TRANSACTIONS FOR ONE UNDERLYING
+   (scoped to the Asset Name it was expanded under)
    ========================================================== */
+
+.transactions-detail-row {
+  background: #ffffff;
+
+  > td {
+    padding: 0;
+  }
+}
 
 .transactions-container {
   width: 100%;
   box-sizing: border-box;
-  padding: 0 14px 14px 37px;
+  padding: 0 14px 14px 14px;
   background: #ffffff;
 }
 
@@ -534,6 +617,14 @@
   .reports-header-actions {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .asset-name-container {
+    padding-left: 14px;
+  }
+
+  .underlying-container {
+    padding-left: 14px;
   }
 
   .transactions-container {

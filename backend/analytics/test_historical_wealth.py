@@ -151,9 +151,13 @@ class HistoricalWealthAnalyticsTests(TestCase):
             )
         )
 
+        # Invested value excludes fees (matches
+        # HoldingCalculationEngine.calculate_position(), the engine
+        # behind Holding.invested_value) - the fixture's BUY is
+        # amount=1000, fees=10, so invested_value is 1000, not 1010.
         self.assertEqual(
             result["equity"]["invested_value"],
-            Decimal("1010"),
+            Decimal("1000"),
         )
 
         self.assertEqual(
@@ -163,7 +167,7 @@ class HistoricalWealthAnalyticsTests(TestCase):
 
         self.assertEqual(
             result["equity"]["pnl"],
-            Decimal("-10"),
+            Decimal("0"),
         )
 
     def test_equity_historical_value_uses_latest_price(self):
@@ -244,9 +248,12 @@ class HistoricalWealthAnalyticsTests(TestCase):
             )
         )
 
+        # Invested value excludes fees - equity fixture is
+        # amount=1000, fees=10, so total invested is 1000+10000=
+        # 11000, not 11010 (mutual fund fixture has fees=0).
         self.assertEqual(
             result["invested_value"],
-            Decimal("11010"),
+            Decimal("11000"),
         )
 
         self.assertEqual(
@@ -256,7 +263,7 @@ class HistoricalWealthAnalyticsTests(TestCase):
 
         self.assertEqual(
             result["pnl"],
-            Decimal("1190"),
+            Decimal("1200"),
         )
 
     # ==========================================================

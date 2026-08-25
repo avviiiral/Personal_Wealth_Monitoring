@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     'analytics',
     'ai',
     'mutual_funds',
+    'portfolio_news',
 ]
 
 MIDDLEWARE = [

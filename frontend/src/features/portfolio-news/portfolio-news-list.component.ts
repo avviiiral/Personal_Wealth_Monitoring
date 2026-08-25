@@ -1,0 +1,105 @@
+import { Component, OnInit, inject } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { Router } from '@angular/router';
+
+import { NewsApiService, PortfolioNewsAlertListItem } from '../../core/services/news-api.service';
+
+type TierFilter = 'all' | 'critical' | 'high' | 'moderate' | 'low';
+
+@Component({
+  selector: 'app-portfolio-news-list',
+  standalone: true,
+  imports: [CommonModule],
+  templateUrl: './portfolio-news-list.component.html',
+  styleUrl: './portfolio-news-list.component.scss',
+})
+export class PortfolioNewsListComponent implements OnInit {
+  private readonly newsApi = inject(NewsApiService);
+  private readonly router = inject(Router);
+
+  items: PortfolioNewsAlertListItem[] = [];
+  loading = true;
+  error = '';
+
+  activeTier: TierFilter = 'all';
+
+  readonly tiers: { value: TierFilter; label: string }[] = [
+    { value: 'all', label: 'All' },
+    { value: 'critical', label: 'Critical' },
+    { value: 'high', label: 'High' },
+    { value: 'moderate', label: 'Moderate' },
+    { value: 'low', label: 'Low' },
+  ];
+
+  ngOnInit(): void {
+    this.loadNews();
+  }
+
+  loadNews(): void {
+    this.loading = true;
+    this.error = '';
+
+    this.newsApi
+      .getNews({
+        tier: this.activeTier === 'all' ? undefined : this.activeTier,
+        limit: 100,
+      })
+      .subscribe({
+        next: (response) => {
+          this.items = response.results;
+          this.loading = false;
+        },
+
+        error: (error) => {
+          console.error('Failed to load portfolio news:', error);
+          this.error = 'Unable to load your portfolio news right now.';
+          this.loading = false;
+        },
+      });
+  }
+
+  selectTier(tier: TierFilter): void {
+    if (this.activeTier === tier) {
+      return;
+    }
+
+    this.activeTier = tier;
+    this.loadNews();
+  }
+
+  openItem(item: PortfolioNewsAlertListItem): void {
+    this.router.navigate(['/portfolio-news', item.id]);
+  }
+
+  impactDotClass(item: PortfolioNewsAlertListItem): string {
+    return `impact-dot impact-dot--${item.notification_tier}`;
+  }
+
+  timeAgo(isoDate: string | null): string {
+    if (!isoDate) {
+      return '';
+    }
+
+    const then = new Date(isoDate).getTime();
+    const diffMs = Date.now() - then;
+    const diffMinutes = Math.floor(diffMs / 60000);
+
+    if (diffMinutes < 1) {
+      return 'just now';
+    }
+
+    if (diffMinutes < 60) {
+      return `${diffMinutes} minute${diffMinutes === 1 ? '' : 's'} ago`;
+    }
+
+    const diffHours = Math.floor(diffMinutes / 60);
+
+    if (diffHours < 24) {
+      return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+    }
+
+    const diffDays = Math.floor(diffHours / 24);
+
+    return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+  }
+}

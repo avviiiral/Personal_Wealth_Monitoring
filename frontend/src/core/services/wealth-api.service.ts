@@ -23,8 +23,15 @@ export class WealthApiService {
    */
   private readonly baseUrl = 'http://localhost:8000/api/analytics/wealth';
 
-  getSummary(): Observable<any> {
+  getSummary(family?: string): Observable<any> {
+    let params = new HttpParams();
+
+    if (family) {
+      params = params.set('family', family);
+    }
+
     return this.http.get<any>(`${this.baseUrl}/summary/`, {
+      params,
       withCredentials: true,
     });
   }
@@ -41,20 +48,56 @@ export class WealthApiService {
     });
   }
 
-  getXirr(): Observable<any> {
+  getXirr(family?: string): Observable<any> {
+    let params = new HttpParams();
+
+    if (family) {
+      params = params.set('family', family);
+    }
+
     return this.http.get<any>(`${this.baseUrl}/xirr/`, {
+      params,
       withCredentials: true,
     });
   }
 
-  getInvestmentSummary(): Observable<any> {
+  getInvestmentSummary(family?: string): Observable<any> {
+    let params = new HttpParams();
+
+    if (family) {
+      params = params.set('family', family);
+    }
+
     return this.http.get<any>(`${this.baseUrl}/investment-summary/`, {
+      params,
       withCredentials: true,
     });
   }
 
-  getHistorical(days: number = 30): Observable<any> {
-    const params = new HttpParams().set('days', days);
+  getPerformanceBySubclass(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/performance-by-subclass/`, {
+      withCredentials: true,
+    });
+  }
+
+  getAllocationByAdvisor(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/allocation-by-advisor/`, {
+      withCredentials: true,
+    });
+  }
+
+  getPerformanceByAdvisor(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/performance-by-advisor/`, {
+      withCredentials: true,
+    });
+  }
+
+  getHistorical(days: number = 30, family?: string): Observable<any> {
+    let params = new HttpParams().set('days', days);
+
+    if (family) {
+      params = params.set('family', family);
+    }
 
     return this.http.get<any>(`${this.baseUrl}/historical/`, {
       params,

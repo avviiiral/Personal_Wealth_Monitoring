@@ -1,6 +1,8 @@
 from django.db import models
 from django.contrib.auth.models import User
 
+from typing import TYPE_CHECKING
+
 
 class MutualFundScheme(models.Model):
     """
@@ -88,6 +90,9 @@ class MutualFundNAV(models.Model):
         on_delete=models.CASCADE,
         related_name="nav_history",
     )
+
+    if TYPE_CHECKING:
+        scheme_id: int
 
     date = models.DateField()
 
@@ -180,6 +185,9 @@ class MutualFundTransaction(models.Model):
         on_delete=models.CASCADE,
         related_name="transactions",
     )
+
+    if TYPE_CHECKING:
+        scheme_id: int
 
     transaction_type = models.CharField(
         max_length=20,
@@ -328,6 +336,9 @@ class MutualFundHolding(models.Model):
         on_delete=models.CASCADE,
         related_name="holding",
     )
+
+    if TYPE_CHECKING:
+        scheme_id: int
 
     units = models.DecimalField(
         max_digits=20,

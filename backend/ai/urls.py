@@ -1,4 +1,4 @@
-from django.urls import path
+from django.urls import include, path
 
 from .views import portfolio_chat
 
@@ -8,5 +8,10 @@ urlpatterns = [
         "chat/",
         portfolio_chat,
         name="portfolio-chat",
+    ),
+
+    path(
+        "",
+        include("portfolio_news.urls"),
     ),
 ]

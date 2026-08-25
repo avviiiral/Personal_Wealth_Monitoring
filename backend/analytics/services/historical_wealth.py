@@ -7,7 +7,7 @@ from investments.models import (
     Transaction,
     TransactionType,
 )
-from market_data.models import MarketPrice
+from market_data.models import ManualAssetPrice, MarketPrice
 from mutual_funds.models import (
     MutualFundNAV,
     MutualFundScheme,
@@ -50,17 +50,20 @@ class HistoricalWealthAnalytics:
             or HistoricalWealthAnalytics.ZERO
         )
 
-        fees = (
-            transaction.fees
-            or HistoricalWealthAnalytics.ZERO
-        )
-
         if transaction.transaction_type in (
             TransactionType.BUY,
             TransactionType.SIP,
         ):
             position["quantity"] += quantity
-            position["invested_value"] += amount + fees
+
+            # IMPORTANT:
+            # Invested value intentionally excludes fees, matching
+            # HoldingCalculationEngine.calculate_position() (the
+            # engine behind Holding.invested_value / the "All
+            # Families" figures) - so both agree on what "invested
+            # value" means instead of a Family filter shifting the
+            # number purely from a fee-accounting difference.
+            position["invested_value"] += amount
 
         elif transaction.transaction_type == TransactionType.SELL:
             if (
@@ -108,17 +111,15 @@ class HistoricalWealthAnalytics:
             or HistoricalWealthAnalytics.ZERO
         )
 
-        fees = (
-            transaction.fees
-            or HistoricalWealthAnalytics.ZERO
-        )
-
         if transaction.transaction_type in (
             MutualFundTransactionType.PURCHASE,
             MutualFundTransactionType.SIP,
         ):
             position["units"] += units
-            position["invested_value"] += amount + fees
+
+            # Excludes fees - see the matching comment in
+            # _apply_equity_transaction above.
+            position["invested_value"] += amount
 
         elif transaction.transaction_type == (
             MutualFundTransactionType.REDEMPTION
@@ -170,7 +171,7 @@ class HistoricalWealthAnalytics:
         """
 
         asset_ids = [
-            asset.id
+            asset.pk
             for asset in assets
         ]
 
@@ -221,7 +222,7 @@ class HistoricalWealthAnalytics:
             previous_price = (
                 MarketPrice.objects
                 .filter(
-                    asset_id=asset.id,
+                    asset_id=asset.pk,
                     date__lt=start_date,
                 )
                 .order_by(
@@ -237,7 +238,7 @@ class HistoricalWealthAnalytics:
 
             if previous_price is not None:
                 prices_by_asset[
-                    asset.id
+                    asset.pk
                 ].insert(
                     0,
                     (
@@ -245,6 +246,48 @@ class HistoricalWealthAnalytics:
                         previous_price.close_price,
                     ),
                 )
+
+        # ------------------------------------------------------
+        # MANUAL OVERRIDE (ManualAssetPrice)
+        #
+        # IMPORTANT:
+        # This is a SEPARATE table from MarketPrice(source=MANUAL) -
+        # used for assets where automatic market data is
+        # unavailable (AIFs, PMS, unlisted, etc). It holds exactly
+        # one row per asset, no history, and
+        # PortfolioMetricsService.get_current_price() - the price
+        # source behind Holding / the "All Families" figures -
+        # already gives it unconditional top priority over
+        # MarketPrice, regardless of date.
+        #
+        # To keep this calculation consistent with that, any asset
+        # with a ManualAssetPrice entry gets its MarketPrice series
+        # REPLACED with that single price. _get_value_for_date()
+        # already falls back to a single point's value for every
+        # date (before OR after it), so this one override price is
+        # used across the entire requested range - the same
+        # date-agnostic behavior get_current_price() has.
+        # ------------------------------------------------------
+
+        manual_prices = (
+            ManualAssetPrice.objects
+            .filter(
+                asset_id__in=asset_ids,
+            )
+            .only(
+                "asset_id",
+                "price",
+                "price_date",
+            )
+        )
+
+        for manual_price in manual_prices:
+            prices_by_asset[manual_price.asset_id] = [
+                (
+                    manual_price.price_date,
+                    manual_price.price,
+                )
+            ]
 
         return dict(prices_by_asset)
 
@@ -264,7 +307,7 @@ class HistoricalWealthAnalytics:
         """
 
         scheme_ids = [
-            scheme.id
+            scheme.pk
             for scheme in schemes
         ]
 
@@ -315,7 +358,7 @@ class HistoricalWealthAnalytics:
             previous_nav = (
                 MutualFundNAV.objects
                 .filter(
-                    scheme_id=scheme.id,
+                    scheme_id=scheme.pk,
                     date__lt=start_date,
                 )
                 .order_by(
@@ -331,7 +374,7 @@ class HistoricalWealthAnalytics:
 
             if previous_nav is not None:
                 navs_by_scheme[
-                    scheme.id
+                    scheme.pk
                 ].insert(
                     0,
                     (
@@ -807,6 +850,7 @@ class HistoricalWealthAnalytics:
         user,
         start_date,
         end_date,
+        family_name=None,
     ):
         """
         Optimized historical wealth calculation.
@@ -823,6 +867,15 @@ class HistoricalWealthAnalytics:
             5. Calculates daily values in memory.
 
         The API response structure remains unchanged.
+
+        family_name:
+            Optional. When provided, scopes both the equity and
+            mutual-fund transaction querysets to that exact Family
+            Name (Transaction.family_name / MutualFundTransaction.
+            family_name), so every downstream step - active
+            assets/schemes, prices/NAVs, positions, daily totals -
+            naturally narrows to that family. Leaving it unset
+            preserves the original all-families calculation exactly.
         """
 
         if start_date > end_date:
@@ -834,12 +887,22 @@ class HistoricalWealthAnalytics:
         # EQUITY TRANSACTIONS
         # ======================================================
 
-        equity_transactions = (
+        equity_transactions_qs = (
             Transaction.objects
             .filter(
                 owner=user,
                 transaction_date__lte=end_date,
             )
+        )
+
+        if family_name:
+            equity_transactions_qs = (
+                equity_transactions_qs
+                .filter(family_name=family_name)
+            )
+
+        equity_transactions = (
+            equity_transactions_qs
             .order_by(
                 "transaction_date",
                 "created_at",
@@ -878,7 +941,7 @@ class HistoricalWealthAnalytics:
         )
 
         active_asset_ids = {
-            asset.id
+            asset.pk
             for asset in assets
         }
 
@@ -921,12 +984,22 @@ class HistoricalWealthAnalytics:
         # MUTUAL FUND TRANSACTIONS
         # ======================================================
 
-        mutual_fund_transactions = (
+        mutual_fund_transactions_qs = (
             MutualFundTransaction.objects
             .filter(
                 owner=user,
                 transaction_date__lte=end_date,
             )
+        )
+
+        if family_name:
+            mutual_fund_transactions_qs = (
+                mutual_fund_transactions_qs
+                .filter(family_name=family_name)
+            )
+
+        mutual_fund_transactions = (
+            mutual_fund_transactions_qs
             .order_by(
                 "transaction_date",
                 "created_at",
@@ -965,7 +1038,7 @@ class HistoricalWealthAnalytics:
         )
 
         active_scheme_ids = {
-            scheme.id
+            scheme.pk
             for scheme in schemes
         }
 
@@ -1020,7 +1093,7 @@ class HistoricalWealthAnalytics:
 
         for asset in assets:
 
-            equity_positions[asset.id] = {
+            equity_positions[asset.pk] = {
                 "quantity": (
                     HistoricalWealthAnalytics.ZERO
                 ),
@@ -1037,7 +1110,7 @@ class HistoricalWealthAnalytics:
 
         for scheme in schemes:
 
-            mutual_fund_positions[scheme.id] = {
+            mutual_fund_positions[scheme.pk] = {
                 "units": (
                     HistoricalWealthAnalytics.ZERO
                 ),
@@ -1111,12 +1184,12 @@ class HistoricalWealthAnalytics:
         # ======================================================
 
         price_pointers = {
-            asset.id: -1
+            asset.pk: -1
             for asset in assets
         }
 
         nav_pointers = {
-            scheme.id: -1
+            scheme.pk: -1
             for scheme in schemes
         }
 
@@ -1196,7 +1269,7 @@ class HistoricalWealthAnalytics:
             for asset in assets:
 
                 position = equity_positions.get(
-                    asset.id
+                    asset.pk
                 )
 
                 if position is None:
@@ -1212,7 +1285,7 @@ class HistoricalWealthAnalytics:
                 )
 
                 price_values = prices_by_asset.get(
-                    asset.id,
+                    asset.pk,
                     [],
                 )
 
@@ -1222,13 +1295,13 @@ class HistoricalWealthAnalytics:
                         price_values,
                         current_date,
                         price_pointers.get(
-                            asset.id,
+                            asset.pk,
                             -1,
                         ),
                     )
                 )
 
-                price_pointers[asset.id] = pointer
+                price_pointers[asset.pk] = pointer
 
                 if price is None:
                     continue
@@ -1252,7 +1325,7 @@ class HistoricalWealthAnalytics:
             for scheme in schemes:
 
                 position = mutual_fund_positions.get(
-                    scheme.id
+                    scheme.pk
                 )
 
                 if position is None:
@@ -1268,7 +1341,7 @@ class HistoricalWealthAnalytics:
                 )
 
                 nav_values = navs_by_scheme.get(
-                    scheme.id,
+                    scheme.pk,
                     [],
                 )
 
@@ -1278,13 +1351,13 @@ class HistoricalWealthAnalytics:
                         nav_values,
                         current_date,
                         nav_pointers.get(
-                            scheme.id,
+                            scheme.pk,
                             -1,
                         ),
                     )
                 )
 
-                nav_pointers[scheme.id] = pointer
+                nav_pointers[scheme.pk] = pointer
 
                 if nav is None:
                     continue
@@ -1351,9 +1424,13 @@ class HistoricalWealthAnalytics:
     def calculate_last_days(
         user,
         days=30,
+        family_name=None,
     ):
         """
         Calculate the last N calendar days including today.
+
+        family_name is passed straight through to calculate_history -
+        see its docstring.
         """
 
         if days < 1:
@@ -1374,5 +1451,6 @@ class HistoricalWealthAnalytics:
                 user,
                 start_date,
                 end_date,
+                family_name=family_name,
             )
         )
