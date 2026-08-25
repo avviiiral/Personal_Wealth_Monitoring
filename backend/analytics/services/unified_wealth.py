@@ -166,7 +166,15 @@ class UnifiedWealthAnalytics:
                 TransactionType.SIP,
             ):
                 position["quantity"] += quantity
-                position["invested_value"] += amount + fees
+
+                # Excludes fees, matching
+                # HoldingCalculationEngine.calculate_position() -
+                # see historical_wealth.py's
+                # _apply_equity_transaction for the full rationale.
+                # Sale proceeds below still subtract fees since
+                # that's a different concept (cash actually
+                # received), not invested value.
+                position["invested_value"] += amount
 
             elif transaction.transaction_type == TransactionType.SELL:
 
@@ -336,9 +344,10 @@ class UnifiedWealthAnalytics:
             ):
 
                 position["units"] += units
-                position["invested_value"] += (
-                    amount + fees
-                )
+
+                # Excludes fees - see calculate_equity_realized_pnl
+                # above for the full rationale.
+                position["invested_value"] += amount
 
             elif transaction.transaction_type == (
                 MutualFundTransactionType.REDEMPTION
@@ -1068,7 +1077,7 @@ class UnifiedWealthAnalytics:
 
             results.append({
                 "type": "EQUITY",
-                "holding_id": holding.id,
+                "holding_id": holding.pk,
                 "name": holding.asset.name,
                 "symbol": holding.asset.symbol,
                 "invested_value": invested,
@@ -1110,7 +1119,7 @@ class UnifiedWealthAnalytics:
 
             results.append({
                 "type": "MUTUAL_FUND",
-                "holding_id": holding.id,
+                "holding_id": holding.pk,
                 "name": holding.scheme.scheme_name,
                 "symbol": holding.scheme.scheme_code,
                 "invested_value": invested,

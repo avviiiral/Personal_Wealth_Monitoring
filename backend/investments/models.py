@@ -1,6 +1,8 @@
 from django.db import models
 from django.contrib.auth.models import User
 
+from typing import TYPE_CHECKING
+
 
 class AssetCategory(models.TextChoices):
     STOCK = "STOCK", "Stock"
@@ -191,6 +193,16 @@ class Transaction(models.Model):
         related_name="transactions",
     )
 
+    if TYPE_CHECKING:
+        # Django creates this "<field>_id" shadow attribute for every
+        # ForeignKey automatically at runtime. It's real and always
+        # present (the FK is required, not nullable) - this
+        # declaration only teaches Pylance/Pyright about it (guarded
+        # by TYPE_CHECKING, so it has zero effect at runtime); it's
+        # the same attribute django-stubs' mypy plugin would add
+        # automatically, which Pyright can't run.
+        asset_id: int
+
     # ==========================================================
     # TRANSACTION
     # ==========================================================
@@ -316,6 +328,9 @@ class Holding(models.Model):
         on_delete=models.CASCADE,
         related_name="holding",
     )
+
+    if TYPE_CHECKING:
+        asset_id: int
 
     quantity = models.DecimalField(
         max_digits=20,

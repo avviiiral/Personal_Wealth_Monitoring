@@ -1,12 +1,20 @@
 import logging
 
-from typing import Tuple
+from typing import TYPE_CHECKING, Tuple
 
 from .alert_scoring import (
     compute_alert_score,
     determine_notification_tier,
     should_send_immediate_notification,
 )
+
+if TYPE_CHECKING:
+    # Only imported for type-checking (Pylance/Pyright/mypy).
+    # TYPE_CHECKING is always False at runtime, so this never
+    # actually executes and cannot reintroduce the circular-import
+    # problem the real, function-local import below was written to
+    # avoid.
+    from ..models import PortfolioNewsAlert
 
 
 logger = logging.getLogger(__name__)
@@ -17,7 +25,7 @@ def create_alert_from_analysis(
     article,
     holding,
     analysis,
-) -> Tuple["object", bool]:
+) -> Tuple["PortfolioNewsAlert", bool]:
     """
     Create (or fetch the existing) PortfolioNewsAlert for this
     exact (user, article, holding) combination.
@@ -75,7 +83,7 @@ def create_alert_from_analysis(
         logger.info(
             "Created alert id=%s user=%s holding=%r tier=%s "
             "score=%s",
-            alert.id,
+            alert.pk,
             user.id,
             holding.display_name,
             notification_tier,

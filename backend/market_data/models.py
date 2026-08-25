@@ -1,5 +1,7 @@
 from django.db import models
 
+from typing import TYPE_CHECKING
+
 from investments.models import Asset
 
 
@@ -23,6 +25,9 @@ class MarketPrice(models.Model):
         on_delete=models.CASCADE,
         related_name="market_prices",
     )
+
+    if TYPE_CHECKING:
+        asset_id: int
 
     date = models.DateField()
 
@@ -123,6 +128,9 @@ class ManualAssetPrice(models.Model):
         on_delete=models.CASCADE,
         related_name="manual_price",
     )
+
+    if TYPE_CHECKING:
+        asset_id: int
 
     price = models.DecimalField(
         max_digits=20,
