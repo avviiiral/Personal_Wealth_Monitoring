@@ -65,6 +65,12 @@ export class WealthApiService {
     });
   }
 
+  getPerformanceByAdvisor(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/performance-by-advisor/`, {
+      withCredentials: true,
+    });
+  }
+
   getHistorical(days: number = 30): Observable<any> {
     const params = new HttpParams().set('days', days);
 

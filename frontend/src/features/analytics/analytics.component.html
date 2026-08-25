@@ -398,6 +398,52 @@
     </section>
 
     <!-- ================================================== -->
+    <!-- ADVISOR PERFORMANCE -->
+    <!-- ================================================== -->
+
+    <section class="analytics-card performance-card">
+      <div class="card-header">
+        <div>
+          <span class="section-eyebrow"> ADVISOR </span>
+
+          <h2>Advisor Performance</h2>
+
+          <p>Return generated on the value each advisor manages.</p>
+        </div>
+      </div>
+
+      <div class="performance-chart-container" *ngIf="advisorPerformance?.results?.length">
+        <canvas #advisorPerformanceChart></canvas>
+      </div>
+
+      <div class="allocation-list" *ngIf="advisorPerformance?.results?.length">
+        <div class="allocation-row" *ngFor="let item of advisorPerformance?.results">
+          <span>
+            {{ item.advisor }}
+          </span>
+
+          <div class="allocation-value">
+            <strong
+              [class.negative]="item.pnl_percentage < 0"
+              [class.positive]="item.pnl_percentage >= 0"
+            >
+              {{ item.pnl_percentage >= 0 ? '+' : '' }}{{ item.pnl_percentage | number: '1.1-2' }}%
+            </strong>
+
+            <small> {{ formatCurrency(item.current_value) }} current </small>
+          </div>
+        </div>
+      </div>
+
+      <div
+        class="empty-state"
+        *ngIf="!advisorPerformance || !advisorPerformance.results || !advisorPerformance.results.length"
+      >
+        No advisor performance data available.
+      </div>
+    </section>
+
+    <!-- ================================================== -->
     <!-- PERIOD DETAILS -->
     <!-- ================================================== -->
 

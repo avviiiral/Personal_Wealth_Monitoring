@@ -241,6 +241,26 @@ def wealth_allocation_by_advisor(request):
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
+def wealth_performance_by_advisor(request):
+    """
+    Return performance (invested value, current value, unrealized
+    P&L, return %) aggregated by Advisor.
+    """
+
+    data = (
+        InvestmentSummaryService
+        .calculate_performance_by_advisor(
+            request.user
+        )
+    )
+
+    return Response({
+        "results": data
+    })
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
 def wealth_historical(request):
     """
     Return unified historical wealth.

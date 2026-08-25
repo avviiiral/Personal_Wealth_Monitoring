@@ -42,6 +42,9 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild('advisorChart')
   advisorChartRef?: ElementRef<HTMLCanvasElement>;
 
+  @ViewChild('advisorPerformanceChart')
+  advisorPerformanceChartRef?: ElementRef<HTMLCanvasElement>;
+
   loading = true;
   error = '';
 
@@ -50,6 +53,7 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
   allocation: any = null;
   performance: any = null;
   advisorAllocation: any = null;
+  advisorPerformance: any = null;
   xirr: any = null;
   historical: any = null;
 
@@ -65,6 +69,7 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
   private allocationChart?: Chart;
   private performanceChart?: Chart;
   private advisorChart?: Chart;
+  private advisorPerformanceChart?: Chart;
 
   ngOnInit(): void {
     this.loadAnalytics();
@@ -86,6 +91,7 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
       investmentSummary: this.wealthApi.getInvestmentSummary(),
       performance: this.wealthApi.getPerformanceBySubclass(),
       advisorAllocation: this.wealthApi.getAllocationByAdvisor(),
+      advisorPerformance: this.wealthApi.getPerformanceByAdvisor(),
       historical: this.wealthApi.getHistorical(this.selectedDays),
     }).subscribe({
       next: (data) => {
@@ -97,6 +103,7 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
           this.allocation = { results: this.allocationByCategory };
           this.performance = data.performance;
           this.advisorAllocation = data.advisorAllocation;
+          this.advisorPerformance = data.advisorPerformance;
           this.xirr = {
             xirr_percentage: this.summary?.xirr_percentage ?? null,
           };
@@ -107,6 +114,7 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
           console.log('Analytics allocation:', this.allocation);
           console.log('Analytics performance:', this.performance);
           console.log('Analytics advisor allocation:', this.advisorAllocation);
+          console.log('Analytics advisor performance:', this.advisorPerformance);
           console.log('Analytics xirr:', this.xirr);
           console.log('Analytics historical:', this.historical);
 
@@ -267,6 +275,7 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
     this.renderAllocationChart();
     this.renderPerformanceChart();
     this.renderAdvisorChart();
+    this.renderAdvisorPerformanceChart();
   }
 
   private renderHistoricalChart(): void {
@@ -646,16 +655,105 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
     this.advisorChart = new Chart(canvas, config);
   }
 
+  private renderAdvisorPerformanceChart(): void {
+    const canvas = this.advisorPerformanceChartRef?.nativeElement;
+
+    if (!canvas) {
+      console.warn('Advisor performance chart canvas not available.');
+      return;
+    }
+
+    this.advisorPerformanceChart?.destroy();
+
+    const results = this.advisorPerformance?.results ?? [];
+
+    if (!results.length) {
+      console.warn('No advisor performance data available.');
+      return;
+    }
+
+    const sortedResults = [...results].sort(
+      (a: any, b: any) => this.toNumber(b.pnl_percentage) - this.toNumber(a.pnl_percentage),
+    );
+
+    const labels = sortedResults.map((item: any) => item.advisor || 'Unassigned');
+
+    const values = sortedResults.map((item: any) => this.toNumber(item.pnl_percentage));
+
+    const backgroundColors = values.map((value) => (value >= 0 ? '#111827' : '#9ca3af'));
+
+    const config: ChartConfiguration<'bar'> = {
+      type: 'bar',
+
+      data: {
+        labels,
+
+        datasets: [
+          {
+            label: 'Return %',
+            data: values,
+
+            backgroundColor: backgroundColors,
+
+            borderRadius: 5,
+            barThickness: 24,
+          },
+        ],
+      },
+
+      options: {
+        indexAxis: 'y',
+
+        responsive: true,
+        maintainAspectRatio: false,
+
+        plugins: {
+          legend: {
+            display: false,
+          },
+
+          tooltip: {
+            callbacks: {
+              label: (context) => `Return: ${this.toNumber(context.parsed.x).toFixed(2)}%`,
+            },
+          },
+        },
+
+        scales: {
+          x: {
+            ticks: {
+              callback: (value) => `${Number(value).toFixed(0)}%`,
+            },
+
+            grid: {
+              color: '#eef0f3',
+            },
+          },
+
+          y: {
+            grid: {
+              display: false,
+            },
+          },
+        },
+      },
+    };
+
+    this.advisorPerformanceChart = new Chart(canvas, config);
+  }
+
   private destroyCharts(): void {
     this.historicalChart?.destroy();
     this.allocationChart?.destroy();
     this.performanceChart?.destroy();
     this.advisorChart?.destroy();
+    this.advisorPerformanceChart?.destroy();
 
     this.historicalChart = undefined;
     this.allocationChart = undefined;
     this.performanceChart = undefined;
     this.advisorChart = undefined;
+    this.advisorPerformanceChart = undefined;
   }
 
   ngOnDestroy(): void {
