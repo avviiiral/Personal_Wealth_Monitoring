@@ -325,6 +325,19 @@ class GeminiArticleAnalyzer:
             response.raise_for_status()
 
             data = response.json()
+            
+            usage = data.get("usageMetadata", {})
+
+            logger.info(
+                "Gemini usage | article=%s | holding=%r | "
+                "input=%s | output=%s | total=%s | cached=%s",
+                getattr(article, "id", None),
+                holding.display_name,
+                usage.get("promptTokenCount", 0),
+                usage.get("candidatesTokenCount", 0),
+                usage.get("totalTokenCount", 0),
+                usage.get("cachedContentTokenCount", 0),
+            )
 
             raw_text = extract_response_text(data)
 

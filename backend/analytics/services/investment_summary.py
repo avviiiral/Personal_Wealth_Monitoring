@@ -2,6 +2,7 @@ import logging
 from decimal import Decimal
 
 from investments.models import Transaction
+from mutual_funds.models import MutualFundTransaction
 
 from .unified_wealth import UnifiedWealthAnalytics
 
@@ -231,17 +232,31 @@ class InvestmentSummaryService:
         return cls.FALLBACK_ASSET_CLASS
 
     @staticmethod
-    def _equity_asset_class_by_asset_id(user):
+    def _equity_asset_class_by_asset_id(user, family_name=None):
         """
         Resolve every asset's raw Asset Class as the sub_class of its
         most recent transaction that has one set.
+
+        family_name:
+            Optional. When provided, only that Family Name's
+            transactions are considered, so the resolved Asset Class
+            reflects how the asset was classified within that family.
         """
 
-        rows = (
+        rows_qs = (
             Transaction.objects
             .filter(owner=user)
             .exclude(sub_class__isnull=True)
             .exclude(sub_class__exact="")
+        )
+
+        if family_name:
+            rows_qs = rows_qs.filter(
+                family_name=family_name
+            )
+
+        rows = (
+            rows_qs
             .order_by(
                 "asset_id",
                 "-transaction_date",
@@ -263,87 +278,173 @@ class InvestmentSummaryService:
         return resolved
 
     @classmethod
-    def calculate(cls, user):
+    def _family_equity_positions(cls, user, family_name):
         """
-        Return the Investment Summary rows and the total current
-        value they were computed against.
+        Rebuild open (quantity > 0) equity positions for one exact
+        Family Name directly from Transaction, since Holding has no
+        family_name (one aggregated row per asset across ALL
+        families).
+
+        Quantity/invested value are recomputed with the same
+        average-cost method HistoricalWealthAnalytics already uses.
+        Current price is read from the asset's existing Holding
+        (Asset.holding.current_price) rather than re-derived, since
+        price is asset-level market data - identical for every
+        family - so this stays consistent with the price already
+        shown everywhere else and adds no new price-freshness logic.
+
+        Returns a list of (asset_id, current_value) tuples for assets
+        with an open position and a known current price.
         """
 
-        totals = {
-            asset_class: cls.ZERO
-            for _, asset_classes in cls.MASTER_MAPPING
-            for asset_class in asset_classes
-        }
+        from .historical_wealth import HistoricalWealthAnalytics
 
-        raw_values_by_asset_class = {
-            asset_class: set()
-            for _, asset_classes in cls.MASTER_MAPPING
-            for asset_class in asset_classes
-        }
-
-        # ------------------------------------------------------------
-        # EQUITY / OTHER INVESTMENT HOLDINGS
-        # ------------------------------------------------------------
-        asset_class_by_asset_id = (
-            cls._equity_asset_class_by_asset_id(user)
+        transactions = (
+            Transaction.objects
+            .filter(
+                owner=user,
+                family_name=family_name,
+            )
+            .select_related("asset__holding")
+            .order_by(
+                "asset_id",
+                "transaction_date",
+                "created_at",
+                "id",
+            )
         )
 
-        equity_holdings = (
-            UnifiedWealthAnalytics
-            .get_equity_holdings(user)
+        positions = {}
+        assets_by_id = {}
+
+        for transaction in transactions:
+            assets_by_id[transaction.asset_id] = transaction.asset
+
+            position = positions.setdefault(
+                transaction.asset_id,
+                {
+                    "quantity": cls.ZERO,
+                    "invested_value": cls.ZERO,
+                },
+            )
+
+            HistoricalWealthAnalytics._apply_equity_transaction(
+                position,
+                transaction,
+            )
+
+        results = []
+
+        for asset_id, position in positions.items():
+            if position["quantity"] <= 0:
+                continue
+
+            asset = assets_by_id[asset_id]
+            holding = getattr(asset, "holding", None)
+
+            current_price = (
+                getattr(holding, "current_price", None)
+                if holding
+                else None
+            )
+
+            if current_price is None:
+                continue
+
+            current_value = (
+                position["quantity"] * current_price
+            )
+
+            results.append((asset_id, current_value))
+
+        return results
+
+    @classmethod
+    def _family_mutual_fund_positions(cls, user, family_name):
+        """
+        Rebuild open (units > 0) mutual-fund positions for one exact
+        Family Name directly from MutualFundTransaction, since
+        MutualFundHolding has no family_name either.
+
+        Same approach as _family_equity_positions: recompute
+        units/invested value from transactions, read current NAV from
+        the scheme's existing MutualFundHolding.
+
+        Returns a list of (scheme, current_value) tuples for schemes
+        with an open position and a known current NAV.
+        """
+
+        from .historical_wealth import HistoricalWealthAnalytics
+
+        transactions = (
+            MutualFundTransaction.objects
+            .filter(
+                owner=user,
+                family_name=family_name,
+            )
+            .select_related("scheme__holding")
+            .order_by(
+                "scheme_id",
+                "transaction_date",
+                "created_at",
+                "id",
+            )
         )
 
-        for holding in equity_holdings:
-            value = (
-                holding.current_value
-                or cls.ZERO
+        positions = {}
+        schemes_by_id = {}
+
+        for transaction in transactions:
+            schemes_by_id[transaction.scheme_id] = transaction.scheme
+
+            position = positions.setdefault(
+                transaction.scheme_id,
+                {
+                    "units": cls.ZERO,
+                    "invested_value": cls.ZERO,
+                },
             )
 
-            raw_class = asset_class_by_asset_id.get(
-                holding.asset_id
+            HistoricalWealthAnalytics._apply_mutual_fund_transaction(
+                position,
+                transaction,
             )
 
-            asset_class = cls._normalize_asset_class(
-                raw_class
+        results = []
+
+        for scheme_id, position in positions.items():
+            if position["units"] <= 0:
+                continue
+
+            scheme = schemes_by_id[scheme_id]
+            holding = getattr(scheme, "holding", None)
+
+            current_nav = (
+                getattr(holding, "current_nav", None)
+                if holding
+                else None
             )
 
-            totals[asset_class] += value
+            if current_nav is None:
+                continue
 
-            if raw_class:
-                raw_values_by_asset_class[asset_class].add(
-                    raw_class
-                )
-
-        # ------------------------------------------------------------
-        # MUTUAL FUND HOLDINGS
-        # ------------------------------------------------------------
-        mutual_fund_holdings = (
-            UnifiedWealthAnalytics
-            .get_mutual_fund_holdings(user)
-        )
-
-        for holding in mutual_fund_holdings:
-            value = (
-                holding.current_value
-                or cls.ZERO
+            current_value = (
+                position["units"] * current_nav
             )
 
-            raw_class = getattr(
-                holding.scheme,
-                "category",
-                None,
-            )
+            results.append((scheme, current_value))
 
-            asset_class = cls._normalize_asset_class(
-                raw_class
-            )
+        return results
 
-            totals[asset_class] += value
-
-            if raw_class:
-                raw_values_by_asset_class[asset_class].add(
-                    raw_class
-                )
+    @classmethod
+    def _build_results(cls, totals, raw_values_by_asset_class):
+        """
+        Shared tail: turn a filled totals/raw_values_by_asset_class
+        pair into the same {results, total_current_value} shape used
+        by both the all-families and family-filtered calculate()
+        paths, so the two paths can never drift apart in how rows are
+        assembled.
+        """
 
         total_current_value = sum(
             totals.values(),
@@ -382,6 +483,160 @@ class InvestmentSummaryService:
             "results": results,
             "total_current_value": total_current_value,
         }
+
+    @classmethod
+    def calculate(cls, user, family_name=None):
+        """
+        Return the Investment Summary rows and the total current
+        value they were computed against.
+
+        family_name:
+            Optional. When omitted, this is byte-for-byte the
+            original all-families calculation (Holding /
+            MutualFundHolding based) - unchanged.
+
+            When provided, Holding/MutualFundHolding cannot be used
+            (neither carries a family_name), so positions are instead
+            rebuilt directly from Transaction / MutualFundTransaction
+            for that one family via _family_equity_positions /
+            _family_mutual_fund_positions.
+        """
+
+        totals = {
+            asset_class: cls.ZERO
+            for _, asset_classes in cls.MASTER_MAPPING
+            for asset_class in asset_classes
+        }
+
+        raw_values_by_asset_class = {
+            asset_class: set()
+            for _, asset_classes in cls.MASTER_MAPPING
+            for asset_class in asset_classes
+        }
+
+        if not family_name:
+            # --------------------------------------------------------
+            # EQUITY / OTHER INVESTMENT HOLDINGS
+            # --------------------------------------------------------
+            asset_class_by_asset_id = (
+                cls._equity_asset_class_by_asset_id(user)
+            )
+
+            equity_holdings = (
+                UnifiedWealthAnalytics
+                .get_equity_holdings(user)
+            )
+
+            for holding in equity_holdings:
+                value = (
+                    holding.current_value
+                    or cls.ZERO
+                )
+
+                raw_class = asset_class_by_asset_id.get(
+                    holding.asset_id
+                )
+
+                asset_class = cls._normalize_asset_class(
+                    raw_class
+                )
+
+                totals[asset_class] += value
+
+                if raw_class:
+                    raw_values_by_asset_class[asset_class].add(
+                        raw_class
+                    )
+
+            # --------------------------------------------------------
+            # MUTUAL FUND HOLDINGS
+            # --------------------------------------------------------
+            mutual_fund_holdings = (
+                UnifiedWealthAnalytics
+                .get_mutual_fund_holdings(user)
+            )
+
+            for holding in mutual_fund_holdings:
+                value = (
+                    holding.current_value
+                    or cls.ZERO
+                )
+
+                raw_class = getattr(
+                    holding.scheme,
+                    "category",
+                    None,
+                )
+
+                asset_class = cls._normalize_asset_class(
+                    raw_class
+                )
+
+                totals[asset_class] += value
+
+                if raw_class:
+                    raw_values_by_asset_class[asset_class].add(
+                        raw_class
+                    )
+
+            return cls._build_results(
+                totals,
+                raw_values_by_asset_class,
+            )
+
+        # ==================================================
+        # FAMILY-FILTERED PATH
+        # ==================================================
+
+        asset_class_by_asset_id = (
+            cls._equity_asset_class_by_asset_id(
+                user,
+                family_name=family_name,
+            )
+        )
+
+        for asset_id, value in cls._family_equity_positions(
+            user,
+            family_name,
+        ):
+            raw_class = asset_class_by_asset_id.get(asset_id)
+
+            asset_class = cls._normalize_asset_class(
+                raw_class
+            )
+
+            totals[asset_class] += value
+
+            if raw_class:
+                raw_values_by_asset_class[asset_class].add(
+                    raw_class
+                )
+
+        for scheme, value in cls._family_mutual_fund_positions(
+            user,
+            family_name,
+        ):
+            raw_class = getattr(
+                scheme,
+                "category",
+                None,
+            )
+
+            asset_class = cls._normalize_asset_class(
+                raw_class
+            )
+
+            totals[asset_class] += value
+
+            if raw_class:
+                raw_values_by_asset_class[asset_class].add(
+                    raw_class
+                )
+
+        return cls._build_results(
+            totals,
+            raw_values_by_asset_class,
+        )
 
     # ==========================================================
     # PERFORMANCE BY SUB CLASS

@@ -125,10 +125,16 @@ def wealth_summary(request):
 
     - Equities
     - Mutual funds
+
+    Query parameter:
+        ?family=<Family Name>  (optional - scopes to one Family)
     """
 
+    family_name = request.GET.get("family") or None
+
     data = UnifiedWealthAnalytics.calculate_summary(
-        request.user
+        request.user,
+        family_name=family_name,
     )
 
     return Response(data)
@@ -174,10 +180,16 @@ def wealth_performance(request):
 def wealth_xirr(request):
     """
     Return unified XIRR across equities and mutual funds.
+
+    Query parameter:
+        ?family=<Family Name>  (optional - scopes to one Family)
     """
 
+    family_name = request.GET.get("family") or None
+
     data = UnifiedWealthAnalytics.calculate_xirr(
-        request.user
+        request.user,
+        family_name=family_name,
     )
 
     return Response({
@@ -192,10 +204,16 @@ def wealth_investment_summary(request):
     Return the Dashboard Investment Summary: current value and
     percentage of total portfolio value for every Asset Class in the
     fixed master Asset Category / Asset Class mapping.
+
+    Query parameter:
+        ?family=<Family Name>  (optional - scopes to one Family)
     """
 
+    family_name = request.GET.get("family") or None
+
     data = InvestmentSummaryService.calculate(
-        request.user
+        request.user,
+        family_name=family_name,
     )
 
     return Response(data)
@@ -268,6 +286,7 @@ def wealth_historical(request):
     Query parameters:
 
         ?days=30
+        ?family=<Family Name>  (optional - scopes to one Family)
 
     The maximum allowed range is 3650 days.
     """
@@ -291,6 +310,8 @@ def wealth_historical(request):
         min(days, 3650),
     )
 
+    family_name = request.GET.get("family") or None
+
     end_date = date.today()
 
     start_date = (
@@ -304,6 +325,7 @@ def wealth_historical(request):
             request.user,
             start_date,
             end_date,
+            family_name=family_name,
         )
     )
 

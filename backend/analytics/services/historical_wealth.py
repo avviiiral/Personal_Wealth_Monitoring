@@ -807,6 +807,7 @@ class HistoricalWealthAnalytics:
         user,
         start_date,
         end_date,
+        family_name=None,
     ):
         """
         Optimized historical wealth calculation.
@@ -823,6 +824,15 @@ class HistoricalWealthAnalytics:
             5. Calculates daily values in memory.
 
         The API response structure remains unchanged.
+
+        family_name:
+            Optional. When provided, scopes both the equity and
+            mutual-fund transaction querysets to that exact Family
+            Name (Transaction.family_name / MutualFundTransaction.
+            family_name), so every downstream step - active
+            assets/schemes, prices/NAVs, positions, daily totals -
+            naturally narrows to that family. Leaving it unset
+            preserves the original all-families calculation exactly.
         """
 
         if start_date > end_date:
@@ -834,12 +844,22 @@ class HistoricalWealthAnalytics:
         # EQUITY TRANSACTIONS
         # ======================================================
 
-        equity_transactions = (
+        equity_transactions_qs = (
             Transaction.objects
             .filter(
                 owner=user,
                 transaction_date__lte=end_date,
             )
+        )
+
+        if family_name:
+            equity_transactions_qs = (
+                equity_transactions_qs
+                .filter(family_name=family_name)
+            )
+
+        equity_transactions = (
+            equity_transactions_qs
             .order_by(
                 "transaction_date",
                 "created_at",
@@ -921,12 +941,22 @@ class HistoricalWealthAnalytics:
         # MUTUAL FUND TRANSACTIONS
         # ======================================================
 
-        mutual_fund_transactions = (
+        mutual_fund_transactions_qs = (
             MutualFundTransaction.objects
             .filter(
                 owner=user,
                 transaction_date__lte=end_date,
             )
+        )
+
+        if family_name:
+            mutual_fund_transactions_qs = (
+                mutual_fund_transactions_qs
+                .filter(family_name=family_name)
+            )
+
+        mutual_fund_transactions = (
+            mutual_fund_transactions_qs
             .order_by(
                 "transaction_date",
                 "created_at",
@@ -1351,9 +1381,13 @@ class HistoricalWealthAnalytics:
     def calculate_last_days(
         user,
         days=30,
+        family_name=None,
     ):
         """
         Calculate the last N calendar days including today.
+
+        family_name is passed straight through to calculate_history -
+        see its docstring.
         """
 
         if days < 1:
@@ -1374,5 +1408,6 @@ class HistoricalWealthAnalytics:
                 user,
                 start_date,
                 end_date,
+                family_name=family_name,
             )
         )
