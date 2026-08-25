@@ -1,5 +1,6 @@
 import logging
 import os
+import time
 
 from datetime import timedelta
 from typing import Optional
@@ -21,6 +22,25 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_LOOKBACK_DAYS = 3
+
+# Gemini's free tier enforces a low requests-per-minute cap.
+# Without pacing, a portfolio with many holdings blows through
+# it almost immediately and nearly every call gets 429'd, so
+# real runs on a real portfolio silently produce ~zero alerts.
+# A short delay between calls keeps the run under that cap.
+DEFAULT_AI_CALL_DELAY_SECONDS = 4.0
+
+
+def _get_ai_call_delay_seconds() -> float:
+    try:
+        return float(
+            os.environ.get(
+                "NEWS_MONITOR_AI_CALL_DELAY_SECONDS",
+                DEFAULT_AI_CALL_DELAY_SECONDS,
+            )
+        )
+    except (TypeError, ValueError):
+        return DEFAULT_AI_CALL_DELAY_SECONDS
 
 
 def _get_lookback_days() -> int:
@@ -59,6 +79,7 @@ def _process_holding(
     analyzer: GeminiArticleAnalyzer,
     from_date,
     stats: dict,
+    ai_call_delay_seconds: float = 0.0,
 ) -> None:
     from ..models import PortfolioNewsAlert
 
@@ -148,6 +169,9 @@ def _process_holding(
 
         stats["articles_sent_to_ai"] += 1
 
+        if ai_call_delay_seconds > 0:
+            time.sleep(ai_call_delay_seconds)
+
         analysis = analyzer.analyze(article, holding)
 
         if analysis is None:
@@ -179,6 +203,7 @@ def run_portfolio_news_monitor(
     provider: Optional[NewsProvider] = None,
     analyzer: Optional[GeminiArticleAnalyzer] = None,
     lookback_days: Optional[int] = None,
+    ai_call_delay_seconds: Optional[float] = None,
 ) -> dict:
     """
     Runs the full portfolio news monitoring pipeline for every
@@ -193,6 +218,13 @@ def run_portfolio_news_monitor(
     A failure at any stage - one user, one holding, one query,
     one article - is logged and the run continues with
     everything else; it never aborts the whole command.
+
+    A short delay is inserted between Gemini calls
+    (ai_call_delay_seconds, default from
+    NEWS_MONITOR_AI_CALL_DELAY_SECONDS or 4 seconds) so a
+    portfolio with many holdings doesn't blow through Gemini's
+    free-tier requests-per-minute limit and get every call
+    rate-limited.
     """
 
     provider = provider or GoogleNewsRSSProvider()
@@ -204,6 +236,12 @@ def run_portfolio_news_monitor(
         else _get_lookback_days()
     )
 
+    resolved_ai_call_delay_seconds = (
+        ai_call_delay_seconds
+        if ai_call_delay_seconds is not None
+        else _get_ai_call_delay_seconds()
+    )
+
     from_date = timezone.now() - timedelta(
         days=resolved_lookback_days
     )
@@ -211,8 +249,10 @@ def run_portfolio_news_monitor(
     stats = _empty_stats()
 
     logger.info(
-        "Portfolio news monitoring started (lookback_days=%s)",
+        "Portfolio news monitoring started (lookback_days=%s, "
+        "ai_call_delay_seconds=%s)",
         resolved_lookback_days,
+        resolved_ai_call_delay_seconds,
     )
 
     users = User.objects.filter(is_active=True)
@@ -248,6 +288,7 @@ def run_portfolio_news_monitor(
                 analyzer,
                 from_date,
                 stats,
+                ai_call_delay_seconds=resolved_ai_call_delay_seconds,
             )
 
     logger.info("Portfolio news monitoring finished: %s", stats)
