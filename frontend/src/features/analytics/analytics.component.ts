@@ -19,6 +19,25 @@ import { WealthApiService } from '../../core/services/wealth-api.service';
 
 Chart.register(...registerables);
 
+// Shared categorical palette for the Analytics page — used for the
+// Allocation / Advisor pie & doughnut charts, their matching row
+// swatches, and the advisor initials chips. Keeping one palette used
+// everywhere means a color always means the same category or advisor
+// across every chart and list on the page.
+const CATEGORY_PALETTE = [
+  '#111827', // ink
+  '#9c6b1f', // brass
+  '#0f6f66', // teal
+  '#3b5478', // slate
+  '#6d4a6b', // plum
+  '#8a5a3b', // umber
+  '#4b5563', // graphite
+  '#7a3742', // deep wine
+];
+
+const GAIN_COLOR = '#157347';
+const LOSS_COLOR = '#b42318';
+
 @Component({
   selector: 'app-analytics',
   standalone: true,
@@ -426,16 +445,9 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
           {
             data: values,
 
-            backgroundColor: [
-              '#111827',
-              '#374151',
-              '#6b7280',
-              '#9ca3af',
-              '#d1d5db',
-              '#4b5563',
-              '#1f2937',
-              '#e5e7eb',
-            ],
+            backgroundColor: results.map((_: any, index: number) =>
+              this.swatchColor(index),
+            ),
 
             borderWidth: 2,
             borderColor: '#ffffff',
@@ -507,7 +519,7 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
 
     const values = sortedResults.map((item: any) => this.toNumber(item.pnl_percentage));
 
-    const backgroundColors = values.map((value) => (value >= 0 ? '#111827' : '#9ca3af'));
+    const backgroundColors = values.map((value) => (value >= 0 ? GAIN_COLOR : LOSS_COLOR));
 
     const config: ChartConfiguration<'bar'> = {
       type: 'bar',
@@ -602,18 +614,9 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
           {
             data: values,
 
-            backgroundColor: [
-              '#111827',
-              '#374151',
-              '#6b7280',
-              '#9ca3af',
-              '#d1d5db',
-              '#4b5563',
-              '#1f2937',
-              '#e5e7eb',
-              '#0f172a',
-              '#94a3b8',
-            ],
+            backgroundColor: results.map((item: any) =>
+              this.advisorColor(item.advisor || 'Unassigned'),
+            ),
 
             borderWidth: 2,
             borderColor: '#ffffff',
@@ -680,7 +683,7 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
 
     const values = sortedResults.map((item: any) => this.toNumber(item.pnl_percentage));
 
-    const backgroundColors = values.map((value) => (value >= 0 ? '#111827' : '#9ca3af'));
+    const backgroundColors = values.map((value) => (value >= 0 ? GAIN_COLOR : LOSS_COLOR));
 
     const config: ChartConfiguration<'bar'> = {
       type: 'bar',
@@ -770,6 +773,50 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
     return `₹${value.toLocaleString('en-IN', {
       maximumFractionDigits: 0,
     })}`;
+  }
+
+  /**
+   * Deterministic color for a chart/list category at a given
+   * position, drawn from the shared CATEGORY_PALETTE so a chart
+   * segment and its matching row swatch are always the same color.
+   */
+  swatchColor(index: number): string {
+    return CATEGORY_PALETTE[index % CATEGORY_PALETTE.length];
+  }
+
+  /**
+   * Deterministic color for a named advisor, drawn from the same
+   * shared palette. Hashing the name (rather than using list
+   * position) means a given advisor is always the same color in the
+   * Allocation by Advisor chart, the Advisor Performance chart, and
+   * both of their row lists — even though the two lists are sorted
+   * differently (by value vs. by return).
+   */
+  advisorColor(name: string): string {
+    const value = (name || 'Unassigned').trim() || 'Unassigned';
+
+    let hash = 0;
+
+    for (let i = 0; i < value.length; i++) {
+      hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+    }
+
+    return CATEGORY_PALETTE[hash % CATEGORY_PALETTE.length];
+  }
+
+  /**
+   * One- or two-letter initials for an advisor's avatar chip.
+   */
+  advisorInitials(name: string): string {
+    const value = (name || 'Unassigned').trim() || 'Unassigned';
+
+    const words = value.split(/\s+/).filter(Boolean);
+
+    if (words.length === 1) {
+      return words[0].slice(0, 2).toUpperCase();
+    }
+
+    return (words[0][0] + words[words.length - 1][0]).toUpperCase();
   }
 
   formatAxisCurrency(value: number): string {
