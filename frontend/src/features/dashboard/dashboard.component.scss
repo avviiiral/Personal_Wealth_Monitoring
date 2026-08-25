@@ -9,6 +9,8 @@
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: 28px;
+  flex-wrap: wrap;
+  gap: 16px;
 
   h1 {
     margin: 0;
@@ -24,6 +26,13 @@
   }
 }
 
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
 .refresh-button {
   border: 0;
   border-radius: 8px;
@@ -33,6 +42,7 @@
   font-size: 14px;
   cursor: pointer;
   transition: 0.2s ease;
+  white-space: nowrap;
 
   &:hover {
     background: #1f2937;
@@ -40,6 +50,57 @@
 
   &:active {
     transform: translateY(1px);
+  }
+}
+
+/* -----------------------------
+   FAMILY FILTER
+   Bordered box next to the Refresh button, label above the
+   buttons - same look/pattern as the Portfolio and Reports pages'
+   Family Name filter box, just sized to sit in the header.
+----------------------------- */
+
+.family-filter-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #ffffff;
+  border: 1px solid #e3e7ed;
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.family-filter-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #344054;
+  white-space: nowrap;
+}
+
+.family-filter-buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.family-filter-button {
+  border: 1px solid #d9dee7;
+  background: #ffffff;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: 0.15s ease;
+
+  &:hover {
+    background: #f5f7fa;
+  }
+
+  &.active {
+    background: #111827;
+    color: #ffffff;
+    border-color: #111827;
   }
 }
 
@@ -745,6 +806,22 @@
     flex-direction: column;
 
     gap: 15px;
+  }
+
+  .page-header-actions {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .family-filter-inline {
+    flex-direction: column;
+    align-items: flex-start;
+    width: 100%;
+  }
+
+  .family-filter-buttons {
+    width: 100%;
   }
 
   .refresh-button {

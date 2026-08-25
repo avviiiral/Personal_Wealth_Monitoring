@@ -9,6 +9,7 @@
         Refresh
       </button>
 
+      <!-- DOWNLOAD OPTION LEFT EXACTLY AS-IS -->
       <div class="download-menu-wrapper">
         <button
           type="button"
@@ -34,7 +35,7 @@
   </div>
 
   <!-- ==========================================================
-       SUMMARY VIEW - FAMILY MODAL
+       SUMMARY VIEW - FAMILY MODAL (UNCHANGED)
        ========================================================== -->
   <div *ngIf="summaryFamilyModalOpen" class="modal-overlay" (click)="cancelSummaryFamilyModal()">
     <div class="modal-card" (click)="$event.stopPropagation()">
@@ -67,7 +68,7 @@
   </div>
 
   <!-- ==========================================================
-       DETAILED VIEW - DATE RANGE MODAL
+       DETAILED VIEW - DATE RANGE MODAL (UNCHANGED)
        ========================================================== -->
   <div *ngIf="detailedRangeModalOpen" class="modal-overlay" (click)="cancelDetailedRangeModal()">
     <div class="modal-card" (click)="$event.stopPropagation()">
@@ -127,6 +128,11 @@
     {{ error }}
   </div>
 
+  <!-- ==========================================================
+       LEVEL 1: FAMILY
+       Same table shell/behavior as the Portfolio page's Level 1
+       (Sub Class) rows.
+       ========================================================== -->
   <div *ngIf="!loading && !error" class="reports-table-card">
     <div class="table-scroll">
       <table class="reports-table">
@@ -140,9 +146,6 @@
         </thead>
 
         <tbody>
-          <!-- =====================================================
-               LEVEL 1: FAMILY
-               ===================================================== -->
           <ng-container *ngFor="let family of families; trackBy: trackByFamily">
             <tr
               class="family-row"
@@ -170,28 +173,29 @@
               </td>
             </tr>
 
-            <!-- =================================================
+            <!-- ======================================================
                  LEVEL 2: SUB CLASS
-                 ================================================= -->
+                 Flex row group list, same visual pattern as the
+                 Portfolio page's "Asset Name" group level.
+                 ====================================================== -->
             <tr *ngIf="expandedFamily === family.family_name" class="nested-detail-row">
               <td colspan="4">
                 <div class="nested-container">
-                  <table class="sub-class-table">
-                    <thead>
-                      <tr>
-                        <th class="sub-class-name-col">Sub Class</th>
-                        <th>Underlyings</th>
-                        <th>Transactions</th>
-                        <th class="arrow-column"></th>
-                      </tr>
-                    </thead>
+                  <div class="asset-detail-title">{{ family.family_name }} Sub Classes</div>
 
-                    <tbody>
-                      <ng-container
-                        *ngFor="let subClass of family.sub_classes; trackBy: trackBySubClass"
-                      >
-                        <tr
-                          class="sub-class-row"
+                  <div class="asset-group-columns-header">
+                    <span class="asset-group-name-header">Sub Class</span>
+                    <span class="asset-group-col">Asset Names</span>
+                    <span class="asset-group-col">Transactions</span>
+                  </div>
+
+                  <div class="asset-groups">
+                    <ng-container
+                      *ngFor="let subClass of family.sub_classes; trackBy: trackBySubClass"
+                    >
+                      <div class="asset-group">
+                        <div
+                          class="asset-group-header"
                           [class.expanded]="
                             expandedSubClass ===
                             getSubClassKey(family.family_name, subClass.sub_class)
@@ -200,157 +204,271 @@
                             toggleSubClass(getSubClassKey(family.family_name, subClass.sub_class))
                           "
                         >
-                          <td class="sub-class-name-col">
-                            <span
-                              class="row-chevron"
-                              [class.open]="
-                                expandedSubClass ===
-                                getSubClassKey(family.family_name, subClass.sub_class)
-                              "
-                            >
-                              ›
-                            </span>
+                          <span
+                            class="row-chevron"
+                            [class.open]="
+                              expandedSubClass ===
+                              getSubClassKey(family.family_name, subClass.sub_class)
+                            "
+                          >
+                            ›
+                          </span>
+
+                          <span class="asset-group-name">
                             {{ subClass.sub_class }}
-                          </td>
+                          </span>
 
-                          <td>{{ subClass.underlyings.length }}</td>
+                          <span class="asset-group-col">
+                            {{ subClass.asset_names.length }}
+                          </span>
 
-                          <td>{{ subClass.transaction_count }}</td>
+                          <span class="asset-group-col">
+                            {{ subClass.transaction_count }}
+                          </span>
+                        </div>
 
-                          <td class="arrow-column">
-                            <span
-                              class="row-chevron right"
-                              [class.open]="
-                                expandedSubClass ===
-                                getSubClassKey(family.family_name, subClass.sub_class)
-                              "
-                            >
-                              ›
-                            </span>
-                          </td>
-                        </tr>
-
-                        <!-- =========================================
-                             LEVEL 3: UNDERLYING
-                             ========================================= -->
-                        <tr
+                        <!-- ================================================
+                             LEVEL 3: ASSET NAME
+                             Same flex row group pattern, indented one level
+                             further in. Clicking an Asset Name reveals its
+                             own Underlyings below it.
+                             ================================================ -->
+                        <div
                           *ngIf="
                             expandedSubClass ===
                             getSubClassKey(family.family_name, subClass.sub_class)
                           "
-                          class="nested-detail-row"
+                          class="asset-name-container"
                         >
-                          <td colspan="4">
-                            <div class="nested-container">
-                              <div class="underlying-groups">
-                                <ng-container
-                                  *ngFor="
-                                    let underlyingGroup of subClass.underlyings;
-                                    trackBy: trackByUnderlying
+                          <div class="asset-group-columns-header">
+                            <span class="asset-group-name-header">Asset Name</span>
+                            <span class="asset-group-col">Underlyings</span>
+                            <span class="asset-group-col">Transactions</span>
+                          </div>
+
+                          <div class="asset-groups">
+                            <ng-container
+                              *ngFor="
+                                let assetNameGroup of subClass.asset_names;
+                                trackBy: trackByAssetName
+                              "
+                            >
+                              <div class="asset-group">
+                                <div
+                                  class="asset-group-header"
+                                  [class.expanded]="
+                                    expandedAssetName ===
+                                    getAssetNameKey(
+                                      family.family_name,
+                                      subClass.sub_class,
+                                      assetNameGroup.asset_name
+                                    )
+                                  "
+                                  (click)="
+                                    toggleAssetName(
+                                      getAssetNameKey(
+                                        family.family_name,
+                                        subClass.sub_class,
+                                        assetNameGroup.asset_name
+                                      )
+                                    )
                                   "
                                 >
-                                  <div class="underlying-group">
-                                    <div
-                                      class="underlying-group-header"
-                                      [class.expanded]="
-                                        expandedUnderlying ===
-                                        getUnderlyingKey(
-                                          family.family_name,
-                                          subClass.sub_class,
-                                          underlyingGroup.underlying
-                                        )
-                                      "
-                                      (click)="
-                                        toggleUnderlying(
-                                          getUnderlyingKey(
-                                            family.family_name,
-                                            subClass.sub_class,
-                                            underlyingGroup.underlying
-                                          )
-                                        )
-                                      "
-                                    >
-                                      <span
-                                        class="row-chevron"
-                                        [class.open]="
-                                          expandedUnderlying ===
-                                          getUnderlyingKey(
-                                            family.family_name,
-                                            subClass.sub_class,
-                                            underlyingGroup.underlying
-                                          )
-                                        "
-                                      >
-                                        ›
-                                      </span>
+                                  <span
+                                    class="row-chevron"
+                                    [class.open]="
+                                      expandedAssetName ===
+                                      getAssetNameKey(
+                                        family.family_name,
+                                        subClass.sub_class,
+                                        assetNameGroup.asset_name
+                                      )
+                                    "
+                                  >
+                                    ›
+                                  </span>
 
-                                      <span class="underlying-group-name">
-                                        {{ underlyingGroup.underlying }}
-                                      </span>
+                                  <span class="asset-group-name">
+                                    {{ assetNameGroup.asset_name }}
+                                  </span>
 
-                                      <span class="underlying-group-count">
-                                        {{ underlyingGroup.transactions.length }} transaction(s)
-                                      </span>
-                                    </div>
+                                  <span class="asset-group-col">
+                                    {{ assetNameGroup.underlyings.length }}
+                                  </span>
 
-                                    <!-- ===================================
-                                         LEVEL 4 / FINAL: TRANSACTIONS
-                                         =================================== -->
-                                    <div
-                                      *ngIf="
-                                        expandedUnderlying ===
-                                        getUnderlyingKey(
-                                          family.family_name,
-                                          subClass.sub_class,
-                                          underlyingGroup.underlying
-                                        )
-                                      "
-                                      class="transactions-container"
-                                    >
-                                      <div class="transactions-table-scroll">
-                                        <table class="transactions-table">
-                                          <thead>
-                                            <tr>
-                                              <th>Transaction Date</th>
-                                              <th>Type</th>
-                                              <th>ISIN</th>
-                                              <th>Quantity</th>
-                                              <th>Price</th>
-                                              <th>Amount</th>
-                                            </tr>
-                                          </thead>
+                                  <span class="asset-group-col">
+                                    {{ assetNameGroup.transaction_count }}
+                                  </span>
+                                </div>
 
-                                          <tbody>
-                                            <tr
-                                              *ngFor="
-                                                let tx of underlyingGroup.transactions;
-                                                trackBy: trackByTransaction
-                                              "
-                                            >
-                                              <td>{{ tx.transaction_date }}</td>
-                                              <td>
-                                                {{
-                                                  tx.transaction_type_display || tx.transaction_type
-                                                }}
-                                              </td>
-                                              <td class="isin">{{ tx.isin || '-' }}</td>
-                                              <td>{{ formatNumber(tx.quantity) }}</td>
-                                              <td>₹{{ formatDecimal(tx.price_per_unit) }}</td>
-                                              <td>₹{{ formatCurrency(tx.amount) }}</td>
-                                            </tr>
-                                          </tbody>
-                                        </table>
-                                      </div>
-                                    </div>
+                                <!-- ========================================
+                                     LEVEL 4: UNDERLYING (FINAL / CLICKABLE)
+                                     Styled like the Portfolio page's final
+                                     Underlying table. Unlike Portfolio, rows
+                                     here ARE clickable - clicking one reveals
+                                     that Underlying's own Transactions,
+                                     scoped to this Asset Name only.
+                                     ======================================== -->
+                                <div
+                                  *ngIf="
+                                    expandedAssetName ===
+                                    getAssetNameKey(
+                                      family.family_name,
+                                      subClass.sub_class,
+                                      assetNameGroup.asset_name
+                                    )
+                                  "
+                                  class="underlying-container"
+                                >
+                                  <div class="underlying-table-scroll">
+                                    <table class="asset-table">
+                                      <thead>
+                                        <tr>
+                                          <th>Underlying</th>
+                                          <th>Transactions</th>
+                                          <th class="arrow-column"></th>
+                                        </tr>
+                                      </thead>
+
+                                      <tbody>
+                                        <ng-container
+                                          *ngFor="
+                                            let underlyingGroup of assetNameGroup.underlyings;
+                                            trackBy: trackByUnderlying
+                                          "
+                                        >
+                                          <tr
+                                            class="underlying-row"
+                                            [class.expanded]="
+                                              expandedUnderlying ===
+                                              getUnderlyingKey(
+                                                family.family_name,
+                                                subClass.sub_class,
+                                                assetNameGroup.asset_name,
+                                                underlyingGroup.underlying
+                                              )
+                                            "
+                                            (click)="
+                                              toggleUnderlying(
+                                                getUnderlyingKey(
+                                                  family.family_name,
+                                                  subClass.sub_class,
+                                                  assetNameGroup.asset_name,
+                                                  underlyingGroup.underlying
+                                                )
+                                              )
+                                            "
+                                          >
+                                            <td class="asset-name">
+                                              <span
+                                                class="row-chevron"
+                                                [class.open]="
+                                                  expandedUnderlying ===
+                                                  getUnderlyingKey(
+                                                    family.family_name,
+                                                    subClass.sub_class,
+                                                    assetNameGroup.asset_name,
+                                                    underlyingGroup.underlying
+                                                  )
+                                                "
+                                              >
+                                                ›
+                                              </span>
+
+                                              {{ underlyingGroup.underlying }}
+                                            </td>
+
+                                            <td>{{ underlyingGroup.transactions.length }}</td>
+
+                                            <td class="arrow-column">
+                                              <span
+                                                class="row-chevron right"
+                                                [class.open]="
+                                                  expandedUnderlying ===
+                                                  getUnderlyingKey(
+                                                    family.family_name,
+                                                    subClass.sub_class,
+                                                    assetNameGroup.asset_name,
+                                                    underlyingGroup.underlying
+                                                  )
+                                                "
+                                              >
+                                                ›
+                                              </span>
+                                            </td>
+                                          </tr>
+
+                                          <!-- ==================================
+                                               LEVEL 5 / FINAL: TRANSACTIONS FOR
+                                               THIS UNDERLYING, UNDER THIS ASSET
+                                               NAME ONLY
+                                               ================================== -->
+                                          <tr
+                                            *ngIf="
+                                              expandedUnderlying ===
+                                              getUnderlyingKey(
+                                                family.family_name,
+                                                subClass.sub_class,
+                                                assetNameGroup.asset_name,
+                                                underlyingGroup.underlying
+                                              )
+                                            "
+                                            class="transactions-detail-row"
+                                          >
+                                            <td colspan="3">
+                                              <div class="transactions-container">
+                                                <div class="transactions-table-scroll">
+                                                  <table class="transactions-table">
+                                                    <thead>
+                                                      <tr>
+                                                        <th>Transaction Date</th>
+                                                        <th>Type</th>
+                                                        <th>ISIN</th>
+                                                        <th>Quantity</th>
+                                                        <th>Price</th>
+                                                        <th>Amount</th>
+                                                      </tr>
+                                                    </thead>
+
+                                                    <tbody>
+                                                      <tr
+                                                        *ngFor="
+                                                          let tx of underlyingGroup.transactions;
+                                                          trackBy: trackByTransaction
+                                                        "
+                                                      >
+                                                        <td>{{ tx.transaction_date }}</td>
+                                                        <td>
+                                                          {{
+                                                            tx.transaction_type_display ||
+                                                              tx.transaction_type
+                                                          }}
+                                                        </td>
+                                                        <td class="isin">{{ tx.isin || '-' }}</td>
+                                                        <td>{{ formatNumber(tx.quantity) }}</td>
+                                                        <td>
+                                                          ₹{{ formatDecimal(tx.price_per_unit) }}
+                                                        </td>
+                                                        <td>₹{{ formatCurrency(tx.amount) }}</td>
+                                                      </tr>
+                                                    </tbody>
+                                                  </table>
+                                                </div>
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        </ng-container>
+                                      </tbody>
+                                    </table>
                                   </div>
-                                </ng-container>
+                                </div>
                               </div>
-                            </div>
-                          </td>
-                        </tr>
-                      </ng-container>
-                    </tbody>
-                  </table>
+                            </ng-container>
+                          </div>
+                        </div>
+                      </div>
+                    </ng-container>
+                  </div>
                 </div>
               </td>
             </tr>

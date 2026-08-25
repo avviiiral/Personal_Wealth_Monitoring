@@ -20,8 +20,9 @@ import {
    REPORTS TREE
    Family
       Sub Class
-         Underlying
-            Transactions
+         Asset Name
+            Underlying
+               Transactions
    ============================================================== */
 
 interface UnderlyingGroup {
@@ -29,9 +30,15 @@ interface UnderlyingGroup {
   transactions: Transaction[];
 }
 
+interface AssetNameGroup {
+  asset_name: string;
+  underlyings: UnderlyingGroup[];
+  transaction_count: number;
+}
+
 interface SubClassGroup {
   sub_class: string;
-  underlyings: UnderlyingGroup[];
+  asset_names: AssetNameGroup[];
   transaction_count: number;
 }
 
@@ -87,6 +94,7 @@ export class ReportsComponent implements OnInit {
 
   expandedFamily = '';
   expandedSubClass = '';
+  expandedAssetName = '';
   expandedUnderlying = '';
 
   downloadMenuOpen = false;
@@ -171,16 +179,21 @@ export class ReportsComponent implements OnInit {
     return trimmed || UNASSIGNED;
   }
 
+  private getAssetName(tx: Transaction): string {
+    return this.clean(tx.asset_name);
+  }
+
   private getUnderlyingName(tx: Transaction): string {
     return this.clean(tx.underlying || tx.asset_name);
   }
 
   private buildTree(transactions: Transaction[]): FamilyGroup[] {
-    const familyMap = new Map<string, Map<string, Map<string, Transaction[]>>>();
+    const familyMap = new Map<string, Map<string, Map<string, Map<string, Transaction[]>>>>();
 
     for (const tx of transactions) {
       const family = this.clean(tx.family_name);
       const subClass = this.clean(tx.sub_class);
+      const assetName = this.getAssetName(tx);
       const underlying = this.getUnderlyingName(tx);
 
       if (!familyMap.has(family)) {
@@ -193,7 +206,13 @@ export class ReportsComponent implements OnInit {
         subClassMap.set(subClass, new Map());
       }
 
-      const underlyingMap = subClassMap.get(subClass)!;
+      const assetNameMap = subClassMap.get(subClass)!;
+
+      if (!assetNameMap.has(assetName)) {
+        assetNameMap.set(assetName, new Map());
+      }
+
+      const underlyingMap = assetNameMap.get(assetName)!;
 
       if (!underlyingMap.has(underlying)) {
         underlyingMap.set(underlying, []);
@@ -205,17 +224,28 @@ export class ReportsComponent implements OnInit {
     const families: FamilyGroup[] = Array.from(familyMap.entries())
       .map(([family_name, subClassMap]) => {
         const sub_classes: SubClassGroup[] = Array.from(subClassMap.entries())
-          .map(([sub_class, underlyingMap]) => {
-            const underlyings: UnderlyingGroup[] = Array.from(underlyingMap.entries())
-              .map(([underlying, txs]) => ({ underlying, transactions: txs }))
-              .sort((a, b) => a.underlying.localeCompare(b.underlying));
+          .map(([sub_class, assetNameMap]) => {
+            const asset_names: AssetNameGroup[] = Array.from(assetNameMap.entries())
+              .map(([asset_name, underlyingMap]) => {
+                const underlyings: UnderlyingGroup[] = Array.from(underlyingMap.entries())
+                  .map(([underlying, txs]) => ({ underlying, transactions: txs }))
+                  .sort((a, b) => a.underlying.localeCompare(b.underlying));
 
-            const transaction_count = underlyings.reduce(
-              (total, group) => total + group.transactions.length,
+                const transaction_count = underlyings.reduce(
+                  (total, group) => total + group.transactions.length,
+                  0,
+                );
+
+                return { asset_name, underlyings, transaction_count };
+              })
+              .sort((a, b) => a.asset_name.localeCompare(b.asset_name));
+
+            const transaction_count = asset_names.reduce(
+              (total, group) => total + group.transaction_count,
               0,
             );
 
-            return { sub_class, underlyings, transaction_count };
+            return { sub_class, asset_names, transaction_count };
           })
           .sort((a, b) => a.sub_class.localeCompare(b.sub_class));
 
@@ -239,23 +269,38 @@ export class ReportsComponent implements OnInit {
     if (this.expandedFamily === family) {
       this.expandedFamily = '';
       this.expandedSubClass = '';
+      this.expandedAssetName = '';
       this.expandedUnderlying = '';
       return;
     }
 
     this.expandedFamily = family;
     this.expandedSubClass = '';
+    this.expandedAssetName = '';
     this.expandedUnderlying = '';
   }
 
   toggleSubClass(key: string): void {
     if (this.expandedSubClass === key) {
       this.expandedSubClass = '';
+      this.expandedAssetName = '';
       this.expandedUnderlying = '';
       return;
     }
 
     this.expandedSubClass = key;
+    this.expandedAssetName = '';
+    this.expandedUnderlying = '';
+  }
+
+  toggleAssetName(key: string): void {
+    if (this.expandedAssetName === key) {
+      this.expandedAssetName = '';
+      this.expandedUnderlying = '';
+      return;
+    }
+
+    this.expandedAssetName = key;
     this.expandedUnderlying = '';
   }
 
@@ -267,8 +312,17 @@ export class ReportsComponent implements OnInit {
     return `${family}::${subClass}`;
   }
 
-  getUnderlyingKey(family: string, subClass: string, underlying: string): string {
-    return `${family}::${subClass}::${underlying}`;
+  getAssetNameKey(family: string, subClass: string, assetName: string): string {
+    return `${family}::${subClass}::${assetName}`;
+  }
+
+  getUnderlyingKey(
+    family: string,
+    subClass: string,
+    assetName: string,
+    underlying: string,
+  ): string {
+    return `${family}::${subClass}::${assetName}::${underlying}`;
   }
 
   trackByFamily(_index: number, group: FamilyGroup): string {
@@ -277,6 +331,10 @@ export class ReportsComponent implements OnInit {
 
   trackBySubClass(_index: number, group: SubClassGroup): string {
     return group.sub_class;
+  }
+
+  trackByAssetName(_index: number, group: AssetNameGroup): string {
+    return group.asset_name;
   }
 
   trackByUnderlying(_index: number, group: UnderlyingGroup): string {
@@ -445,10 +503,12 @@ export class ReportsComponent implements OnInit {
 
     for (const family of this.families) {
       for (const subClass of family.sub_classes) {
-        for (const underlyingGroup of subClass.underlyings) {
-          for (const tx of underlyingGroup.transactions) {
-            if (tx.transaction_date) {
-              dates.push(tx.transaction_date);
+        for (const assetNameGroup of subClass.asset_names) {
+          for (const underlyingGroup of assetNameGroup.underlyings) {
+            for (const tx of underlyingGroup.transactions) {
+              if (tx.transaction_date) {
+                dates.push(tx.transaction_date);
+              }
             }
           }
         }
@@ -459,15 +519,17 @@ export class ReportsComponent implements OnInit {
   }
 
   /**
-   * Flattens the Family -> Sub Class -> Underlying -> Transactions
-   * tree into rows for the Detailed download, filtered to the
-   * given date range (inclusive; an empty bound means unbounded on
-   * that side) and optionally to one Family (an empty value means
-   * all Families), and sorted by Transaction Date across the whole
-   * sheet (most recent first) - so the export is indexed by date
-   * rather than clustered by Underlying. Family/Sub Class/Underlying
-   * are still included as columns on every row so the hierarchy
-   * stays identifiable per the Detailed View's requirements.
+   * Flattens the Family -> Sub Class -> Asset Name -> Underlying ->
+   * Transactions tree into rows for the Detailed download, filtered
+   * to the given date range (inclusive; an empty bound means
+   * unbounded on that side) and optionally to one Family (an empty
+   * value means all Families), and sorted by Transaction Date across
+   * the whole sheet (most recent first) - so the export is indexed
+   * by date rather than clustered by Underlying. Family/Sub
+   * Class/Underlying are still included as columns on every row so
+   * the hierarchy stays identifiable per the Detailed View's
+   * requirements. The export columns are unchanged - Asset Name is
+   * only used here to walk the tree, not added as a new column.
    */
   private buildDetailedRows(from: string, to: string, family?: string): Record<string, unknown>[] {
     const flat: {
@@ -483,26 +545,28 @@ export class ReportsComponent implements OnInit {
       }
 
       for (const subClass of familyGroup.sub_classes) {
-        for (const underlyingGroup of subClass.underlyings) {
-          for (const tx of underlyingGroup.transactions) {
-            if (!tx.transaction_date) {
-              continue;
-            }
+        for (const assetNameGroup of subClass.asset_names) {
+          for (const underlyingGroup of assetNameGroup.underlyings) {
+            for (const tx of underlyingGroup.transactions) {
+              if (!tx.transaction_date) {
+                continue;
+              }
 
-            if (from && tx.transaction_date < from) {
-              continue;
-            }
+              if (from && tx.transaction_date < from) {
+                continue;
+              }
 
-            if (to && tx.transaction_date > to) {
-              continue;
-            }
+              if (to && tx.transaction_date > to) {
+                continue;
+              }
 
-            flat.push({
-              family_name: familyGroup.family_name,
-              sub_class: subClass.sub_class,
-              underlying: underlyingGroup.underlying,
-              tx,
-            });
+              flat.push({
+                family_name: familyGroup.family_name,
+                sub_class: subClass.sub_class,
+                underlying: underlyingGroup.underlying,
+                tx,
+              });
+            }
           }
         }
       }

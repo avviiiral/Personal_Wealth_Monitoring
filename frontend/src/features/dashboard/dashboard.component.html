@@ -6,7 +6,34 @@
       <p>Overview of your personal wealth and investments.</p>
     </div>
 
-    <button class="refresh-button" type="button" (click)="loadDashboard()">Refresh</button>
+    <div class="page-header-actions">
+      <div class="family-filter-inline" *ngIf="familyOptions.length > 0">
+        <span class="family-filter-label">Family Name</span>
+
+        <div class="family-filter-buttons">
+          <button
+            type="button"
+            class="family-filter-button"
+            [class.active]="!selectedFamily"
+            (click)="clearFamily()"
+          >
+            All
+          </button>
+
+          <button
+            *ngFor="let family of familyOptions"
+            type="button"
+            class="family-filter-button"
+            [class.active]="isFamilySelected(family)"
+            (click)="selectFamily(family)"
+          >
+            {{ family }}
+          </button>
+        </div>
+      </div>
+
+      <button class="refresh-button" type="button" (click)="loadDashboard()">Refresh</button>
+    </div>
   </div>
 
   <!-- LOADING -->
