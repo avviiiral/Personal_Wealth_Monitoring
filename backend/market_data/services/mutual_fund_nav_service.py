@@ -38,18 +38,25 @@ class MutualFundNAVService:
     REQUEST_TIMEOUT = 30
 
     _nav_cache = None
+    _nav_cache_date = None
 
     @classmethod
     def _load_nav_data(cls):
         """
         Download and parse the current AMFI NAV file.
 
-        The result is cached for the lifetime of the
-        Django process so multiple assets do not cause
-        multiple downloads.
+        The result is cached for the current calendar day only.
+        If a new day has started since the last download, the
+        cache is treated as stale and AMFI is re-fetched — this
+        is what makes the daily auto-update actually happen.
         """
 
-        if cls._nav_cache is not None:
+        today = datetime.now().date()
+
+        if (
+            cls._nav_cache is not None
+            and cls._nav_cache_date == today
+        ):
             return cls._nav_cache
 
         response = requests.get(
@@ -79,13 +86,6 @@ class MutualFundNAVService:
             isin_growth = parts[1].strip()
             isin_reinvestment = parts[2].strip()
 
-            # ------------------------------------------------
-            # NAV and Date are always the last two fields.
-            # Everything between the ISIN columns and these
-            # last two fields is treated as the scheme name,
-            # regardless of how many extra Plan/Option
-            # segments AMFI includes on a given line.
-            # ------------------------------------------------
             nav_value = parts[-2].strip()
             nav_date = parts[-1].strip()
 
@@ -93,7 +93,6 @@ class MutualFundNAVService:
                 ";".join(parts[3:-2]).strip()
             )
 
-            # Ignore category/header rows.
             if not scheme_code.isdigit():
                 continue
 
@@ -147,6 +146,7 @@ class MutualFundNAVService:
                 ] = record
 
         cls._nav_cache = nav_data
+        cls._nav_cache_date = today   # NEW: stamp today's date on the cache
 
         return cls._nav_cache
 
