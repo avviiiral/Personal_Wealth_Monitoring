@@ -382,3 +382,260 @@ class InvestmentSummaryService:
             "results": results,
             "total_current_value": total_current_value,
         }
+
+    # ==========================================================
+    # PERFORMANCE BY SUB CLASS
+    # ==========================================================
+
+    @classmethod
+    def calculate_performance_by_subclass(cls, user):
+        """
+        Aggregate invested value, current value, and unrealized P&L
+        by Asset Class (the same canonical Sub Class classification
+        used above for the Investment Summary table), for the
+        Analytics "Investment Performance" chart.
+
+        Unlike calculate(), which reports every Asset Class in
+        MASTER_MAPPING (including empty ones, for a stable table
+        layout), this only returns Asset Classes that actually hold
+        value, since the performance chart should not plot empty
+        bars.
+        """
+
+        totals = {
+            asset_class: {
+                "invested": cls.ZERO,
+                "current": cls.ZERO,
+            }
+            for _, asset_classes in cls.MASTER_MAPPING
+            for asset_class in asset_classes
+        }
+
+        category_by_asset_class = {
+            asset_class: category
+            for category, asset_classes in cls.MASTER_MAPPING
+            for asset_class in asset_classes
+        }
+
+        asset_class_by_asset_id = (
+            cls._equity_asset_class_by_asset_id(user)
+        )
+
+        equity_holdings = (
+            UnifiedWealthAnalytics
+            .get_equity_holdings(user)
+        )
+
+        for holding in equity_holdings:
+            raw_class = asset_class_by_asset_id.get(
+                holding.asset_id
+            )
+
+            asset_class = cls._normalize_asset_class(
+                raw_class
+            )
+
+            totals[asset_class]["invested"] += (
+                holding.invested_value or cls.ZERO
+            )
+
+            totals[asset_class]["current"] += (
+                holding.current_value or cls.ZERO
+            )
+
+        mutual_fund_holdings = (
+            UnifiedWealthAnalytics
+            .get_mutual_fund_holdings(user)
+        )
+
+        for holding in mutual_fund_holdings:
+            raw_class = getattr(
+                holding.scheme,
+                "category",
+                None,
+            )
+
+            asset_class = cls._normalize_asset_class(
+                raw_class
+            )
+
+            totals[asset_class]["invested"] += (
+                holding.invested_value or cls.ZERO
+            )
+
+            totals[asset_class]["current"] += (
+                holding.current_value or cls.ZERO
+            )
+
+        results = []
+
+        for category, asset_classes in cls.MASTER_MAPPING:
+            for asset_class in asset_classes:
+                invested = totals[asset_class]["invested"]
+                current = totals[asset_class]["current"]
+
+                if not invested and not current:
+                    continue
+
+                pnl = current - invested
+
+                pnl_percentage = (
+                    (pnl / invested) * 100
+                    if invested
+                    else cls.ZERO
+                )
+
+                results.append({
+                    "asset_category": category,
+                    "asset_class": asset_class,
+                    "invested_value": invested,
+                    "current_value": current,
+                    "unrealized_pnl": pnl,
+                    "pnl_percentage": round(
+                        pnl_percentage,
+                        2,
+                    ),
+                })
+
+        return sorted(
+            results,
+            key=lambda item: item["pnl_percentage"],
+            reverse=True,
+        )
+
+    # ==========================================================
+    # ALLOCATION BY ADVISOR
+    # ==========================================================
+
+    UNASSIGNED_ADVISOR = "Unassigned"
+
+    @staticmethod
+    def _advisor_by_asset_id(user):
+        """
+        Resolve every equity/other-investment asset's Advisor as the
+        advisors value of its most recent transaction that has one
+        set.
+
+        NOTE: Mutual fund holdings are tracked through a separate
+        MutualFundTransaction model that does not carry the original
+        Excel Advisors column (see the class docstring for the same
+        limitation on asset-class classification). Mutual fund value
+        is therefore bucketed under UNASSIGNED_ADVISOR below rather
+        than dropped.
+        """
+
+        rows = (
+            Transaction.objects
+            .filter(owner=user)
+            .exclude(advisors__isnull=True)
+            .exclude(advisors__exact="")
+            .order_by(
+                "asset_id",
+                "-transaction_date",
+                "-created_at",
+                "-id",
+            )
+            .values_list(
+                "asset_id",
+                "advisors",
+            )
+        )
+
+        resolved = {}
+
+        for asset_id, advisor in rows:
+            if asset_id not in resolved:
+                resolved[asset_id] = advisor
+
+        return resolved
+
+    @classmethod
+    def calculate_allocation_by_advisor(cls, user):
+        """
+        Aggregate current value by Advisor, for the Analytics
+        "Allocation by Advisor" pie chart.
+        """
+
+        totals = {}
+
+        advisor_by_asset_id = (
+            cls._advisor_by_asset_id(user)
+        )
+
+        equity_holdings = (
+            UnifiedWealthAnalytics
+            .get_equity_holdings(user)
+        )
+
+        for holding in equity_holdings:
+            advisor = (
+                advisor_by_asset_id.get(holding.asset_id)
+                or ""
+            ).strip() or cls.UNASSIGNED_ADVISOR
+
+            value = (
+                holding.current_value
+                or cls.ZERO
+            )
+
+            totals[advisor] = (
+                totals.get(advisor, cls.ZERO)
+                + value
+            )
+
+        mutual_fund_holdings = (
+            UnifiedWealthAnalytics
+            .get_mutual_fund_holdings(user)
+        )
+
+        mutual_fund_value = sum(
+            (
+                holding.current_value
+                or cls.ZERO
+            )
+            for holding in mutual_fund_holdings
+        )
+
+        if mutual_fund_value:
+            totals[cls.UNASSIGNED_ADVISOR] = (
+                totals.get(
+                    cls.UNASSIGNED_ADVISOR,
+                    cls.ZERO,
+                )
+                + mutual_fund_value
+            )
+
+        total_value = sum(
+            totals.values(),
+            cls.ZERO,
+        )
+
+        results = []
+
+        for advisor, value in totals.items():
+            if value <= 0:
+                continue
+
+            percentage = (
+                (value / total_value) * 100
+                if total_value
+                else cls.ZERO
+            )
+
+            results.append({
+                "advisor": advisor,
+                "value": value,
+                "percentage": round(
+                    percentage,
+                    2,
+                ),
+            })
+
+        return {
+            "results": sorted(
+                results,
+                key=lambda item: item["value"],
+                reverse=True,
+            ),
+            "total_current_value": total_value,
+        }

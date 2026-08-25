@@ -39,12 +39,17 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild('performanceChart')
   performanceChartRef?: ElementRef<HTMLCanvasElement>;
 
+  @ViewChild('advisorChart')
+  advisorChartRef?: ElementRef<HTMLCanvasElement>;
+
   loading = true;
   error = '';
 
   summary: any = null;
+  investmentSummary: any = null;
   allocation: any = null;
   performance: any = null;
+  advisorAllocation: any = null;
   xirr: any = null;
   historical: any = null;
 
@@ -59,6 +64,7 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
   private historicalChart?: Chart;
   private allocationChart?: Chart;
   private performanceChart?: Chart;
+  private advisorChart?: Chart;
 
   ngOnInit(): void {
     this.loadAnalytics();
@@ -77,8 +83,9 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
 
     forkJoin({
       summary: this.wealthApi.getSummary(),
-      allocation: this.wealthApi.getAllocation(),
-      performance: this.wealthApi.getPerformance(),
+      investmentSummary: this.wealthApi.getInvestmentSummary(),
+      performance: this.wealthApi.getPerformanceBySubclass(),
+      advisorAllocation: this.wealthApi.getAllocationByAdvisor(),
       historical: this.wealthApi.getHistorical(this.selectedDays),
     }).subscribe({
       next: (data) => {
@@ -86,16 +93,20 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
 
         try {
           this.summary = data.summary;
-          this.allocation = data.allocation;
+          this.investmentSummary = data.investmentSummary;
+          this.allocation = { results: this.allocationByCategory };
           this.performance = data.performance;
+          this.advisorAllocation = data.advisorAllocation;
           this.xirr = {
             xirr_percentage: this.summary?.xirr_percentage ?? null,
           };
           this.historical = data.historical;
 
           console.log('Analytics summary:', this.summary);
+          console.log('Analytics investment summary:', this.investmentSummary);
           console.log('Analytics allocation:', this.allocation);
           console.log('Analytics performance:', this.performance);
+          console.log('Analytics advisor allocation:', this.advisorAllocation);
           console.log('Analytics xirr:', this.xirr);
           console.log('Analytics historical:', this.historical);
 
@@ -151,6 +162,60 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
     this.loadAnalytics();
   }
 
+  /**
+   * Groups the Investment Summary rows by Asset Category, summing
+   * current value and % of total, so the Analytics Allocation chart
+   * shows the exact same categorization and totals as the
+   * Dashboard's Investment Summary table — one source of truth for
+   * both.
+   */
+  private get allocationByCategory(): Array<{
+    category: string;
+    value: number;
+    percentage: number;
+  }> {
+    const results = this.investmentSummary?.results ?? [];
+
+    const order: string[] = [];
+    const totals = new Map<
+      string,
+      {
+        value: number;
+        percentage: number;
+      }
+    >();
+
+    for (const row of results) {
+      const category = row.asset_category;
+
+      if (!totals.has(category)) {
+        totals.set(category, {
+          value: 0,
+          percentage: 0,
+        });
+
+        order.push(category);
+      }
+
+      const entry = totals.get(category)!;
+
+      entry.value += this.toNumber(row.current_value);
+      entry.percentage += this.toNumber(row.percentage_of_total);
+    }
+
+    return order
+      .map((category) => {
+        const entry = totals.get(category)!;
+
+        return {
+          category,
+          value: entry.value,
+          percentage: Math.round(entry.percentage * 100) / 100,
+        };
+      })
+      .filter((entry) => entry.value > 0);
+  }
+
   private calculateInsights(): void {
     const performanceResults = this.performance?.results ?? [];
 
@@ -201,6 +266,7 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
     this.renderHistoricalChart();
     this.renderAllocationChart();
     this.renderPerformanceChart();
+    this.renderAdvisorChart();
   }
 
   private renderHistoricalChart(): void {
@@ -426,7 +492,8 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
     );
 
     const labels = sortedResults.map(
-      (item: any) => item.symbol || item.asset_name || item.scheme_name || item.name || 'Unknown',
+      (item: any) =>
+        item.asset_class || item.symbol || item.asset_name || item.scheme_name || item.name || 'Unknown',
     );
 
     const values = sortedResults.map((item: any) => this.toNumber(item.pnl_percentage));
@@ -493,14 +560,102 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
     this.performanceChart = new Chart(canvas, config);
   }
 
+  private renderAdvisorChart(): void {
+    const canvas = this.advisorChartRef?.nativeElement;
+
+    if (!canvas) {
+      console.warn('Advisor chart canvas not available.');
+      return;
+    }
+
+    this.advisorChart?.destroy();
+
+    const results = this.advisorAllocation?.results ?? [];
+
+    if (!results.length) {
+      console.warn('No advisor allocation data available.');
+      return;
+    }
+
+    const labels = results.map((item: any) => item.advisor || 'Unassigned');
+
+    const values = results.map((item: any) => this.toNumber(item.value));
+
+    const percentages = results.map((item: any) => this.toNumber(item.percentage));
+
+    const config: ChartConfiguration<'pie'> = {
+      type: 'pie',
+
+      data: {
+        labels,
+
+        datasets: [
+          {
+            data: values,
+
+            backgroundColor: [
+              '#111827',
+              '#374151',
+              '#6b7280',
+              '#9ca3af',
+              '#d1d5db',
+              '#4b5563',
+              '#1f2937',
+              '#e5e7eb',
+              '#0f172a',
+              '#94a3b8',
+            ],
+
+            borderWidth: 2,
+            borderColor: '#ffffff',
+          },
+        ],
+      },
+
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+
+        plugins: {
+          legend: {
+            position: 'bottom',
+
+            labels: {
+              usePointStyle: true,
+              padding: 14,
+            },
+          },
+
+          tooltip: {
+            callbacks: {
+              label: (context) => {
+                const index = context.dataIndex;
+
+                const percentage = percentages[index] ?? 0;
+
+                return `${context.label}: ${this.formatCurrency(
+                  Number(context.raw),
+                )} (${percentage.toFixed(2)}%)`;
+              },
+            },
+          },
+        },
+      },
+    };
+
+    this.advisorChart = new Chart(canvas, config);
+  }
+
   private destroyCharts(): void {
     this.historicalChart?.destroy();
     this.allocationChart?.destroy();
     this.performanceChart?.destroy();
+    this.advisorChart?.destroy();
 
     this.historicalChart = undefined;
     this.allocationChart = undefined;
     this.performanceChart = undefined;
+    this.advisorChart = undefined;
   }
 
   ngOnDestroy(): void {
@@ -567,6 +722,7 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
     }
 
     return (
+      this.bestPerformer.asset_class ||
       this.bestPerformer.symbol ||
       this.bestPerformer.asset_name ||
       this.bestPerformer.scheme_name ||
@@ -581,6 +737,7 @@ export class AnalyticsComponent implements OnInit, AfterViewInit, OnDestroy {
     }
 
     return (
+      this.worstPerformer.asset_class ||
       this.worstPerformer.symbol ||
       this.worstPerformer.asset_name ||
       this.worstPerformer.scheme_name ||

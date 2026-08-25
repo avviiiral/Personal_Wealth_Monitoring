@@ -1,3 +1,6 @@
+from django.contrib.auth.models import User
+from django.test import TestCase
+
 from .services.investment_summary import InvestmentSummaryService
 
 from decimal import Decimal 
@@ -8,6 +11,10 @@ from investments.models import (
     Holding,
     Transaction,
     TransactionType,
+)
+from mutual_funds.models import (
+    MutualFundHolding,
+    MutualFundScheme,
 )
 
 class InvestmentSummaryServiceTests(TestCase):

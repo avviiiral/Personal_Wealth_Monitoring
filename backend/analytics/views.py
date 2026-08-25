@@ -203,6 +203,44 @@ def wealth_investment_summary(request):
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
+def wealth_performance_by_subclass(request):
+    """
+    Return performance (invested value, current value, unrealized
+    P&L) aggregated by Asset Class (Sub Class), using the same
+    canonical classification as the Dashboard Investment Summary.
+    """
+
+    data = (
+        InvestmentSummaryService
+        .calculate_performance_by_subclass(
+            request.user
+        )
+    )
+
+    return Response({
+        "results": data
+    })
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def wealth_allocation_by_advisor(request):
+    """
+    Return current-value allocation aggregated by Advisor.
+    """
+
+    data = (
+        InvestmentSummaryService
+        .calculate_allocation_by_advisor(
+            request.user
+        )
+    )
+
+    return Response(data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
 def wealth_historical(request):
     """
     Return unified historical wealth.

@@ -53,6 +53,18 @@ export class WealthApiService {
     });
   }
 
+  getPerformanceBySubclass(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/performance-by-subclass/`, {
+      withCredentials: true,
+    });
+  }
+
+  getAllocationByAdvisor(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/allocation-by-advisor/`, {
+      withCredentials: true,
+    });
+  }
+
   getHistorical(days: number = 30): Observable<any> {
     const params = new HttpParams().set('days', days);
 
