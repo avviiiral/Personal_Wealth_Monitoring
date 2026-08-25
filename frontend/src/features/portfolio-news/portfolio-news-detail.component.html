@@ -1,0 +1,111 @@
+<section class="news-detail-page">
+  <button type="button" class="back-button" (click)="goBack()">
+    &larr; Back to Portfolio News
+  </button>
+
+  <div class="detail-loading" *ngIf="loading">Loading...</div>
+
+  <div class="detail-error" *ngIf="error && !loading">{{ error }}</div>
+
+  <ng-container *ngIf="!loading && !error && alert as a">
+    <div class="detail-header">
+      <span class="impact-pill impact-pill--{{ a.notification_tier }}">
+        {{ a.impact.replace('_', ' ') }} impact
+      </span>
+
+      <span class="category-pill">{{ a.category }}</span>
+    </div>
+
+    <h1 class="detail-holding-name">{{ a.holding_display_name }}</h1>
+
+    <h2 class="detail-headline">{{ a.article_title }}</h2>
+
+    <div class="detail-meta">
+      <span>{{ a.article_source }}</span>
+      <span class="dot-sep">&middot;</span>
+      <span>{{ formattedPublishedAt() }}</span>
+    </div>
+
+    <a class="read-original-button" [href]="a.article_url" target="_blank" rel="noopener noreferrer"
+      >Read Original Article (opens in new tab)</a
+    >
+
+    <!-- WHY THIS MATTERS TO YOU -->
+    <div class="why-matters-card">
+      <h3>Why this matters to you</h3>
+
+      <p>
+        <strong>{{ a.holding_display_name }}</strong> represents about
+        <strong>{{ a.portfolio_weight_at_alert | number: '1.1-2' }}%</strong>
+        of your portfolio.
+      </p>
+
+      <p>{{ a.reason }}</p>
+
+      <p>
+        The AI assessment classifies the potential impact as
+        <strong>{{ a.impact.replace('_', ' ') }}</strong>
+        with <strong>{{ confidencePercent() }}%</strong> confidence.
+      </p>
+    </div>
+
+    <!-- AI SUMMARY -->
+    <div class="detail-section">
+      <h3>AI Summary</h3>
+      <p>{{ a.summary }}</p>
+    </div>
+
+    <!-- PORTFOLIO IMPLICATION -->
+    <div class="detail-section">
+      <h3>Potential Portfolio Implication</h3>
+      <p>{{ a.portfolio_implication }}</p>
+      <p class="disclaimer">
+        This is an AI-generated assessment based on the available article, not investment advice or
+        a prediction of future returns.
+      </p>
+    </div>
+
+    <!-- METRICS GRID -->
+    <div class="metrics-grid">
+      <div class="metric">
+        <span class="metric-label">Sentiment</span>
+        <span class="metric-value sentiment--{{ a.sentiment }}">{{ a.sentiment }}</span>
+      </div>
+
+      <div class="metric">
+        <span class="metric-label">Impact</span>
+        <span class="metric-value">{{ a.impact.replace('_', ' ') }}</span>
+      </div>
+
+      <div class="metric">
+        <span class="metric-label">Impact Score</span>
+        <span class="metric-value">{{ a.impact_score }} / 100</span>
+      </div>
+
+      <div class="metric">
+        <span class="metric-label">Relevance Score</span>
+        <span class="metric-value">{{ a.relevance_score }} / 100</span>
+      </div>
+
+      <div class="metric">
+        <span class="metric-label">Portfolio Weight</span>
+        <span class="metric-value">{{ a.portfolio_weight_at_alert | number: '1.1-2' }}%</span>
+      </div>
+
+      <div class="metric">
+        <span class="metric-label">AI Confidence</span>
+        <span class="metric-value">{{ confidencePercent() }}%</span>
+      </div>
+
+      <div class="metric">
+        <span class="metric-label">Time Horizon</span>
+        <span class="metric-value">{{ a.time_horizon.replace('_', ' ') }}</span>
+      </div>
+
+      <div class="metric">
+        <span class="metric-label">Internal Alert Priority</span>
+        <span class="metric-value">{{ a.alert_score }} / 100</span>
+      </div>
+    </div>
+  </ng-container>
+</section>

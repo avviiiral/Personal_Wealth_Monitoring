@@ -1,10 +1,16 @@
-import { Component, HostListener, inject } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
+import { Subscription, interval } from 'rxjs';
 
 import { AuthService } from '../../../core/services/auth.service';
 import { AiChatApiService } from '../../../core/services/ai-chat-api.service';
+import {
+  NewsApiService,
+  PortfolioNewsAlertListItem,
+} from '../../../core/services/news-api.service';
+import { BrowserNotificationService } from '../../../core/services/browser-notification.service';
 
 interface ChatMessage {
   role: 'user' | 'assistant';
@@ -14,14 +20,23 @@ interface ChatMessage {
 @Component({
   selector: 'app-header',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterLink],
   templateUrl: './header.component.html',
   styleUrl: './header.component.scss',
 })
-export class HeaderComponent {
+export class HeaderComponent implements OnInit, OnDestroy {
   private readonly authService = inject(AuthService);
   private readonly aiChatApi = inject(AiChatApiService);
+  private readonly newsApi = inject(NewsApiService);
+  private readonly browserNotifications = inject(BrowserNotificationService);
   private readonly router = inject(Router);
+
+  private pollSubscription?: Subscription;
+
+  private static readonly POLL_INTERVAL_MS = 60000;
+
+  private knownAlertIds = new Set<number>();
+  private notificationsBaselineEstablished = false;
 
   profileMenuOpen = false;
   loggingOut = false;
@@ -42,8 +57,34 @@ export class HeaderComponent {
 
   chatMessages: ChatMessage[] = [];
 
+  /*
+   * NOTIFICATIONS
+   */
+  notificationsOpen = false;
+  notificationsLoading = false;
+  notifications: PortfolioNewsAlertListItem[] = [];
+  unreadCount = 0;
+
   get currentUser() {
     return this.authService.currentUser;
+  }
+
+  /*
+   * --------------------------------------------------
+   * LIFECYCLE
+   * --------------------------------------------------
+   */
+
+  ngOnInit(): void {
+    this.refreshNotifications();
+
+    this.pollSubscription = interval(HeaderComponent.POLL_INTERVAL_MS).subscribe(() => {
+      this.refreshNotifications();
+    });
+  }
+
+  ngOnDestroy(): void {
+    this.pollSubscription?.unsubscribe();
   }
 
   /*
@@ -197,6 +238,132 @@ export class HeaderComponent {
 
   /*
    * --------------------------------------------------
+   * NOTIFICATIONS
+   * --------------------------------------------------
+   */
+
+  refreshNotifications(): void {
+    this.newsApi.getNotifications(10).subscribe({
+      next: (response) => {
+        const newItems = response.results.filter((item) => !this.knownAlertIds.has(item.id));
+
+        if (this.notificationsBaselineEstablished) {
+          for (const item of newItems) {
+            this.fireBrowserNotification(item);
+          }
+        }
+
+        this.knownAlertIds = new Set(response.results.map((item) => item.id));
+        this.notificationsBaselineEstablished = true;
+
+        this.notifications = response.results;
+        this.unreadCount = response.unread_count;
+      },
+
+      error: (error) => {
+        console.error('Failed to load notifications:', error);
+      },
+    });
+  }
+
+  private fireBrowserNotification(item: PortfolioNewsAlertListItem): void {
+    const tierLabel = item.notification_tier === 'critical' ? 'Critical Impact' : 'High Impact';
+
+    this.browserNotifications.showNotification({
+      title: `${tierLabel} - ${item.holding_display_name}`,
+      body: item.article_title,
+      tag: `pwms-alert-${item.id}`,
+      onClick: () => {
+        this.router.navigate(['/portfolio-news', item.id]);
+      },
+    });
+  }
+
+  toggleNotifications(event: MouseEvent): void {
+    event.stopPropagation();
+
+    this.notificationsOpen = !this.notificationsOpen;
+
+    if (this.notificationsOpen) {
+      this.searchOpen = false;
+      this.chatOpen = false;
+      this.profileMenuOpen = false;
+      this.refreshNotifications();
+      void this.browserNotifications.requestPermissionIfNeeded();
+    }
+  }
+
+  closeNotifications(): void {
+    this.notificationsOpen = false;
+  }
+
+  openNotification(item: PortfolioNewsAlertListItem): void {
+    if (!item.is_read) {
+      this.newsApi.markNotificationRead(item.id).subscribe({
+        next: () => {
+          item.is_read = true;
+          this.unreadCount = Math.max(0, this.unreadCount - 1);
+        },
+
+        error: (error) => {
+          console.error('Failed to mark notification read:', error);
+        },
+      });
+    }
+
+    this.notificationsOpen = false;
+    this.router.navigate(['/portfolio-news', item.id]);
+  }
+
+  markAllNotificationsRead(event: MouseEvent): void {
+    event.stopPropagation();
+
+    this.newsApi.markAllNotificationsRead().subscribe({
+      next: () => {
+        this.notifications = this.notifications.map((item) => ({ ...item, is_read: true }));
+        this.unreadCount = 0;
+      },
+
+      error: (error) => {
+        console.error('Failed to mark all notifications read:', error);
+      },
+    });
+  }
+
+  impactDotClass(item: PortfolioNewsAlertListItem): string {
+    return `impact-dot impact-dot--${item.notification_tier}`;
+  }
+
+  timeAgo(isoDate: string | null): string {
+    if (!isoDate) {
+      return '';
+    }
+
+    const then = new Date(isoDate).getTime();
+    const diffMs = Date.now() - then;
+    const diffMinutes = Math.floor(diffMs / 60000);
+
+    if (diffMinutes < 1) {
+      return 'just now';
+    }
+
+    if (diffMinutes < 60) {
+      return `${diffMinutes} minute${diffMinutes === 1 ? '' : 's'} ago`;
+    }
+
+    const diffHours = Math.floor(diffMinutes / 60);
+
+    if (diffHours < 24) {
+      return `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+    }
+
+    const diffDays = Math.floor(diffHours / 24);
+
+    return `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+  }
+
+  /*
+   * --------------------------------------------------
    * CLOSE MENUS WHEN CLICKING OUTSIDE
    * --------------------------------------------------
    */
@@ -205,5 +372,6 @@ export class HeaderComponent {
   closeMenus(): void {
     this.profileMenuOpen = false;
     this.searchOpen = false;
+    this.notificationsOpen = false;
   }
 }
