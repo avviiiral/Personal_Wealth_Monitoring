@@ -259,7 +259,7 @@
 
               <div class="allocation-value">
                 <strong>
-                  {{ formatCurrency(item.value) }}
+                  {{ formatAxisCurrency(item.value) }}
                 </strong>
 
                 <small> {{ item.percentage | number: '1.1-2' }}% </small>
@@ -377,7 +377,7 @@
     <!-- ALLOCATION BY ADVISOR -->
     <!-- ================================================== -->
 
-    <section class="analytics-card allocation-card">
+    <section class="analytics-card allocation-card advisor-allocation-card">
       <div class="card-header">
         <div>
           <span class="section-eyebrow"><i class="eyebrow-dot eyebrow-dot--teal"></i>ADVISOR</span>
@@ -405,7 +405,7 @@
 
             <div class="allocation-value">
               <strong>
-                {{ formatCurrency(item.value) }}
+                {{ formatAxisCurrency(item.value) }}
               </strong>
 
               <small> {{ item.percentage | number: '1.1-2' }}% </small>
@@ -437,29 +437,6 @@
 
       <div class="performance-chart-container" *ngIf="advisorPerformance?.results?.length">
         <canvas #advisorPerformanceChart></canvas>
-      </div>
-
-      <div class="allocation-list" *ngIf="advisorPerformance?.results?.length">
-        <div class="allocation-row" *ngFor="let item of advisorPerformance?.results">
-          <span class="allocation-label">
-            <i
-              class="advisor-avatar"
-              [style.background]="advisorColor(item.advisor)"
-            >{{ advisorInitials(item.advisor) }}</i>
-            {{ item.advisor }}
-          </span>
-
-          <div class="allocation-value">
-            <strong
-              [class.negative]="item.pnl_percentage < 0"
-              [class.positive]="item.pnl_percentage >= 0"
-            >
-              {{ item.pnl_percentage >= 0 ? '+' : '' }}{{ item.pnl_percentage | number: '1.1-2' }}%
-            </strong>
-
-            <small> {{ formatCurrency(item.current_value) }} current </small>
-          </div>
-        </div>
       </div>
 
       <div

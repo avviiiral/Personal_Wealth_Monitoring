@@ -591,6 +591,10 @@
   min-height: 430px;
 }
 
+.advisor-allocation-card {
+  margin-bottom: 32px;
+}
+
 // ==================================================
 // ALLOCATION
 // ==================================================
@@ -598,7 +602,7 @@
 .allocation-content {
   display: grid;
 
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 
   align-items: center;
 
@@ -618,6 +622,8 @@
   flex-direction: column;
 
   gap: 0;
+
+  min-width: 0;
 }
 
 .allocation-row {
@@ -693,16 +699,23 @@
 
   gap: 2px;
 
+  min-width: 0;
+  flex: 0 0 auto;
+
   strong {
     color: #111827;
 
     font-size: 12px;
+
+    white-space: nowrap;
   }
 
   small {
     color: #9aa2af;
 
     font-size: 10px;
+
+    white-space: nowrap;
   }
 }
 
