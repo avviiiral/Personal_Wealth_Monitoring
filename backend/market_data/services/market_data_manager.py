@@ -654,7 +654,7 @@ class MarketDataManager:
             }
 
         if not yahoo_symbol:
-
+            holding = cls._rebuild_holding(asset)    
             return {
                 "success": False,
                 "skipped": True,
