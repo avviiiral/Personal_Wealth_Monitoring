@@ -10,6 +10,10 @@ import {
 
 type TierFilter = 'all' | 'critical' | 'high' | 'moderate' | 'low';
 
+type SentimentFilter = 'all' | 'positive' | 'negative' | 'neutral' | 'mixed';
+
+type DateRangeFilter = 'all' | 'today' | '3d' | '7d' | '30d';
+
 type ViewMode = 'feed' | 'digest';
 
 @Component({
@@ -28,6 +32,8 @@ export class PortfolioNewsListComponent implements OnInit {
   error = '';
 
   activeTier: TierFilter = 'all';
+  activeSentiment: SentimentFilter = 'all';
+  activeDateRange: DateRangeFilter = 'all';
 
   viewMode: ViewMode = 'feed';
 
@@ -43,6 +49,21 @@ export class PortfolioNewsListComponent implements OnInit {
     { value: 'low', label: 'Low' },
   ];
 
+  readonly sentiments: { value: SentimentFilter; label: string }[] = [
+    { value: 'all', label: 'All' },
+    { value: 'positive', label: 'Positive' },
+    { value: 'negative', label: 'Negative' },
+    { value: 'neutral', label: 'Neutral' },
+  ];
+
+  readonly dateRanges: { value: DateRangeFilter; label: string }[] = [
+    { value: 'all', label: 'All time' },
+    { value: 'today', label: 'Today' },
+    { value: '3d', label: '3 days' },
+    { value: '7d', label: '7 days' },
+    { value: '30d', label: '30 days' },
+  ];
+
   ngOnInit(): void {
     this.loadNews();
   }
@@ -54,6 +75,8 @@ export class PortfolioNewsListComponent implements OnInit {
     this.newsApi
       .getNews({
         tier: this.activeTier === 'all' ? undefined : this.activeTier,
+        sentiment: this.activeSentiment === 'all' ? undefined : this.activeSentiment,
+        dateRange: this.activeDateRange === 'all' ? undefined : this.activeDateRange,
         limit: 100,
       })
       .subscribe({
@@ -76,6 +99,24 @@ export class PortfolioNewsListComponent implements OnInit {
     }
 
     this.activeTier = tier;
+    this.loadNews();
+  }
+
+  selectSentiment(sentiment: SentimentFilter): void {
+    if (this.activeSentiment === sentiment) {
+      return;
+    }
+
+    this.activeSentiment = sentiment;
+    this.loadNews();
+  }
+
+  selectDateRange(dateRange: DateRangeFilter): void {
+    if (this.activeDateRange === dateRange) {
+      return;
+    }
+
+    this.activeDateRange = dateRange;
     this.loadNews();
   }
 

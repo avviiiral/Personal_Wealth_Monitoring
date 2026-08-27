@@ -120,6 +120,11 @@ export class NewsApiService {
     tier?: string;
     unreadOnly?: boolean;
     limit?: number;
+    category?: string;
+    sentiment?: string;
+    holdingType?: string;
+    holdingId?: number;
+    dateRange?: string;
   }): Observable<PortfolioNewsListResponse> {
     let params = new HttpParams();
 
@@ -133,6 +138,26 @@ export class NewsApiService {
 
     if (options?.limit) {
       params = params.set('limit', String(options.limit));
+    }
+
+    if (options?.category) {
+      params = params.set('category', options.category);
+    }
+
+    if (options?.sentiment) {
+      params = params.set('sentiment', options.sentiment);
+    }
+
+    if (options?.holdingType) {
+      params = params.set('holding_type', options.holdingType);
+    }
+
+    if (options?.holdingId) {
+      params = params.set('holding_id', String(options.holdingId));
+    }
+
+    if (options?.dateRange) {
+      params = params.set('date_range', options.dateRange);
     }
 
     return this.http.get<PortfolioNewsListResponse>(`${this.baseUrl}/news/`, {

@@ -111,6 +111,61 @@
 }
 
 /* --------------------------------------------------
+   SECONDARY FILTERS (sentiment, date range)
+-------------------------------------------------- */
+
+.secondary-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+
+  margin-bottom: 20px;
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.filter-group-label {
+  margin-right: 2px;
+
+  font-size: 11px;
+  font-weight: 600;
+
+  color: #8d95a5;
+}
+
+.secondary-filter-button {
+  padding: 5px 12px;
+
+  border: 1px solid #e4e7ec;
+  border-radius: 16px;
+
+  background: #ffffff;
+
+  color: #4f5868;
+
+  font-size: 11px;
+  font-weight: 600;
+
+  cursor: pointer;
+}
+
+.secondary-filter-button:hover {
+  background: #f4f5f7;
+}
+
+.secondary-filter-button.active {
+  border-color: #172033;
+
+  background: #172033;
+  color: #ffffff;
+}
+
+/* --------------------------------------------------
    STATES
 -------------------------------------------------- */
 

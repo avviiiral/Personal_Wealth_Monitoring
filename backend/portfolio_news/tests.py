@@ -1926,6 +1926,156 @@ class PortfolioNewsAPITests(TestCase):
             response.data["results"][0]["id"], self.alert.id
         )
 
+    def test_news_list_category_filter(self):
+        response = self.client.get(
+            "/api/ai/news/?category=REGULATORY"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(
+            response.data["results"][0]["id"], self.alert.id
+        )
+
+    def test_news_list_sentiment_filter(self):
+        response = self.client.get(
+            "/api/ai/news/?sentiment=positive"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(
+            response.data["results"][0]["id"],
+            self.moderate_alert.id,
+        )
+
+    def test_news_list_holding_type_filter(self):
+        mf_article, _ = store_article(
+            NewsArticleResult(
+                title="HDFC Flexi Cap Fund NAV update",
+                url="https://reuters.com/hdfc-flexicap-1",
+                source="Reuters",
+                description="NAV update.",
+                published_at=datetime(
+                    2026, 8, 22, 9, 0, tzinfo=timezone.utc
+                ),
+            )
+        )
+
+        mf_holding = MonitoredHolding(
+            holding_type=HoldingType.MUTUAL_FUND,
+            holding_id=501,
+            display_name="HDFC Flexi Cap Fund",
+            amc_name="HDFC Mutual Fund",
+            portfolio_weight=10.0,
+        )
+
+        mf_analysis = ArticleAnalysis(
+            relevant=True,
+            relevance_score=40,
+            sentiment="neutral",
+            impact="low",
+            impact_score=20,
+            category="OTHER",
+            time_horizon="unspecified",
+            summary="NAV summary.",
+            portfolio_implication="No material implication.",
+            reason="Routine update.",
+            confidence=0.5,
+        )
+
+        create_alert_from_analysis(
+            self.user, mf_article, mf_holding, mf_analysis
+        )
+
+        response = self.client.get(
+            "/api/ai/news/?holding_type=MUTUAL_FUND"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(
+            response.data["results"][0]["holding_type"],
+            "MUTUAL_FUND",
+        )
+
+    def test_news_list_holding_id_filter(self):
+        response = self.client.get("/api/ai/news/?holding_id=101")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 2)
+
+        response = self.client.get("/api/ai/news/?holding_id=999")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 0)
+
+    def test_news_list_date_range_today_excludes_backdated_alert(
+        self,
+    ):
+        from datetime import timedelta
+
+        from django.utils import timezone as dj_timezone
+
+        PortfolioNewsAlert.objects.filter(
+            id=self.moderate_alert.id
+        ).update(
+            created_at=dj_timezone.now() - timedelta(days=10)
+        )
+
+        response = self.client.get(
+            "/api/ai/news/?date_range=today"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(
+            response.data["results"][0]["id"], self.alert.id
+        )
+
+    def test_news_list_date_range_30d_includes_recent_alerts(self):
+        response = self.client.get(
+            "/api/ai/news/?date_range=30d"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 2)
+
+    def test_news_list_date_range_7d_excludes_older_alert(self):
+        from datetime import timedelta
+
+        from django.utils import timezone as dj_timezone
+
+        PortfolioNewsAlert.objects.filter(
+            id=self.moderate_alert.id
+        ).update(
+            created_at=dj_timezone.now() - timedelta(days=10)
+        )
+
+        response = self.client.get("/api/ai/news/?date_range=7d")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(
+            response.data["results"][0]["id"], self.alert.id
+        )
+
+    def test_news_list_filters_combine_with_and_semantics(self):
+        response = self.client.get(
+            "/api/ai/news/?category=REGULATORY&sentiment=positive"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 0)
+
+    def test_news_list_invalid_holding_id_is_ignored_not_error(self):
+        response = self.client.get(
+            "/api/ai/news/?holding_id=not-a-number"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 2)
+
     def test_news_detail_returns_full_fields(self):
         response = self.client.get(
             f"/api/ai/news/{self.alert.id}/"

@@ -1,4 +1,7 @@
+from datetime import timedelta
+
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 from rest_framework.decorators import (
     api_view,
@@ -21,6 +24,16 @@ DEFAULT_LIST_LIMIT = 50
 
 MAX_LIST_LIMIT = 200
 
+# ?date_range= values -> lookback window in days, applied
+# against `created_at` (matches how the digest defines "today").
+# "today" is handled separately below since it's a calendar-day
+# bound, not a rolling window.
+DATE_RANGE_DAYS = {
+    "3d": 3,
+    "7d": 7,
+    "30d": 30,
+}
+
 
 def _parse_limit(request):
 
@@ -37,13 +50,62 @@ def _parse_limit(request):
     return max(1, min(limit, MAX_LIST_LIMIT))
 
 
+def _apply_common_filters(queryset, request):
+    """
+    Shared filter logic for the news feed. Every filter is
+    optional and silently ignored if the value isn't a
+    recognized choice - an unknown/garbled filter value should
+    narrow safely down to "no matches" via the ORM's normal
+    behavior, not error the whole request.
+    """
+
+    category = request.query_params.get("category")
+
+    if category:
+        queryset = queryset.filter(category=category)
+
+    sentiment = request.query_params.get("sentiment")
+
+    if sentiment:
+        queryset = queryset.filter(sentiment=sentiment)
+
+    holding_type = request.query_params.get("holding_type")
+
+    if holding_type:
+        queryset = queryset.filter(holding_type=holding_type)
+
+    holding_id = request.query_params.get("holding_id")
+
+    if holding_id:
+        try:
+            queryset = queryset.filter(holding_id=int(holding_id))
+        except (TypeError, ValueError):
+            pass
+
+    date_range = request.query_params.get("date_range")
+
+    if date_range == "today":
+        queryset = queryset.filter(
+            created_at__date=timezone.localdate()
+        )
+    elif date_range in DATE_RANGE_DAYS:
+        cutoff = timezone.now() - timedelta(
+            days=DATE_RANGE_DAYS[date_range]
+        )
+        queryset = queryset.filter(created_at__gte=cutoff)
+
+    return queryset
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def portfolio_news_list(request):
     """
     Browsable portfolio news feed for the authenticated user -
     every alert regardless of notification tier, newest/highest
-    priority first. Supports optional filtering.
+    priority first. Supports optional filtering by notification
+    tier, read state, category, sentiment, holding type/id, and
+    a rolling or calendar-day date range.
     """
 
     queryset = (
@@ -59,6 +121,8 @@ def portfolio_news_list(request):
 
     if request.query_params.get("unread_only") == "true":
         queryset = queryset.filter(is_read=False)
+
+    queryset = _apply_common_filters(queryset, request)
 
     limit = _parse_limit(request)
 

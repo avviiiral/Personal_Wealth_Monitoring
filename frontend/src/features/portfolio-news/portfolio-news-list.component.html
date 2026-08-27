@@ -36,6 +36,34 @@
       </button>
     </div>
 
+    <div class="secondary-filters">
+      <div class="filter-group">
+        <span class="filter-group-label">Sentiment</span>
+        <button
+          type="button"
+          *ngFor="let sentiment of sentiments"
+          class="secondary-filter-button"
+          [class.active]="activeSentiment === sentiment.value"
+          (click)="selectSentiment(sentiment.value)"
+        >
+          {{ sentiment.label }}
+        </button>
+      </div>
+
+      <div class="filter-group">
+        <span class="filter-group-label">Date</span>
+        <button
+          type="button"
+          *ngFor="let range of dateRanges"
+          class="secondary-filter-button"
+          [class.active]="activeDateRange === range.value"
+          (click)="selectDateRange(range.value)"
+        >
+          {{ range.label }}
+        </button>
+      </div>
+    </div>
+
     <div class="news-loading" *ngIf="loading">Loading your portfolio news...</div>
 
     <div class="news-error" *ngIf="error && !loading">{{ error }}</div>
