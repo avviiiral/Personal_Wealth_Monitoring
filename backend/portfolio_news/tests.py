@@ -1644,7 +1644,175 @@ class NotificationCreationTests(TestCase):
             user_alert_ids.intersection(other_user_alert_ids),
             set(),
         )
-        
+
+
+class DigestServiceTests(TestCase):
+    """
+    Direct unit coverage for build_daily_digest, independent of
+    the API layer (see PortfolioNewsAPITests for the endpoint
+    tests).
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="digestuser",
+            password="testpassword",
+        )
+
+        self.holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=77,
+            display_name="Aurobindo Pharma Limited",
+            symbol="AUROPHARMA",
+            portfolio_weight=18.4,
+        )
+
+    def _analysis(self, impact, impact_score, confidence=0.9):
+        return ArticleAnalysis(
+            relevant=True,
+            relevance_score=90,
+            sentiment="neutral",
+            impact=impact,
+            impact_score=impact_score,
+            category="OTHER",
+            time_horizon="medium_term",
+            summary="Summary.",
+            portfolio_implication="Implication.",
+            reason="Reason.",
+            confidence=confidence,
+        )
+
+    def test_digest_excludes_low_tier_alerts(self):
+        from portfolio_news.services.digest import (
+            build_daily_digest,
+        )
+
+        article, _ = store_article(
+            NewsArticleResult(
+                title="Aurobindo Pharma minor update",
+                url="https://reuters.com/aurobindo-low-1",
+                source="Reuters",
+                description="Minor update.",
+            )
+        )
+
+        create_alert_from_analysis(
+            self.user,
+            article,
+            self.holding,
+            self._analysis(impact="low", impact_score=15),
+        )
+
+        digest = build_daily_digest(self.user)
+
+        self.assertEqual(digest.item_count, 0)
+
+    def test_digest_excludes_other_users_alerts(self):
+        from portfolio_news.services.digest import (
+            build_daily_digest,
+        )
+
+        other_user = User.objects.create_user(
+            username="otherdigestuser",
+            password="testpassword",
+        )
+
+        article, _ = store_article(
+            NewsArticleResult(
+                title="Aurobindo Pharma big development",
+                url="https://reuters.com/aurobindo-other-1",
+                source="Reuters",
+                description="Big development.",
+            )
+        )
+
+        create_alert_from_analysis(
+            other_user,
+            article,
+            self.holding,
+            self._analysis(impact="critical", impact_score=90),
+        )
+
+        digest = build_daily_digest(self.user)
+
+        self.assertEqual(digest.item_count, 0)
+
+    def test_digest_excludes_alerts_from_other_days(self):
+        from datetime import timedelta
+
+        from django.utils import timezone as dj_timezone
+
+        from portfolio_news.services.digest import (
+            build_daily_digest,
+        )
+
+        article, _ = store_article(
+            NewsArticleResult(
+                title="Aurobindo Pharma another update",
+                url="https://reuters.com/aurobindo-other-day-1",
+                source="Reuters",
+                description="Update.",
+            )
+        )
+
+        alert, _ = create_alert_from_analysis(
+            self.user,
+            article,
+            self.holding,
+            self._analysis(impact="high", impact_score=70),
+        )
+
+        # Backdate the alert to yesterday.
+        yesterday = dj_timezone.now() - timedelta(days=1)
+
+        PortfolioNewsAlert.objects.filter(
+            id=alert.id
+        ).update(created_at=yesterday)
+
+        digest = build_daily_digest(self.user)
+
+        self.assertEqual(digest.item_count, 0)
+
+    def test_digest_item_reflects_source_count(self):
+        from portfolio_news.services.digest import (
+            build_daily_digest,
+        )
+
+        published_at = datetime(
+            2026, 8, 24, 9, 0, tzinfo=timezone.utc
+        )
+
+        store_article(
+            NewsArticleResult(
+                title="Aurobindo Pharma wins big order",
+                url="https://reuters.com/aurobindo-multi-1",
+                source="Reuters",
+                description="Order news.",
+                published_at=published_at,
+            )
+        )
+
+        article, _ = store_article(
+            NewsArticleResult(
+                title="Aurobindo Pharma secures major order",
+                url="https://economictimes.com/aurobindo-multi-2",
+                source="Economic Times",
+                description="Order news.",
+                published_at=published_at,
+            )
+        )
+
+        create_alert_from_analysis(
+            self.user,
+            article,
+            self.holding,
+            self._analysis(impact="high", impact_score=70),
+        )
+
+        digest = build_daily_digest(self.user)
+
+        self.assertEqual(digest.item_count, 1)
+        self.assertEqual(digest.items[0].source_count, 2)
 
 
 from rest_framework.test import APIClient
@@ -1845,7 +2013,61 @@ class PortfolioNewsAPITests(TestCase):
 
         self.assertEqual(other_response.status_code, 200)
         self.assertEqual(other_response.data["updated"], 0)
-        
+
+    def test_digest_includes_high_and_moderate_alerts_for_today(self):
+        response = self.client.get("/api/ai/news/digest/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["item_count"], 2)
+
+        holding_names = {
+            item["holding_display_name"]
+            for item in response.data["items"]
+        }
+
+        self.assertEqual(
+            holding_names, {"Aurobindo Pharma Limited"}
+        )
+
+    def test_digest_orders_by_alert_score_descending(self):
+        response = self.client.get("/api/ai/news/digest/")
+
+        scores = [
+            item["alert_score"]
+            for item in response.data["items"]
+        ]
+
+        self.assertEqual(scores, sorted(scores, reverse=True))
+
+    def test_digest_scoped_to_requesting_user_only(self):
+        response = self.other_client.get("/api/ai/news/digest/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["item_count"], 0)
+
+    def test_digest_accepts_explicit_date_param(self):
+        # A date with no alerts should return an empty digest,
+        # not an error.
+        response = self.client.get(
+            "/api/ai/news/digest/?date=2020-01-01"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["item_count"], 0)
+        self.assertEqual(
+            response.data["digest_date"], "2020-01-01"
+        )
+
+    def test_digest_ignores_unparseable_date_and_falls_back_to_today(
+        self,
+    ):
+        response = self.client.get(
+            "/api/ai/news/digest/?date=not-a-date"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["item_count"], 2)
+
 
 
 from django.utils import timezone as dj_timezone

@@ -4,6 +4,7 @@ from .views import (
     mark_all_notifications_read,
     mark_notification_read,
     portfolio_news_detail,
+    portfolio_news_digest,
     portfolio_news_list,
     portfolio_notifications_list,
 )
@@ -15,6 +16,12 @@ urlpatterns = [
         "news/",
         portfolio_news_list,
         name="portfolio-news-list",
+    ),
+
+    path(
+        "news/digest/",
+        portfolio_news_digest,
+        name="portfolio-news-digest",
     ),
 
     path(

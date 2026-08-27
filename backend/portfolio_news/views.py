@@ -12,7 +12,9 @@ from .models import PortfolioNewsAlert
 from .serializers import (
     PortfolioNewsAlertDetailSerializer,
     PortfolioNewsAlertListSerializer,
+    PortfolioNewsDigestSerializer,
 )
+from .services.digest import build_daily_digest
 
 
 DEFAULT_LIST_LIMIT = 50
@@ -182,3 +184,37 @@ def mark_all_notifications_read(request):
             "updated": updated,
         }
     )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def portfolio_news_digest(request):
+    """
+    Daily portfolio news digest for the authenticated user -
+    CRITICAL/HIGH/MODERATE alerts created on the given date
+    (default: today), ordered by alert_score. See
+    services/digest.py for exactly what's included and why.
+
+    Accepts an optional ?date=YYYY-MM-DD query param; an
+    unparseable or missing date falls back to today rather than
+    erroring, since a slightly-wrong digest date is harmless and
+    this endpoint is read-only.
+    """
+
+    from datetime import date as date_type
+
+    for_date = None
+
+    raw_date = request.query_params.get("date")
+
+    if raw_date:
+        try:
+            for_date = date_type.fromisoformat(raw_date)
+        except ValueError:
+            for_date = None
+
+    digest = build_daily_digest(request.user, for_date=for_date)
+
+    serializer = PortfolioNewsDigestSerializer(digest)
+
+    return Response(serializer.data)

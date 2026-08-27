@@ -72,6 +72,35 @@ class NewsArticleSourceSerializer(serializers.Serializer):
     published_at = serializers.DateTimeField()
 
 
+class PortfolioNewsDigestItemSerializer(serializers.Serializer):
+    """
+    Plain Serializer for one entry in a PortfolioNewsDigest
+    dataclass (services/digest.py) - not a ModelSerializer since
+    DigestItem is a dataclass, not a model instance.
+    """
+
+    alert_id = serializers.IntegerField()
+    holding_display_name = serializers.CharField()
+    holding_type = serializers.CharField()
+    category = serializers.CharField()
+    impact = serializers.CharField()
+    materiality = serializers.CharField()
+    sentiment = serializers.CharField()
+    summary = serializers.CharField()
+    alert_score = serializers.FloatField()
+    source_count = serializers.IntegerField()
+
+
+class PortfolioNewsDigestSerializer(serializers.Serializer):
+    """
+    Serializes a PortfolioNewsDigest dataclass (services/digest.py).
+    """
+
+    digest_date = serializers.DateField()
+    item_count = serializers.IntegerField()
+    items = PortfolioNewsDigestItemSerializer(many=True)
+
+
 class PortfolioNewsAlertDetailSerializer(serializers.ModelSerializer):
     """
     Full representation for the news detail page - includes
