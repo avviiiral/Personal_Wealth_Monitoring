@@ -2,9 +2,15 @@ import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 
-import { NewsApiService, PortfolioNewsAlertListItem } from '../../core/services/news-api.service';
+import {
+  NewsApiService,
+  PortfolioNewsAlertListItem,
+  PortfolioNewsDigest,
+} from '../../core/services/news-api.service';
 
 type TierFilter = 'all' | 'critical' | 'high' | 'moderate' | 'low';
+
+type ViewMode = 'feed' | 'digest';
 
 @Component({
   selector: 'app-portfolio-news-list',
@@ -22,6 +28,12 @@ export class PortfolioNewsListComponent implements OnInit {
   error = '';
 
   activeTier: TierFilter = 'all';
+
+  viewMode: ViewMode = 'feed';
+
+  digest: PortfolioNewsDigest | null = null;
+  digestLoading = false;
+  digestError = '';
 
   readonly tiers: { value: TierFilter; label: string }[] = [
     { value: 'all', label: 'All' },
@@ -67,12 +79,58 @@ export class PortfolioNewsListComponent implements OnInit {
     this.loadNews();
   }
 
+  setViewMode(mode: ViewMode): void {
+    if (this.viewMode === mode) {
+      return;
+    }
+
+    this.viewMode = mode;
+
+    if (mode === 'digest' && !this.digest && !this.digestLoading) {
+      this.loadDigest();
+    }
+  }
+
+  loadDigest(): void {
+    this.digestLoading = true;
+    this.digestError = '';
+
+    this.newsApi.getDigest().subscribe({
+      next: (digest) => {
+        this.digest = digest;
+        this.digestLoading = false;
+      },
+
+      error: (error) => {
+        console.error('Failed to load portfolio news digest:', error);
+        this.digestError = 'Unable to load today\u2019s digest right now.';
+        this.digestLoading = false;
+      },
+    });
+  }
+
   openItem(item: PortfolioNewsAlertListItem): void {
     this.router.navigate(['/portfolio-news', item.id]);
   }
 
+  openDigestItem(alertId: number): void {
+    this.router.navigate(['/portfolio-news', alertId]);
+  }
+
   impactDotClass(item: PortfolioNewsAlertListItem): string {
     return `impact-dot impact-dot--${item.notification_tier}`;
+  }
+
+  materialityBadgeClass(materiality: string): string {
+    return `materiality-badge materiality-badge--${materiality}`;
+  }
+
+  sourceCountLabel(item: PortfolioNewsAlertListItem): string {
+    if (item.source_count <= 1) {
+      return '';
+    }
+
+    return `Reported by ${item.source_count} sources`;
   }
 
   timeAgo(isoDate: string | null): string {

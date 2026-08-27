@@ -4,57 +4,125 @@
     <p>AI-assessed news specifically matched to the holdings you actually own.</p>
   </div>
 
-  <div class="tier-filters">
+  <div class="view-mode-toggle">
     <button
       type="button"
-      *ngFor="let tier of tiers"
-      class="tier-filter-button"
-      [class.active]="activeTier === tier.value"
-      (click)="selectTier(tier.value)"
+      class="view-mode-button"
+      [class.active]="viewMode === 'feed'"
+      (click)="setViewMode('feed')"
     >
-      {{ tier.label }}
+      Feed
+    </button>
+    <button
+      type="button"
+      class="view-mode-button"
+      [class.active]="viewMode === 'digest'"
+      (click)="setViewMode('digest')"
+    >
+      Today's Digest
     </button>
   </div>
 
-  <div class="news-loading" *ngIf="loading">Loading your portfolio news...</div>
+  <ng-container *ngIf="viewMode === 'feed'">
+    <div class="tier-filters">
+      <button
+        type="button"
+        *ngFor="let tier of tiers"
+        class="tier-filter-button"
+        [class.active]="activeTier === tier.value"
+        (click)="selectTier(tier.value)"
+      >
+        {{ tier.label }}
+      </button>
+    </div>
 
-  <div class="news-error" *ngIf="error && !loading">{{ error }}</div>
+    <div class="news-loading" *ngIf="loading">Loading your portfolio news...</div>
 
-  <div class="news-empty" *ngIf="!loading && !error && items.length === 0">
-    No portfolio news yet. As soon as something material happens with your holdings, it will show up
-    here.
-  </div>
+    <div class="news-error" *ngIf="error && !loading">{{ error }}</div>
 
-  <div class="news-list" *ngIf="!loading && !error && items.length > 0">
-    <button
-      type="button"
-      class="news-card"
-      *ngFor="let item of items"
-      [class.unread]="!item.is_read"
-      (click)="openItem(item)"
-    >
-      <span [class]="impactDotClass(item)"></span>
+    <div class="news-empty" *ngIf="!loading && !error && items.length === 0">
+      No portfolio news yet. As soon as something material happens with your holdings, it will show
+      up here.
+    </div>
 
-      <div class="news-card-body">
-        <div class="news-card-top">
-          <strong>{{ item.holding_display_name }}</strong>
-          <span class="news-card-category">{{ item.category }}</span>
+    <div class="news-list" *ngIf="!loading && !error && items.length > 0">
+      <button
+        type="button"
+        class="news-card"
+        *ngFor="let item of items"
+        [class.unread]="!item.is_read"
+        (click)="openItem(item)"
+      >
+        <span [class]="impactDotClass(item)"></span>
+
+        <div class="news-card-body">
+          <div class="news-card-top">
+            <strong>{{ item.holding_display_name }}</strong>
+            <span class="news-card-category">{{ item.category }}</span>
+            <span [class]="materialityBadgeClass(item.materiality)">{{ item.materiality }}</span>
+          </div>
+
+          <span class="news-card-title">{{ item.article_title }}</span>
+
+          <div class="news-card-meta">
+            <span>{{ item.article_source }}</span>
+            <span class="dot-sep">&middot;</span>
+            <span>{{ timeAgo(item.article_published_at) }}</span>
+            <span class="dot-sep">&middot;</span>
+            <span class="sentiment sentiment--{{ item.sentiment }}">{{ item.sentiment }}</span>
+            <ng-container *ngIf="sourceCountLabel(item) as sourcesLabel">
+              <span class="dot-sep">&middot;</span>
+              <span class="source-count-label">{{ sourcesLabel }}</span>
+            </ng-container>
+          </div>
         </div>
 
-        <span class="news-card-title">{{ item.article_title }}</span>
-
-        <div class="news-card-meta">
-          <span>{{ item.article_source }}</span>
-          <span class="dot-sep">&middot;</span>
-          <span>{{ timeAgo(item.article_published_at) }}</span>
-          <span class="dot-sep">&middot;</span>
-          <span class="sentiment sentiment--{{ item.sentiment }}">{{ item.sentiment }}</span>
+        <div class="news-card-impact">
+          <span class="impact-label">{{ item.impact.replace('_', ' ') }}</span>
         </div>
+      </button>
+    </div>
+  </ng-container>
+
+  <ng-container *ngIf="viewMode === 'digest'">
+    <div class="news-loading" *ngIf="digestLoading">Loading today's digest...</div>
+
+    <div class="news-error" *ngIf="digestError && !digestLoading">{{ digestError }}</div>
+
+    <ng-container *ngIf="!digestLoading && !digestError && digest as d">
+      <div class="digest-heading">
+        <h2>Portfolio News Digest</h2>
+        <span class="digest-date">{{ d.digest_date }}</span>
+        <span class="digest-count">{{ d.item_count }} important development{{ d.item_count === 1 ? '' : 's' }}</span>
       </div>
 
-      <div class="news-card-impact">
-        <span class="impact-label">{{ item.impact.replace('_', ' ') }}</span>
+      <div class="news-empty" *ngIf="d.item_count === 0">
+        Nothing notable to summarize for this date yet.
       </div>
-    </button>
-  </div>
+
+      <div class="digest-list" *ngIf="d.item_count > 0">
+        <button
+          type="button"
+          class="digest-item"
+          *ngFor="let item of d.items; let i = index"
+          (click)="openDigestItem(item.alert_id)"
+        >
+          <span class="digest-item-index">{{ i + 1 }}</span>
+
+          <div class="digest-item-body">
+            <div class="digest-item-top">
+              <strong>{{ item.holding_display_name }}</strong>
+              <span [class]="materialityBadgeClass(item.materiality)">{{ item.materiality }}</span>
+            </div>
+            <span class="digest-item-summary">{{ item.summary }}</span>
+            <span class="digest-item-sources" *ngIf="item.source_count > 1">
+              Reported by {{ item.source_count }} sources
+            </span>
+          </div>
+
+          <span class="impact-label">{{ item.impact.replace('_', ' ') }}</span>
+        </button>
+      </div>
+    </ng-container>
+  </ng-container>
 </section>
