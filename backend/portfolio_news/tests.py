@@ -986,6 +986,100 @@ class ArticleAnalysisValidationTests(TestCase):
         self.assertTrue(analysis.portfolio_implication)
         self.assertTrue(analysis.reason)
 
+    def test_materiality_and_fact_fields_parse_correctly(self):
+        from portfolio_news.constants import Materiality
+
+        analysis = ArticleAnalysis.from_gemini_json(
+            {
+                "relevant": True,
+                "relevance_score": 90,
+                "sentiment": "negative",
+                "impact": "critical",
+                "impact_score": 92,
+                "category": "REGULATORY",
+                "time_horizon": "immediate",
+                "summary": "s",
+                "portfolio_implication": "p",
+                "reason": "r",
+                "confidence": 0.85,
+                "materiality": "critical",
+                "key_facts": (
+                    "The regulator issued a formal notice."
+                ),
+                "interpretation": (
+                    "This could signal heightened scrutiny."
+                ),
+                "uncertainty_notes": (
+                    "The final penalty amount is not yet known."
+                ),
+            }
+        )
+
+        self.assertEqual(analysis.materiality, Materiality.CRITICAL)
+        self.assertEqual(
+            analysis.key_facts,
+            "The regulator issued a formal notice.",
+        )
+        self.assertEqual(
+            analysis.interpretation,
+            "This could signal heightened scrutiny.",
+        )
+        self.assertEqual(
+            analysis.uncertainty_notes,
+            "The final penalty amount is not yet known.",
+        )
+
+    def test_missing_materiality_defaults_from_impact_level(self):
+        from portfolio_news.constants import Materiality
+
+        analysis = ArticleAnalysis.from_gemini_json(
+            {
+                "relevant": True,
+                "relevance_score": 90,
+                "sentiment": "negative",
+                "impact": "critical",
+                "impact_score": 92,
+                "category": "REGULATORY",
+                "time_horizon": "immediate",
+                "summary": "s",
+                "portfolio_implication": "p",
+                "reason": "r",
+                "confidence": 0.85,
+                # materiality/key_facts/interpretation/
+                # uncertainty_notes intentionally omitted, as an
+                # older/partial Gemini response might do.
+            }
+        )
+
+        self.assertEqual(analysis.materiality, Materiality.CRITICAL)
+        self.assertEqual(analysis.key_facts, "")
+        self.assertEqual(analysis.interpretation, "")
+        self.assertEqual(analysis.uncertainty_notes, "")
+
+    def test_invalid_materiality_falls_back_to_impact_derived_value(
+        self,
+    ):
+        from portfolio_news.constants import Materiality
+
+        analysis = ArticleAnalysis.from_gemini_json(
+            {
+                "relevant": True,
+                "relevance_score": 20,
+                "sentiment": "neutral",
+                "impact": "low",
+                "impact_score": 25,
+                "category": "OTHER",
+                "time_horizon": "unspecified",
+                "summary": "s",
+                "portfolio_implication": "p",
+                "reason": "r",
+                "confidence": 0.3,
+                "materiality": "super-duper-critical",
+            }
+        )
+
+        self.assertEqual(analysis.materiality, Materiality.LOW)
+
 
 class ImpactLevelThresholdTests(TestCase):
 

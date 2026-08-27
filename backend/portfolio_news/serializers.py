@@ -24,6 +24,16 @@ class PortfolioNewsAlertListSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
+    source_quality = serializers.CharField(
+        source="article.source_quality",
+        read_only=True,
+    )
+
+    source_count = serializers.IntegerField(
+        source="article.source_count",
+        read_only=True,
+    )
+
     class Meta:
         model = PortfolioNewsAlert
 
@@ -35,15 +45,31 @@ class PortfolioNewsAlertListSerializer(serializers.ModelSerializer):
             "sentiment",
             "impact",
             "impact_score",
+            "materiality",
             "alert_score",
             "notification_tier",
             "article_title",
             "article_source",
             "article_published_at",
+            "source_quality",
+            "source_count",
             "is_read",
             "notification_sent",
             "created_at",
         ]
+
+
+class NewsArticleSourceSerializer(serializers.Serializer):
+    """
+    One publisher's report of the same underlying event. Plain
+    Serializer (not ModelSerializer) since it's only ever used
+    read-only, nested inside PortfolioNewsAlertDetailSerializer.
+    """
+
+    publisher_name = serializers.CharField()
+    url = serializers.URLField()
+    quality_tier = serializers.CharField()
+    published_at = serializers.DateTimeField()
 
 
 class PortfolioNewsAlertDetailSerializer(serializers.ModelSerializer):
@@ -79,6 +105,22 @@ class PortfolioNewsAlertDetailSerializer(serializers.ModelSerializer):
         read_only=True,
     )
 
+    source_quality = serializers.CharField(
+        source="article.source_quality",
+        read_only=True,
+    )
+
+    source_count = serializers.IntegerField(
+        source="article.source_count",
+        read_only=True,
+    )
+
+    sources = NewsArticleSourceSerializer(
+        source="article.sources",
+        many=True,
+        read_only=True,
+    )
+
     class Meta:
         model = PortfolioNewsAlert
 
@@ -92,6 +134,7 @@ class PortfolioNewsAlertDetailSerializer(serializers.ModelSerializer):
             "relevance_score",
             "impact",
             "impact_score",
+            "materiality",
             "confidence",
             "portfolio_weight_at_alert",
             "alert_score",
@@ -99,6 +142,9 @@ class PortfolioNewsAlertDetailSerializer(serializers.ModelSerializer):
             "summary",
             "portfolio_implication",
             "reason",
+            "key_facts",
+            "interpretation",
+            "uncertainty_notes",
             "is_read",
             "notification_sent",
             "created_at",
@@ -107,4 +153,7 @@ class PortfolioNewsAlertDetailSerializer(serializers.ModelSerializer):
             "article_url",
             "article_published_at",
             "article_description",
+            "source_quality",
+            "source_count",
+            "sources",
         ]

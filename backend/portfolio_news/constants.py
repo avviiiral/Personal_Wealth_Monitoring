@@ -44,6 +44,23 @@ class TimeHorizon(models.TextChoices):
     UNSPECIFIED = "unspecified", "Unspecified"
 
 
+class Materiality(models.TextChoices):
+    """
+    How significant the reported event is in its own right,
+    independent of portfolio weight - distinct from ImpactLevel,
+    which factors in confidence/relevance for scoring purposes.
+    Materiality is the AI's raw judgment of "how big a deal is
+    this, if true", used for display and as an input signal
+    rather than the final ranking number.
+    """
+
+    TRIVIAL = "trivial", "Trivial"
+    LOW = "low", "Low"
+    MODERATE = "moderate", "Moderate"
+    HIGH = "high", "High"
+    CRITICAL = "critical", "Critical"
+
+
 class ImpactLevel(models.TextChoices):
     VERY_LOW = "very_low", "Very Low"
     LOW = "low", "Low"

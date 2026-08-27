@@ -4,6 +4,7 @@ from django.db import models
 from .constants import (
     HoldingType,
     ImpactLevel,
+    Materiality,
     NewsCategory,
     NotificationTier,
     Sentiment,
@@ -303,6 +304,44 @@ class PortfolioNewsAlert(models.Model):
     portfolio_implication = models.TextField()
 
     reason = models.TextField()
+
+    materiality = models.CharField(
+        max_length=20,
+        choices=Materiality.choices,
+        default=Materiality.MODERATE,
+        help_text=(
+            "How significant the event is on its own terms, "
+            "independent of this holding's portfolio weight. "
+            "Distinct from `impact`, which factors into alert "
+            "scoring."
+        ),
+    )
+
+    key_facts = models.TextField(
+        blank=True,
+        help_text=(
+            "What the source explicitly reports - no inference "
+            "or speculation. Kept separate from interpretation "
+            "so the feed never presents a guess as a fact."
+        ),
+    )
+
+    interpretation = models.TextField(
+        blank=True,
+        help_text=(
+            "What the event could plausibly mean for the "
+            "company/sector/portfolio. Explicitly speculative; "
+            "must not be read as confirmed information."
+        ),
+    )
+
+    uncertainty_notes = models.TextField(
+        blank=True,
+        help_text=(
+            "What is not known from the source that would "
+            "matter for a fuller assessment."
+        ),
+    )
 
     is_read = models.BooleanField(
         default=False,

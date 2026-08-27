@@ -78,6 +78,10 @@ def create_alert_from_analysis(
             "portfolio_implication": analysis.portfolio_implication,
             "reason": analysis.reason,
             "notification_sent": notification_sent,
+            "materiality": analysis.materiality,
+            "key_facts": analysis.key_facts,
+            "interpretation": analysis.interpretation,
+            "uncertainty_notes": analysis.uncertainty_notes,
         },
     )
 

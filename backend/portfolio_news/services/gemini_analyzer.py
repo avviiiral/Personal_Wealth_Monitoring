@@ -15,6 +15,7 @@ from ai.views import (
 
 from ..constants import (
     ImpactLevel,
+    Materiality,
     NewsCategory,
     Sentiment,
     TimeHorizon,
@@ -70,6 +71,30 @@ IMPORTANT RULES:
 
 8. Respond with ONLY the JSON object described by the response
    schema. No prose, no markdown fences, nothing else.
+
+9. materiality is your judgment of how significant the reported
+   event is IN ITS OWN RIGHT (independent of how large this
+   holding is in the user's portfolio) - "if this is true, how
+   big a deal is it for this company/sector": trivial, low,
+   moderate, high, or critical.
+
+10. You MUST separate what the source explicitly states from
+    what it could mean:
+    - key_facts: only statements the article snippet directly
+      and explicitly reports. No inference, no speculation. If
+      the snippet gives you very little to work with, key_facts
+      should be short and say so rather than padding it out.
+    - interpretation: what this event could plausibly mean for
+      the company/sector/portfolio. Clearly speculative, hedged
+      language required ("could", "may", "this may suggest").
+      Never state interpretation as if it were a fact.
+    - uncertainty_notes: what is NOT known from the snippet that
+      would matter for a fuller assessment (e.g. exact financial
+      figures, timeline, regulatory finality, management
+      confirmation). If the snippet is unusually complete, it is
+      fine for this to be brief, but do not leave it empty just
+      to seem confident - name at least one real unknown when
+      one exists.
 """
 
 
@@ -99,6 +124,13 @@ ARTICLE_ANALYSIS_RESPONSE_SCHEMA = {
         "portfolio_implication": {"type": "STRING"},
         "reason": {"type": "STRING"},
         "confidence": {"type": "NUMBER"},
+        "materiality": {
+            "type": "STRING",
+            "enum": [choice.value for choice in Materiality],
+        },
+        "key_facts": {"type": "STRING"},
+        "interpretation": {"type": "STRING"},
+        "uncertainty_notes": {"type": "STRING"},
     },
     "required": [
         "relevant",
@@ -112,6 +144,10 @@ ARTICLE_ANALYSIS_RESPONSE_SCHEMA = {
         "portfolio_implication",
         "reason",
         "confidence",
+        "materiality",
+        "key_facts",
+        "interpretation",
+        "uncertainty_notes",
     ],
 }
 
@@ -158,6 +194,10 @@ class ArticleAnalysis:
     portfolio_implication: str
     reason: str
     confidence: float
+    materiality: str = Materiality.MODERATE
+    key_facts: str = ""
+    interpretation: str = ""
+    uncertainty_notes: str = ""
 
     @classmethod
     def from_gemini_json(cls, data: dict) -> "ArticleAnalysis":
@@ -176,6 +216,10 @@ class ArticleAnalysis:
 
         valid_horizons = {
             choice.value for choice in TimeHorizon
+        }
+
+        valid_materialities = {
+            choice.value for choice in Materiality
         }
 
         impact = _validate_choice(
@@ -226,6 +270,27 @@ class ArticleAnalysis:
             confidence=_clamp_float(
                 data.get("confidence"), 0.0, 1.0, 0.0
             ),
+            materiality=_validate_choice(
+                data.get("materiality"),
+                valid_materialities,
+                # A missing/invalid materiality defaults from the
+                # impact_level, so it degrades sensibly rather than
+                # silently becoming "moderate" for a critical story.
+                {
+                    ImpactLevel.CRITICAL: Materiality.CRITICAL,
+                    ImpactLevel.HIGH: Materiality.HIGH,
+                    ImpactLevel.MODERATE: Materiality.MODERATE,
+                    ImpactLevel.LOW: Materiality.LOW,
+                    ImpactLevel.VERY_LOW: Materiality.TRIVIAL,
+                }.get(impact, Materiality.MODERATE),
+            ),
+            key_facts=str(data.get("key_facts", "")).strip(),
+            interpretation=str(
+                data.get("interpretation", "")
+            ).strip(),
+            uncertainty_notes=str(
+                data.get("uncertainty_notes", "")
+            ).strip(),
         )
 
 
