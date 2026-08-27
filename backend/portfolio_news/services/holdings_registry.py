@@ -96,6 +96,8 @@ class MonitoredHolding:
 
     scheme_code: str = ""
 
+    sector: str = ""
+
     current_value: Decimal = Decimal("0")
 
     portfolio_weight: float = 0.0
@@ -126,6 +128,11 @@ def _build_equity_holding(holding, portfolio_weight: float) -> MonitoredHolding:
     if stripped and stripped.lower() != asset.name.lower():
         aliases.append(stripped)
 
+    sector = ""
+
+    if asset.security_master is not None:
+        sector = (asset.security_master.sector or "").strip()
+
     return MonitoredHolding(
         holding_type=HoldingType.EQUITY,
         holding_id=asset.id,
@@ -133,6 +140,7 @@ def _build_equity_holding(holding, portfolio_weight: float) -> MonitoredHolding:
         aliases=aliases,
         symbol=(asset.symbol or "").strip(),
         isin=(asset.isin or "").strip(),
+        sector=sector,
         current_value=holding.current_value,
         portfolio_weight=portfolio_weight,
     )
@@ -163,6 +171,15 @@ def _build_mutual_fund_holding(
         isin=(scheme.isin_growth or scheme.isin_dividend or "").strip(),
         amc_name=(scheme.amc_name or "").strip(),
         scheme_code=(scheme.scheme_code or "").strip(),
+        # Mutual funds have no GICS-style sector; scheme category
+        # (e.g. "Banking", "Pharma & Healthcare", "Technology") is
+        # the closest available proxy and is what powers sector/
+        # macro query generation for fund holdings. Broad categories
+        # like "Equity"/"Debt" simply won't match any entry in
+        # QueryBuilder.MACRO_TOPICS_BY_SECTOR, which is harmless -
+        # no macro query gets added for those, same as an equity
+        # holding with an unclassified sector.
+        sector=(scheme.category or "").strip(),
         current_value=holding.current_value,
         portfolio_weight=portfolio_weight,
     )

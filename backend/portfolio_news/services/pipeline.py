@@ -134,6 +134,7 @@ def _process_holding(
             candidate.title,
             candidate.description,
             holding,
+            matched_query=candidate.matched_query,
         ):
             continue
 

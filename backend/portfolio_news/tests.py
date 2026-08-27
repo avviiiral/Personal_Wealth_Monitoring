@@ -758,6 +758,132 @@ class QueryBuilderTests(TestCase):
 
         self.assertEqual(QueryBuilder.build_queries(holding), [])
 
+    def test_sector_query_generated_for_known_sector(self):
+        holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=1,
+            display_name="HDFC Bank Limited",
+            symbol="HDFCBANK",
+            sector="Banking",
+        )
+
+        queries = QueryBuilder.build_queries(holding)
+
+        self.assertIn("Indian Banking sector", queries)
+
+    def test_no_sector_query_when_sector_unknown(self):
+        holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=1,
+            display_name="HDFC Bank Limited",
+            symbol="HDFCBANK",
+            sector="",
+        )
+
+        queries = QueryBuilder.build_queries(holding)
+
+        self.assertFalse(
+            any(q.startswith("Indian ") for q in queries)
+        )
+
+    def test_macro_queries_added_for_defensible_sector(self):
+        holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=1,
+            display_name="HDFC Bank Limited",
+            symbol="HDFCBANK",
+            sector="Banking",
+        )
+
+        queries = QueryBuilder.build_queries(holding)
+
+        self.assertIn("RBI", queries)
+
+    def test_no_macro_queries_for_unmapped_sector(self):
+        holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=1,
+            display_name="Some Obscure Company Limited",
+            sector="Widgets",
+        )
+
+        terms = QueryBuilder.macro_terms_for_sector(
+            holding.sector
+        )
+
+        self.assertEqual(terms, [])
+
+    def test_macro_terms_capped(self):
+        terms = QueryBuilder.macro_terms_for_sector("Banking")
+
+        self.assertLessEqual(
+            len(terms),
+            QueryBuilder.MAX_MACRO_QUERIES_PER_HOLDING,
+        )
+
+    def test_is_sector_or_macro_query_true_for_generated_queries(
+        self,
+    ):
+        holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=1,
+            display_name="HDFC Bank Limited",
+            sector="Banking",
+        )
+
+        self.assertTrue(
+            QueryBuilder.is_sector_or_macro_query(
+                "Indian Banking sector", holding
+            )
+        )
+        self.assertTrue(
+            QueryBuilder.is_sector_or_macro_query("RBI", holding)
+        )
+
+    def test_is_sector_or_macro_query_false_for_unrelated_query(
+        self,
+    ):
+        holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=1,
+            display_name="HDFC Bank Limited",
+            sector="Banking",
+        )
+
+        self.assertFalse(
+            QueryBuilder.is_sector_or_macro_query(
+                "HDFC Bank Limited earnings", holding
+            )
+        )
+
+    def test_is_sector_or_macro_query_false_without_sector(self):
+        holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=1,
+            display_name="HDFC Bank Limited",
+            sector="",
+        )
+
+        self.assertFalse(
+            QueryBuilder.is_sector_or_macro_query("RBI", holding)
+        )
+
+    def test_query_count_still_bounded_with_sector_and_macro(self):
+        holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=1,
+            display_name="HDFC Bank Limited",
+            symbol="HDFCBANK",
+            sector="Banking",
+        )
+
+        queries = QueryBuilder.build_queries(holding)
+
+        self.assertLessEqual(
+            len(queries),
+            QueryBuilder.MAX_QUERIES_PER_HOLDING,
+        )
+
 
 class HoldingMatcherTests(TestCase):
 
@@ -833,6 +959,111 @@ class HoldingMatcherTests(TestCase):
         )
 
         self.assertEqual(matches, [self.holding])
+
+    def test_sector_query_article_without_company_name_matches(
+        self,
+    ):
+        banking_holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=3,
+            display_name="HDFC Bank Limited",
+            symbol="HDFCBANK",
+            sector="Banking",
+        )
+
+        # No mention of "HDFC Bank" anywhere - a genuine sector
+        # story, which is the whole point of this fallback path.
+        self.assertTrue(
+            HoldingMatcher.is_relevant(
+                "Indian banking sector sees record credit growth",
+                "Analysts say the banking sector is expanding.",
+                banking_holding,
+                matched_query="Indian Banking sector",
+            )
+        )
+
+    def test_macro_query_article_matches_via_topic_term(self):
+        banking_holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=3,
+            display_name="HDFC Bank Limited",
+            symbol="HDFCBANK",
+            sector="Banking",
+        )
+
+        self.assertTrue(
+            HoldingMatcher.is_relevant(
+                "RBI raises repo rate by 25 basis points",
+                "",
+                banking_holding,
+                matched_query="RBI",
+            )
+        )
+
+    def test_sector_query_without_sector_or_topic_mention_rejected(
+        self,
+    ):
+        banking_holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=3,
+            display_name="HDFC Bank Limited",
+            symbol="HDFCBANK",
+            sector="Banking",
+        )
+
+        # Query was a sector/macro query for this holding, but the
+        # returned article text doesn't actually mention the
+        # sector or the macro topic - must not be waved through.
+        self.assertFalse(
+            HoldingMatcher.is_relevant(
+                "Local cricket team wins championship",
+                "",
+                banking_holding,
+                matched_query="RBI",
+            )
+        )
+
+    def test_sector_fallback_not_applied_when_query_not_sector_or_macro(
+        self,
+    ):
+        banking_holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=3,
+            display_name="HDFC Bank Limited",
+            symbol="HDFCBANK",
+            sector="Banking",
+        )
+
+        # matched_query is a normal company query, not a
+        # sector/macro one - sector text alone should not be
+        # enough to match without an actual company mention.
+        self.assertFalse(
+            HoldingMatcher.is_relevant(
+                "Banking sector conference held in Mumbai",
+                "",
+                banking_holding,
+                matched_query="HDFC Bank Limited",
+            )
+        )
+
+    def test_sector_fallback_not_applied_without_holding_sector(
+        self,
+    ):
+        no_sector_holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=4,
+            display_name="Some Company Limited",
+            sector="",
+        )
+
+        self.assertFalse(
+            HoldingMatcher.is_relevant(
+                "RBI raises repo rate",
+                "",
+                no_sector_holding,
+                matched_query="RBI",
+            )
+        )
         
 
 
