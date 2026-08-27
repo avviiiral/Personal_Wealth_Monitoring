@@ -2755,3 +2755,177 @@ class PortfolioNewsPipelineTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["count"], 0)
+
+    def test_low_relevance_score_hides_alert_but_keeps_idempotency(
+        self,
+    ):
+        low_relevance_analysis = ArticleAnalysis(
+            relevant=True,
+            relevance_score=10,
+            sentiment="neutral",
+            impact="low",
+            impact_score=20,
+            category="OTHER",
+            time_horizon="unspecified",
+            summary="Tangentially related.",
+            portfolio_implication="Minimal.",
+            reason="Weak match.",
+            confidence=0.5,
+        )
+
+        provider = _FakeProvider(
+            results_by_query={
+                "Aurobindo Pharma Limited": [
+                    self.relevant_article_result,
+                ]
+            }
+        )
+
+        analyzer = _FakeAnalyzer(analysis=low_relevance_analysis)
+
+        run_portfolio_news_monitor(
+            provider=provider,
+            analyzer=analyzer,
+            min_relevance_score=30,
+        )
+
+        alert = PortfolioNewsAlert.objects.first()
+
+        # Row exists (idempotency)...
+        self.assertIsNotNone(alert)
+        # ...but hidden from the feed, since relevance_score (10)
+        # is below the configured floor (30), even though the AI
+        # itself said relevant=True.
+        self.assertFalse(alert.relevant)
+
+        # Running again must not re-call the AI.
+        run_portfolio_news_monitor(
+            provider=provider,
+            analyzer=analyzer,
+            min_relevance_score=30,
+        )
+
+        self.assertEqual(analyzer.call_count, 1)
+
+    def test_low_alert_score_hides_alert_but_keeps_idempotency(self):
+        # High relevance, but a very low portfolio_weight makes
+        # the composite alert_score negligible.
+        low_weight_holding_analysis = ArticleAnalysis(
+            relevant=True,
+            relevance_score=90,
+            sentiment="neutral",
+            impact="low",
+            impact_score=10,
+            category="OTHER",
+            time_horizon="unspecified",
+            summary="Minor development.",
+            portfolio_implication="Negligible.",
+            reason="Low materiality.",
+            confidence=0.3,
+        )
+
+        provider = _FakeProvider(
+            results_by_query={
+                "Aurobindo Pharma Limited": [
+                    self.relevant_article_result,
+                ]
+            }
+        )
+
+        analyzer = _FakeAnalyzer(
+            analysis=low_weight_holding_analysis
+        )
+
+        run_portfolio_news_monitor(
+            provider=provider,
+            analyzer=analyzer,
+            min_relevance_score=0,
+            min_alert_score=50.0,
+        )
+
+        alert = PortfolioNewsAlert.objects.first()
+
+        self.assertIsNotNone(alert)
+        self.assertFalse(alert.relevant)
+        self.assertFalse(alert.notification_sent)
+
+    def test_max_articles_per_holding_defers_remaining_candidates(
+        self,
+    ):
+        second_article_result = NewsArticleResult(
+            title="Aurobindo Pharma announces new plant",
+            url="https://reuters.com/pipeline-article-cap-2",
+            source="Reuters",
+            description="Aurobindo Pharma plant announcement.",
+            published_at=dj_timezone.now(),
+            matched_query="Aurobindo Pharma Limited",
+        )
+
+        provider = _FakeProvider(
+            results_by_query={
+                "Aurobindo Pharma Limited": [
+                    self.relevant_article_result,
+                    second_article_result,
+                ]
+            }
+        )
+
+        analyzer = _FakeAnalyzer(analysis=self.high_impact_analysis)
+
+        stats = run_portfolio_news_monitor(
+            provider=provider,
+            analyzer=analyzer,
+            max_articles_per_holding=1,
+        )
+
+        # Both candidates matched the deterministic filter, but
+        # only 1 was sent to the AI this run - the cap applies
+        # after matching, before the (expensive) AI call.
+        self.assertEqual(stats["articles_matched"], 2)
+        self.assertEqual(stats["articles_sent_to_ai"], 1)
+        self.assertEqual(analyzer.call_count, 1)
+
+        # Both articles are still stored, though - nothing is
+        # lost, just deferred.
+        self.assertEqual(NewsArticle.objects.count(), 2)
+
+    def test_deferred_candidate_is_picked_up_on_a_later_run(self):
+        second_article_result = NewsArticleResult(
+            title="Aurobindo Pharma announces new plant",
+            url="https://reuters.com/pipeline-article-cap-3",
+            source="Reuters",
+            description="Aurobindo Pharma plant announcement.",
+            published_at=dj_timezone.now(),
+            matched_query="Aurobindo Pharma Limited",
+        )
+
+        provider = _FakeProvider(
+            results_by_query={
+                "Aurobindo Pharma Limited": [
+                    self.relevant_article_result,
+                    second_article_result,
+                ]
+            }
+        )
+
+        analyzer = _FakeAnalyzer(analysis=self.high_impact_analysis)
+
+        # First run: cap of 1 defers the second article.
+        run_portfolio_news_monitor(
+            provider=provider,
+            analyzer=analyzer,
+            max_articles_per_holding=1,
+        )
+
+        self.assertEqual(analyzer.call_count, 1)
+
+        # Second run: no cap, so the deferred article is now
+        # processed (the first is skipped via idempotency).
+        run_portfolio_news_monitor(
+            provider=provider,
+            analyzer=analyzer,
+            max_articles_per_holding=100,
+        )
+
+        self.assertEqual(analyzer.call_count, 2)
+        self.assertEqual(PortfolioNewsAlert.objects.count(), 2)
