@@ -341,6 +341,190 @@ class ArticleStoreDeduplicationTests(TestCase):
         self.assertEqual(NewsArticle.objects.count(), 1)
 
 
+class ArticleSourceAttachmentTests(TestCase):
+    """
+    When the same event is reported by several publishers, the
+    duplicate reports must not be discarded: each distinct
+    publisher should be retained as a NewsArticleSource, and the
+    article's denormalized source_quality/source_count should
+    reflect the best tier and the count seen so far.
+    """
+
+    def setUp(self):
+        self.published_at = datetime(
+            2026, 8, 24, 9, 0, tzinfo=timezone.utc
+        )
+
+    def _result(self, title, url, source, description=""):
+        return NewsArticleResult(
+            title=title,
+            url=url,
+            source=source,
+            description=description,
+            published_at=self.published_at,
+            matched_query="Aurobindo Pharma",
+        )
+
+    def test_duplicate_event_retains_all_distinct_sources(self):
+        reuters = self._result(
+            "Aurobindo Pharma receives USFDA approval",
+            "https://reuters.com/article-1",
+            "Reuters",
+        )
+
+        economic_times = self._result(
+            "Aurobindo Pharma gets USFDA approval",
+            "https://economictimes.com/article-2",
+            "Economic Times",
+        )
+
+        article_1, created_1 = store_article(reuters)
+        article_2, created_2 = store_article(economic_times)
+
+        self.assertTrue(created_1)
+        self.assertFalse(created_2)
+        self.assertEqual(article_1.id, article_2.id)
+        self.assertEqual(article_1.sources.count(), 2)
+
+        publisher_names = set(
+            article_1.sources.values_list(
+                "publisher_name", flat=True
+            )
+        )
+
+        self.assertEqual(
+            publisher_names, {"Reuters", "Economic Times"}
+        )
+
+    def test_same_publisher_url_seen_twice_not_duplicated_as_source(self):
+        candidate = self._result(
+            "Aurobindo Pharma receives USFDA approval",
+            "https://reuters.com/article-1",
+            "Reuters",
+        )
+
+        store_article(candidate)
+        article, _ = store_article(candidate)
+
+        self.assertEqual(article.sources.count(), 1)
+        self.assertEqual(article.source_count, 1)
+
+    def test_source_quality_reflects_best_tier_seen(self):
+        # An unclassified/low-tier outlet arrives first...
+        blog = self._result(
+            "Aurobindo Pharma receives USFDA approval",
+            "https://some-random-blog.example/post-1",
+            "Random Finance Blog",
+        )
+
+        # ...then a top-tier wire service reports the same event.
+        reuters = self._result(
+            "Aurobindo Pharma gets USFDA approval",
+            "https://reuters.com/article-1",
+            "Reuters",
+        )
+
+        article, _ = store_article(blog)
+        self.assertEqual(article.source_quality, "tier_3")
+
+        article, _ = store_article(reuters)
+        article.refresh_from_db()
+
+        self.assertEqual(article.source_quality, "tier_1")
+        self.assertEqual(article.source_count, 2)
+
+    def test_first_stored_source_gets_correct_tier(self):
+        reuters = self._result(
+            "Aurobindo Pharma receives USFDA approval",
+            "https://reuters.com/article-1",
+            "Reuters",
+        )
+
+        article, created = store_article(reuters)
+
+        self.assertTrue(created)
+        self.assertEqual(article.source_quality, "tier_1")
+        self.assertEqual(article.source_count, 1)
+        self.assertEqual(article.sources.count(), 1)
+        self.assertEqual(
+            article.sources.first().quality_tier, "tier_1"
+        )
+
+
+class SourceQualityClassificationTests(TestCase):
+
+    def test_known_tier_1_publisher_is_classified_correctly(self):
+        from portfolio_news.services.source_quality import (
+            classify_source,
+        )
+
+        self.assertEqual(classify_source("Reuters"), "tier_1")
+        self.assertEqual(
+            classify_source("The Economic Times"), "tier_1"
+        )
+        self.assertEqual(classify_source("Moneycontrol"), "tier_1")
+
+    def test_known_tier_2_publisher_is_classified_correctly(self):
+        from portfolio_news.services.source_quality import (
+            classify_source,
+        )
+
+        self.assertEqual(classify_source("The Hindu"), "tier_2")
+        self.assertEqual(
+            classify_source("Business Today"), "tier_2"
+        )
+
+    def test_unknown_publisher_defaults_to_tier_3(self):
+        from portfolio_news.services.source_quality import (
+            classify_source,
+        )
+
+        self.assertEqual(
+            classify_source("Random Finance Blog"), "tier_3"
+        )
+
+    def test_empty_or_missing_publisher_defaults_to_tier_3(self):
+        from portfolio_news.services.source_quality import (
+            classify_source,
+        )
+
+        self.assertEqual(classify_source(""), "tier_3")
+        self.assertEqual(classify_source(None), "tier_3")
+
+    def test_classification_is_case_insensitive(self):
+        from portfolio_news.services.source_quality import (
+            classify_source,
+        )
+
+        self.assertEqual(classify_source("REUTERS"), "tier_1")
+        self.assertEqual(classify_source("reuters"), "tier_1")
+
+    def test_best_tier_picks_highest_quality(self):
+        from portfolio_news.services.source_quality import best_tier
+
+        self.assertEqual(
+            best_tier(["tier_3", "tier_1", "tier_2"]), "tier_1"
+        )
+        self.assertEqual(best_tier(["tier_3", "tier_2"]), "tier_2")
+        self.assertEqual(best_tier([]), "tier_3")
+
+    def test_overrides_setting_takes_precedence(self):
+        from django.test import override_settings
+
+        from portfolio_news.services.source_quality import (
+            classify_source,
+        )
+
+        with override_settings(
+            NEWS_SOURCE_QUALITY_OVERRIDES={
+                "random finance blog": "tier_1",
+            }
+        ):
+            self.assertEqual(
+                classify_source("Random Finance Blog"), "tier_1"
+            )
+
+
 from decimal import Decimal
 
 from django.contrib.auth.models import User

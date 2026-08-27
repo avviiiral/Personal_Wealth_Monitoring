@@ -7,6 +7,7 @@ from .constants import (
     NewsCategory,
     NotificationTier,
     Sentiment,
+    SourceQualityTier,
     TimeHorizon,
 )
 
@@ -74,6 +75,28 @@ class NewsArticle(models.Model):
         help_text="The search query that first surfaced this article.",
     )
 
+    source_quality = models.CharField(
+        max_length=20,
+        choices=SourceQualityTier.choices,
+        default=SourceQualityTier.TIER_3,
+        help_text=(
+            "Best (highest) SourceQualityTier among all "
+            "NewsArticleSource rows for this event. Denormalized "
+            "here so alert scoring and feed ordering don't need "
+            "a join/aggregate on every read; kept in sync by "
+            "article_store whenever a new source is attached."
+        ),
+    )
+
+    source_count = models.PositiveSmallIntegerField(
+        default=1,
+        help_text=(
+            "Number of distinct publishers that have reported "
+            "this event. Denormalized alongside source_quality "
+            "for the same reason."
+        ),
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True,
     )
@@ -98,6 +121,76 @@ class NewsArticle(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.source})"
+
+
+class NewsArticleSource(models.Model):
+    """
+    One publisher's report of a NewsArticle (= one underlying
+    news event).
+
+    The first source seen for an article is also snapshotted
+    onto NewsArticle.source/url/url_hash for backward
+    compatibility with existing code/serializers that read those
+    fields directly. Every source - including that first one -
+    also gets a row here, so the full set of publishers behind
+    an event is always available (e.g. "Reported by 4 sources:
+    Reuters, Economic Times, Moneycontrol, ...").
+    """
+
+    article = models.ForeignKey(
+        NewsArticle,
+        on_delete=models.CASCADE,
+        related_name="sources",
+    )
+
+    publisher_name = models.CharField(
+        max_length=200,
+        blank=True,
+    )
+
+    url = models.URLField(
+        max_length=1000,
+    )
+
+    url_hash = models.CharField(
+        max_length=64,
+        db_index=True,
+    )
+
+    quality_tier = models.CharField(
+        max_length=20,
+        choices=SourceQualityTier.choices,
+        default=SourceQualityTier.TIER_3,
+    )
+
+    published_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    first_seen_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    class Meta:
+        ordering = ["quality_tier", "-first_seen_at"]
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=["article", "url_hash"],
+                name="unique_source_per_article_url",
+            ),
+        ]
+
+        indexes = [
+            models.Index(
+                fields=["article", "quality_tier"],
+                name="news_source_article_tier_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.publisher_name} -> article_id={self.article_id}"
 
 
 class PortfolioNewsAlert(models.Model):

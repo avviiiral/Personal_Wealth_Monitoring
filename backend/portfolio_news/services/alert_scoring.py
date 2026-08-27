@@ -1,70 +1,47 @@
-import logging
-
-from typing import TYPE_CHECKING, Tuple
-
-from .deduplication import (
-    ArticleDeduplicator,
-    compute_fingerprint,
-    compute_url_hash,
-)
-
-from .news_provider import NewsArticleResult
-from .text_utils import (
-    normalize_title,
-    strip_html,
-)
-
-if TYPE_CHECKING:
-    # Type-checking only - see notification_creation.py for why this
-    # doesn't reintroduce the circular import the local import below
-    # avoids at runtime.
-    from ..models import NewsArticle
+from ..constants import NotificationTier
 
 
-logger = logging.getLogger(__name__)
-
-
-def store_article(
-    candidate: NewsArticleResult,
-) -> Tuple["NewsArticle", bool]:
+def compute_alert_score(
+    impact_score: int,
+    portfolio_weight_percent: float,
+    confidence: float,
+) -> float:
     """
-    Store a candidate article, deduplicating against what's
-    already in the database.
+    Internal alert-priority score, NOT a prediction of future
+    returns or a financial risk model.
 
-    Returns (NewsArticle, created) - created=False means an
-    equivalent article already existed and no new row was
-    written. Safe to call repeatedly with the same or
-    overlapping candidates (idempotent).
+    score = impact_score x (portfolio_weight_percent / 100) x confidence
+
+    Ranges 0-100. A holding worth more of the user's portfolio
+    gets a higher score for the same news impact, which is the
+    whole point: a HIGH-impact story on a 2% position should
+    rank below a MODERATE-impact story on a 25% position.
+
+    Example from the spec:
+        Company A: impact=90, weight=2%  -> 90 * 0.02 = 1.8
+        Company B: impact=80, weight=25% -> 80 * 0.25 = 20.0
+        (Company B ranks higher, as intended.)
     """
 
-    from ..models import NewsArticle
+    weight_fraction = max(0.0, portfolio_weight_percent) / 100.0
 
-    existing = ArticleDeduplicator.find_existing(candidate)
+    score = impact_score * weight_fraction * confidence
 
-    if existing is not None:
-        return existing, False
+    return round(max(0.0, min(100.0, score)), 2)
 
-    normalized_title = normalize_title(candidate.title)
 
-    article = NewsArticle.objects.create(
-        title=candidate.title[:500],
-        normalized_title=normalized_title[:500],
-        url=candidate.url[:1000],
-        url_hash=compute_url_hash(candidate.url),
-        source=candidate.source[:200],
-        description=strip_html(candidate.description),
-        published_at=candidate.published_at,
-        fingerprint=compute_fingerprint(
-            normalized_title,
-            candidate.published_at,
-        ),
-        matched_query=candidate.matched_query[:255],
+def determine_notification_tier(impact_level: str) -> str:
+    return NotificationTier.from_impact_level(impact_level)
+
+
+def should_send_immediate_notification(
+    notification_tier: str,
+) -> bool:
+    return notification_tier in (
+        NotificationTier.CRITICAL,
+        NotificationTier.HIGH,
     )
 
-    logger.debug(
-        "Stored new article id=%s title=%r",
-        article.id,
-        article.title,
-    )
 
-    return article, True
+def should_include_in_digest(notification_tier: str) -> bool:
+    return notification_tier == NotificationTier.MODERATE
