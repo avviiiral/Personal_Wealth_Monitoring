@@ -1268,6 +1268,131 @@ class AlertScoringTests(TestCase):
         )
 
 
+class AlertScoringSourceQualityAndRecencyTests(TestCase):
+    """
+    Covers the additive source_quality/published_at factors on
+    compute_alert_score. Every existing (pre-slice-2) call
+    pattern - omitting these two arguments - must keep producing
+    exactly the same score as before; that is verified by the
+    untouched tests in AlertScoringTests above. These tests cover
+    only the new behavior.
+    """
+
+    def test_omitting_new_params_matches_base_formula_exactly(self):
+        score = compute_alert_score(
+            impact_score=80,
+            portfolio_weight_percent=25,
+            confidence=1.0,
+        )
+
+        self.assertAlmostEqual(score, 20.0)
+
+    def test_tier_1_source_scores_higher_than_tier_3(self):
+        from portfolio_news.constants import SourceQualityTier
+
+        tier_1_score = compute_alert_score(
+            impact_score=80,
+            portfolio_weight_percent=25,
+            confidence=1.0,
+            source_quality=SourceQualityTier.TIER_1,
+        )
+
+        tier_3_score = compute_alert_score(
+            impact_score=80,
+            portfolio_weight_percent=25,
+            confidence=1.0,
+            source_quality=SourceQualityTier.TIER_3,
+        )
+
+        self.assertGreater(tier_1_score, tier_3_score)
+        self.assertAlmostEqual(tier_1_score, 20.0)
+        self.assertAlmostEqual(tier_3_score, 10.0)
+
+    def test_fresh_article_scores_higher_than_stale_one(self):
+        now = datetime(2026, 8, 27, 12, 0, tzinfo=timezone.utc)
+
+        fresh_score = compute_alert_score(
+            impact_score=80,
+            portfolio_weight_percent=25,
+            confidence=1.0,
+            published_at=datetime(
+                2026, 8, 27, 6, 0, tzinfo=timezone.utc
+            ),
+            now=now,
+        )
+
+        stale_score = compute_alert_score(
+            impact_score=80,
+            portfolio_weight_percent=25,
+            confidence=1.0,
+            published_at=datetime(
+                2026, 8, 1, 6, 0, tzinfo=timezone.utc
+            ),
+            now=now,
+        )
+
+        self.assertGreater(fresh_score, stale_score)
+        self.assertAlmostEqual(fresh_score, 20.0)
+        self.assertAlmostEqual(stale_score, 10.0)
+
+    def test_missing_published_at_is_neutral_not_penalized(self):
+        with_date_fresh = compute_alert_score(
+            impact_score=80,
+            portfolio_weight_percent=25,
+            confidence=1.0,
+            published_at=datetime(
+                2026, 8, 27, 6, 0, tzinfo=timezone.utc
+            ),
+            now=datetime(
+                2026, 8, 27, 12, 0, tzinfo=timezone.utc
+            ),
+        )
+
+        without_date = compute_alert_score(
+            impact_score=80,
+            portfolio_weight_percent=25,
+            confidence=1.0,
+            published_at=None,
+        )
+
+        self.assertAlmostEqual(with_date_fresh, without_date)
+
+    def test_recency_decays_linearly_between_one_and_seven_days(self):
+        now = datetime(2026, 8, 27, 0, 0, tzinfo=timezone.utc)
+
+        # 4 days old -> halfway through the 1-7 day decay window.
+        score = compute_alert_score(
+            impact_score=100,
+            portfolio_weight_percent=100,
+            confidence=1.0,
+            published_at=datetime(
+                2026, 8, 23, 0, 0, tzinfo=timezone.utc
+            ),
+            now=now,
+        )
+
+        # weight_fraction=1.0, confidence=1.0, recency=0.75
+        self.assertAlmostEqual(score, 75.0)
+
+    def test_score_still_bounded_0_to_100_with_all_factors(self):
+        from portfolio_news.constants import SourceQualityTier
+
+        score = compute_alert_score(
+            impact_score=100,
+            portfolio_weight_percent=100,
+            confidence=1.0,
+            source_quality=SourceQualityTier.TIER_1,
+            published_at=datetime(
+                2026, 8, 27, 0, 0, tzinfo=timezone.utc
+            ),
+            now=datetime(
+                2026, 8, 27, 1, 0, tzinfo=timezone.utc
+            ),
+        )
+
+        self.assertEqual(score, 100.0)
+
+
 class NotificationCreationTests(TestCase):
 
     def setUp(self):

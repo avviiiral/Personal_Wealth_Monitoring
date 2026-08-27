@@ -44,6 +44,8 @@ def create_alert_from_analysis(
         impact_score=analysis.impact_score,
         portfolio_weight_percent=holding.portfolio_weight,
         confidence=analysis.confidence,
+        source_quality=getattr(article, "source_quality", None),
+        published_at=article.published_at,
     )
 
     notification_tier = determine_notification_tier(
