@@ -11,7 +11,8 @@ from market_data.services.yahoo_finance import YahooFinanceService
 
 class SecurityMasterGenerator:
     """
-    Builds/refreshes PWMS security_master.xlsx from transactions.xlsx.
+    Builds/refreshes PWMS security_master.xlsx from the database
+    (Asset/Transaction) - no transactions.xlsx file required.
 
     Resolution order:
         1. NSE security master
@@ -236,6 +237,136 @@ class SecurityMasterGenerator:
 
             if not record["Underlying"] and underlying:
                 record["Underlying"] = underlying
+
+        return records
+
+    # ==========================================================
+    # DB-SOURCED SECURITIES (preferred - no transactions.xlsx
+    # file required)
+    # ==========================================================
+
+    @classmethod
+    def _extract_securities_from_db(cls):
+        """
+        Build the same {ISIN: {...}} record shape as
+        _extract_transaction_securities(), but sourced directly
+        from the database instead of transactions.xlsx.
+
+        Transaction already carries the original Excel portfolio
+        classification (asset_class / sub_class / asset_name /
+        underlying) on every row, and Asset carries the ISIN - so
+        the database has everything transactions.xlsx used to
+        provide, with no separate file required.
+
+        First non-empty value wins per ISIN, same as the xlsx
+        path, by walking transactions oldest-first.
+        """
+
+        from investments.models import Asset, Transaction
+
+        records = {}
+
+        transactions = (
+            Transaction.objects
+            .select_related("asset")
+            .exclude(asset__isin__isnull=True)
+            .exclude(asset__isin__exact="")
+            .order_by(
+                "asset_id",
+                "transaction_date",
+                "created_at",
+                "id",
+            )
+        )
+
+        for transaction in transactions:
+
+            isin = cls._normalize_isin(
+                transaction.asset.isin
+            )
+
+            if not isin:
+                continue
+
+            asset_name = cls._clean(
+                # Asset.name is the canonical security name and is
+                # preferred over transaction.asset_name, which in a
+                # PMS/AIF/scheme-wrapped portfolio is the scheme's
+                # name (e.g. "Buoyant Opportunities PMS"), not the
+                # underlying security - using it here would feed
+                # the wrong name into Yahoo Finance search below.
+                # transaction.underlying is the same true security
+                # name and is the fallback if Asset.name is ever
+                # blank.
+                transaction.asset.name
+                or transaction.underlying
+                or transaction.asset_name
+            )
+
+            asset_class = cls._clean(
+                transaction.asset_class
+            )
+
+            sub_class = cls._clean(
+                transaction.sub_class
+            )
+
+            underlying = cls._clean(
+                transaction.underlying
+            )
+
+            if isin not in records:
+                records[isin] = {
+                    "ISIN": isin,
+                    "Security Name": asset_name,
+                    "Asset Class": asset_class,
+                    "Sub Class": sub_class,
+                    "Underlying": underlying,
+                }
+                continue
+
+            record = records[isin]
+
+            if not record["Security Name"] and asset_name:
+                record["Security Name"] = asset_name
+
+            if not record["Asset Class"] and asset_class:
+                record["Asset Class"] = asset_class
+
+            if not record["Sub Class"] and sub_class:
+                record["Sub Class"] = sub_class
+
+            if not record["Underlying"] and underlying:
+                record["Underlying"] = underlying
+
+        # ------------------------------------------------------
+        # Defensive: an asset can in principle have an ISIN but
+        # no transactions yet (e.g. created directly, not via
+        # import). Include it too so it still gets resolved,
+        # using Asset fields since there's no Transaction row to
+        # pull classification from.
+        # ------------------------------------------------------
+
+        assets_with_isin = (
+            Asset.objects
+            .exclude(isin__isnull=True)
+            .exclude(isin__exact="")
+        )
+
+        for asset in assets_with_isin:
+
+            isin = cls._normalize_isin(asset.isin)
+
+            if not isin or isin in records:
+                continue
+
+            records[isin] = {
+                "ISIN": isin,
+                "Security Name": cls._clean(asset.name),
+                "Asset Class": cls._clean(asset.category),
+                "Sub Class": "",
+                "Underlying": "",
+            }
 
         return records
 
@@ -715,8 +846,11 @@ class SecurityMasterGenerator:
                     "for PWMS market-data resolution.",
                 ),
                 (
-                    "Transaction source",
-                    str(cls._transaction_file()),
+                    "Security source",
+                    "Database (Asset/Transaction) - "
+                    "transactions.xlsx is only used as a "
+                    "fallback if present and the database has "
+                    "no ISIN-based securities.",
                 ),
                 (
                     "NSE equity source",
@@ -762,18 +896,35 @@ class SecurityMasterGenerator:
 
     @classmethod
     def generate(cls):
-        transactions = cls._read_transactions()
+        """
+        Build/refresh security_master.xlsx.
+
+        Sources securities from the database first (Asset/
+        Transaction - no file required). Falls back to
+        transactions.xlsx only if the database has no ISIN-based
+        securities at all and the file happens to exist, so
+        existing setups that still rely on the file keep working.
+        """
 
         transaction_records = (
-            cls._extract_transaction_securities(
-                transactions
-            )
+            cls._extract_securities_from_db()
         )
+
+        if not transaction_records and cls._transaction_file().exists():
+
+            transactions = cls._read_transactions()
+
+            transaction_records = (
+                cls._extract_transaction_securities(
+                    transactions
+                )
+            )
 
         if not transaction_records:
             raise ValueError(
                 "No ISIN-based securities were found "
-                "in transactions.xlsx."
+                "in the database (and no transactions.xlsx "
+                "fallback was available)."
             )
 
         nse_master = cls._load_nse_master()

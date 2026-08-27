@@ -13,20 +13,26 @@ import type ExcelJS from 'exceljs';
 import {
   PortfolioApiService,
   FamilyNode,
+  PortfolioAssetNode,
   Transaction,
 } from '../../core/services/portfolio-api.service';
 
 /* ==============================================================
    REPORTS TREE
-   Family
-      Sub Class
-         Asset Name
-            Underlying
-               Transactions
+   (Portfolio-page layout: Family / Asset Class are FILTERS, not
+   table rows — same pattern as portfolio.component.ts's
+   selection-area + subClassSummaries.)
+
+   Sub Class            (Quantity / Invested / Current / Gain / XIRR)
+      Asset Name         (Quantity / Invested / Current / Gain + Download)
+         Underlying
+            Transactions
    ============================================================== */
 
 interface UnderlyingGroup {
   underlying: string;
+  isin: string;
+  transaction_count: number;
   transactions: Transaction[];
 }
 
@@ -34,18 +40,27 @@ interface AssetNameGroup {
   asset_name: string;
   underlyings: UnderlyingGroup[];
   transaction_count: number;
+
+  /* Financial values, joined in from the Portfolio tree by asset id -
+     same fields/meaning as Portfolio's own AssetGroup. */
+  quantity: number;
+  invested_value: number;
+  current_value: number;
+  pnl: number;
 }
 
 interface SubClassGroup {
   sub_class: string;
   asset_names: AssetNameGroup[];
   transaction_count: number;
-}
 
-interface FamilyGroup {
-  family_name: string;
-  sub_classes: SubClassGroup[];
-  transaction_count: number;
+  /* Financial values, joined in from the Portfolio tree by asset id -
+     same fields/meaning as Portfolio's own SubClassSummary. */
+  quantity: number;
+  invested_value: number;
+  current_value: number;
+  pnl: number;
+  xirr: number | null;
 }
 
 /* Aggregate row used only by the Summary View download. */
@@ -73,15 +88,39 @@ export class ReportsComponent implements OnInit {
   private readonly cdr = inject(ChangeDetectorRef);
   private readonly elementRef = inject(ElementRef);
 
-  families: FamilyGroup[] = [];
+  /* Raw transactions as returned by the API. Every grouping/filter
+     below is derived from this list, the same way the Portfolio
+     page derives everything from `families` (the portfolio tree). */
+  transactions: Transaction[] = [];
 
-  /* Kept only to build the Summary View download (Family -> Sub
-     Class aggregated quantity/invested/current/gain/XIRR), reusing
-     the exact same tree the Portfolio page already renders from. */
+  /* Portfolio tree — used for the Summary View download AND (now)
+     to join Quantity / Invested Value / Current Value / Gain / XIRR
+     onto the Sub Class and Asset Name rows here, by asset id. */
   private portfolioTree: FamilyNode[] = [];
 
   loading = true;
   error = '';
+
+  /* ============================================================
+     FILTERS
+     Same pattern as portfolio.component.ts: Family Name / Asset
+     Class selection buttons above the table.
+     ============================================================ */
+  selectedFamily = '';
+  selectedAssetClass = '';
+
+  /* ============================================================
+     EXPAND / COLLAPSE STATE
+     LEVEL 1: Sub Class
+     LEVEL 2: Asset Name — reveals a Download action (for that
+       Asset Name's full transaction history) right under its
+       header, above the Underlying list.
+     LEVEL 3 (final): Underlying — clicking one directly reveals
+       its own Transactions below it.
+     ============================================================ */
+  expandedSubClass = '';
+  expandedAssetName = '';
+  expandedUnderlying = '';
 
   detailedRangeModalOpen = false;
   detailedRangeFrom = '';
@@ -92,29 +131,7 @@ export class ReportsComponent implements OnInit {
   summaryFamilyModalOpen = false;
   summaryFamily = '';
 
-  expandedFamily = '';
-  expandedSubClass = '';
-  expandedAssetName = '';
-  expandedUnderlying = '';
-
   downloadMenuOpen = false;
-
-  /**
-   * Distinct Family names for the download modals' Family filter,
-   * alphabetically sorted. "All Families" is prepended in the
-   * template, not here, since it isn't a real family value.
-   */
-  get familyOptions(): string[] {
-    const names = new Set<string>();
-
-    for (const family of this.families) {
-      if (family.family_name) {
-        names.add(family.family_name);
-      }
-    }
-
-    return Array.from(names).sort((a, b) => a.localeCompare(b));
-  }
 
   ngOnInit(): void {
     this.loadReports();
@@ -126,11 +143,13 @@ export class ReportsComponent implements OnInit {
 
     this.portfolioApi.getTransactions().subscribe({
       next: (response) => {
-        this.families = this.buildTree(response.results ?? []);
+        this.transactions = response.results ?? [];
 
         this.portfolioApi.getPortfolioTree().subscribe({
           next: (treeResponse) => {
             this.portfolioTree = treeResponse.families ?? [];
+
+            this.validateSelections();
 
             this.loading = false;
             this.cdr.detectChanges();
@@ -140,9 +159,13 @@ export class ReportsComponent implements OnInit {
             console.error('Portfolio tree API error:', error);
 
             /* Transactions loaded fine, so the Reports tree itself
-               still renders. Only the Summary download depends on
-               portfolioTree, so we don't block the page on this. */
+               still renders. Only the Summary download and the
+               Quantity/Invested/Current/Gain/XIRR columns depend on
+               portfolioTree, so we don't block the page on this -
+               those columns just show as 0/blank until it's back. */
             this.portfolioTree = [];
+
+            this.validateSelections();
 
             this.loading = false;
             this.cdr.detectChanges();
@@ -171,7 +194,7 @@ export class ReportsComponent implements OnInit {
   }
 
   /* ============================================================
-     TREE BUILDING
+     TREE BUILDING / FILTERS
      ============================================================ */
 
   private clean(value: string | null | undefined): string {
@@ -187,20 +210,98 @@ export class ReportsComponent implements OnInit {
     return this.clean(tx.underlying || tx.asset_name);
   }
 
-  private buildTree(transactions: Transaction[]): FamilyGroup[] {
-    const familyMap = new Map<string, Map<string, Map<string, Map<string, Transaction[]>>>>();
+  /**
+   * Distinct Family names, alphabetically sorted. Used both by the
+   * top filter buttons (Portfolio-style) and by the download
+   * modals' Family selects, exactly as before.
+   */
+  get familyOptions(): string[] {
+    const names = new Set<string>();
+
+    for (const tx of this.transactions) {
+      names.add(this.clean(tx.family_name));
+    }
+
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }
+
+  /**
+   * Distinct Asset Class values within the currently selected
+   * Family (or all transactions if no Family is selected) —
+   * same dependency pattern as Portfolio's assetClassOptions.
+   */
+  get assetClassOptions(): string[] {
+    const classes = new Set<string>();
+
+    for (const tx of this.transactionsFilteredByFamily) {
+      classes.add(this.clean(tx.asset_class));
+    }
+
+    return Array.from(classes).sort((a, b) => a.localeCompare(b));
+  }
+
+  private get transactionsFilteredByFamily(): Transaction[] {
+    if (!this.selectedFamily) {
+      return this.transactions;
+    }
+
+    return this.transactions.filter((tx) => this.clean(tx.family_name) === this.selectedFamily);
+  }
+
+  get filteredTransactions(): Transaction[] {
+    return this.transactionsFilteredByFamily.filter(
+      (tx) => !this.selectedAssetClass || this.clean(tx.asset_class) === this.selectedAssetClass,
+    );
+  }
+
+  /**
+   * asset id -> PortfolioAssetNode, flattened from the Portfolio
+   * tree. Used purely to join Quantity / Invested Value / Current
+   * Value / Gain / XIRR onto the Sub Class and Asset Name rows
+   * here, the same fields the Portfolio page itself renders.
+   */
+  private get assetLookup(): Map<number, PortfolioAssetNode> {
+    const lookup = new Map<number, PortfolioAssetNode>();
+
+    for (const family of this.portfolioTree) {
+      for (const portfolio of family.portfolios) {
+        for (const assetClass of portfolio.asset_classes) {
+          for (const subClass of assetClass.sub_classes) {
+            for (const asset of subClass.assets) {
+              lookup.set(asset.id, asset);
+            }
+          }
+        }
+      }
+    }
+
+    return lookup;
+  }
+
+  /**
+   * LEVEL 1: Sub Class summaries built from the filtered
+   * transactions — same role as Portfolio's `subClassSummaries`
+   * getter, including the same financial columns.
+   */
+  get subClassGroups(): SubClassGroup[] {
+    return this.buildSubClassGroups(this.filteredTransactions);
+  }
+
+  private buildSubClassGroups(transactions: Transaction[]): SubClassGroup[] {
+    const lookup = this.assetLookup;
+
+    const subClassMap = new Map<string, Map<string, Map<string, Transaction[]>>>();
+
+    /* Distinct asset ids seen per Sub Class, and per Sub
+       Class::Asset Name, so financial values are summed once per
+       asset (not once per transaction). */
+    const subClassAssetIds = new Map<string, Set<number>>();
+    const assetNameAssetIds = new Map<string, Set<number>>();
 
     for (const tx of transactions) {
-      const family = this.clean(tx.family_name);
       const subClass = this.clean(tx.sub_class);
       const assetName = this.getAssetName(tx);
       const underlying = this.getUnderlyingName(tx);
-
-      if (!familyMap.has(family)) {
-        familyMap.set(family, new Map());
-      }
-
-      const subClassMap = familyMap.get(family)!;
 
       if (!subClassMap.has(subClass)) {
         subClassMap.set(subClass, new Map());
@@ -219,76 +320,204 @@ export class ReportsComponent implements OnInit {
       }
 
       underlyingMap.get(underlying)!.push(tx);
+
+      if (!subClassAssetIds.has(subClass)) {
+        subClassAssetIds.set(subClass, new Set());
+      }
+      subClassAssetIds.get(subClass)!.add(tx.asset);
+
+      const assetNameKey = `${subClass}::${assetName}`;
+      if (!assetNameAssetIds.has(assetNameKey)) {
+        assetNameAssetIds.set(assetNameKey, new Set());
+      }
+      assetNameAssetIds.get(assetNameKey)!.add(tx.asset);
     }
 
-    const families: FamilyGroup[] = Array.from(familyMap.entries())
-      .map(([family_name, subClassMap]) => {
-        const sub_classes: SubClassGroup[] = Array.from(subClassMap.entries())
-          .map(([sub_class, assetNameMap]) => {
-            const asset_names: AssetNameGroup[] = Array.from(assetNameMap.entries())
-              .map(([asset_name, underlyingMap]) => {
-                const underlyings: UnderlyingGroup[] = Array.from(underlyingMap.entries())
-                  .map(([underlying, txs]) => ({ underlying, transactions: txs }))
-                  .sort((a, b) => a.underlying.localeCompare(b.underlying));
+    const nodesFor = (ids: Set<number> | undefined): PortfolioAssetNode[] => {
+      if (!ids) {
+        return [];
+      }
 
-                const transaction_count = underlyings.reduce(
-                  (total, group) => total + group.transactions.length,
-                  0,
-                );
+      const nodes: PortfolioAssetNode[] = [];
 
-                return { asset_name, underlyings, transaction_count };
-              })
-              .sort((a, b) => a.asset_name.localeCompare(b.asset_name));
+      for (const id of ids) {
+        const node = lookup.get(id);
 
-            const transaction_count = asset_names.reduce(
+        if (node) {
+          nodes.push(node);
+        }
+      }
+
+      return nodes;
+    };
+
+    const subClasses: SubClassGroup[] = Array.from(subClassMap.entries())
+      .map(([sub_class, assetNameMap]) => {
+        const asset_names: AssetNameGroup[] = Array.from(assetNameMap.entries())
+          .map(([asset_name, underlyingMap]) => {
+            const underlyings: UnderlyingGroup[] = Array.from(underlyingMap.entries())
+              .map(([underlying, txs]) => ({
+                underlying,
+                isin: txs.find((tx) => tx.isin)?.isin ?? '-',
+                transaction_count: txs.length,
+                transactions: txs,
+              }))
+              .sort((a, b) => a.underlying.localeCompare(b.underlying));
+
+            const transaction_count = underlyings.reduce(
               (total, group) => total + group.transaction_count,
               0,
             );
 
-            return { sub_class, asset_names, transaction_count };
-          })
-          .sort((a, b) => a.sub_class.localeCompare(b.sub_class));
+            const assetNameFinancials = this.aggregateAssetNodes(
+              nodesFor(assetNameAssetIds.get(`${sub_class}::${asset_name}`)),
+            );
 
-        const transaction_count = sub_classes.reduce(
+            return {
+              asset_name,
+              underlyings,
+              transaction_count,
+              quantity: assetNameFinancials.quantity,
+              invested_value: assetNameFinancials.invested_value,
+              current_value: assetNameFinancials.current_value,
+              pnl: assetNameFinancials.pnl,
+            };
+          })
+          .sort((a, b) => a.asset_name.localeCompare(b.asset_name));
+
+        const transaction_count = asset_names.reduce(
           (total, group) => total + group.transaction_count,
           0,
         );
 
-        return { family_name, sub_classes, transaction_count };
-      })
-      .sort((a, b) => a.family_name.localeCompare(b.family_name));
+        const subClassFinancials = this.aggregateAssetNodes(
+          nodesFor(subClassAssetIds.get(sub_class)),
+        );
 
-    return families;
+        return {
+          sub_class,
+          asset_names,
+          transaction_count,
+          quantity: subClassFinancials.quantity,
+          invested_value: subClassFinancials.invested_value,
+          current_value: subClassFinancials.current_value,
+          pnl: subClassFinancials.pnl,
+          xirr: subClassFinancials.xirr,
+        };
+      })
+      .sort((a, b) => a.sub_class.localeCompare(b.sub_class));
+
+    return subClasses;
+  }
+
+  /**
+   * Sums Quantity / Invested Value / Current Value / Gain across a
+   * set of (already de-duplicated) Portfolio assets, and computes
+   * their invested-value-weighted XIRR — same aggregation Portfolio
+   * itself uses for its Sub Class rows.
+   */
+  private aggregateAssetNodes(nodes: PortfolioAssetNode[]): {
+    quantity: number;
+    invested_value: number;
+    current_value: number;
+    pnl: number;
+    xirr: number | null;
+  } {
+    let quantity = 0;
+    let invested_value = 0;
+    let current_value = 0;
+    let pnl = 0;
+
+    for (const node of nodes) {
+      quantity += this.toNumber(node.quantity);
+      invested_value += this.toNumber(node.invested_value);
+      current_value += this.toNumber(node.current_value);
+      pnl += this.toNumber(node.pnl);
+    }
+
+    const xirr = this.weightedXirr(
+      nodes.map((node) => ({
+        invested_value: this.toNumber(node.invested_value),
+        xirr: node.xirr,
+      })),
+    );
+
+    return { quantity, invested_value, current_value, pnl, xirr };
+  }
+
+  /* ============================================================
+     FILTER SELECTION (mirrors portfolio.component.ts)
+     ============================================================ */
+
+  selectFamily(family: string): void {
+    this.selectedFamily = this.selectedFamily === family ? '' : family;
+
+    this.selectedAssetClass = '';
+    this.resetExpansion();
+  }
+
+  selectAssetClass(assetClass: string): void {
+    this.selectedAssetClass = this.selectedAssetClass === assetClass ? '' : assetClass;
+
+    this.resetExpansion();
+  }
+
+  clearFamily(): void {
+    this.selectedFamily = '';
+    this.selectedAssetClass = '';
+    this.resetExpansion();
+  }
+
+  clearAssetClass(): void {
+    this.selectedAssetClass = '';
+    this.resetExpansion();
+  }
+
+  isFamilySelected(family: string): boolean {
+    return this.selectedFamily === family;
+  }
+
+  isAssetClassSelected(assetClass: string): boolean {
+    return this.selectedAssetClass === assetClass;
+  }
+
+  private resetExpansion(): void {
+    this.expandedSubClass = '';
+    this.expandedAssetName = '';
+    this.expandedUnderlying = '';
+  }
+
+  private validateSelections(): void {
+    if (this.selectedFamily && !this.familyOptions.includes(this.selectedFamily)) {
+      this.selectedFamily = '';
+      this.selectedAssetClass = '';
+    }
+
+    if (this.selectedAssetClass && !this.assetClassOptions.includes(this.selectedAssetClass)) {
+      this.selectedAssetClass = '';
+    }
+
+    if (
+      this.expandedSubClass &&
+      !this.subClassGroups.some((group) => group.sub_class === this.expandedSubClass)
+    ) {
+      this.resetExpansion();
+    }
   }
 
   /* ============================================================
      EXPAND / COLLAPSE
      ============================================================ */
 
-  toggleFamily(family: string): void {
-    if (this.expandedFamily === family) {
-      this.expandedFamily = '';
+  toggleSubClass(subClass: string): void {
+    if (this.expandedSubClass === subClass) {
       this.expandedSubClass = '';
       this.expandedAssetName = '';
       this.expandedUnderlying = '';
       return;
     }
 
-    this.expandedFamily = family;
-    this.expandedSubClass = '';
-    this.expandedAssetName = '';
-    this.expandedUnderlying = '';
-  }
-
-  toggleSubClass(key: string): void {
-    if (this.expandedSubClass === key) {
-      this.expandedSubClass = '';
-      this.expandedAssetName = '';
-      this.expandedUnderlying = '';
-      return;
-    }
-
-    this.expandedSubClass = key;
+    this.expandedSubClass = subClass;
     this.expandedAssetName = '';
     this.expandedUnderlying = '';
   }
@@ -304,29 +533,22 @@ export class ReportsComponent implements OnInit {
     this.expandedUnderlying = '';
   }
 
+  /**
+   * LEVEL 3 (final): Underlying.
+   *
+   * Clicking one directly reveals its own Transactions below it -
+   * same click behavior the very first Reports tree had.
+   */
   toggleUnderlying(key: string): void {
     this.expandedUnderlying = this.expandedUnderlying === key ? '' : key;
   }
 
-  getSubClassKey(family: string, subClass: string): string {
-    return `${family}::${subClass}`;
+  getAssetNameKey(subClass: string, assetName: string): string {
+    return `${subClass}::${assetName}`;
   }
 
-  getAssetNameKey(family: string, subClass: string, assetName: string): string {
-    return `${family}::${subClass}::${assetName}`;
-  }
-
-  getUnderlyingKey(
-    family: string,
-    subClass: string,
-    assetName: string,
-    underlying: string,
-  ): string {
-    return `${family}::${subClass}::${assetName}::${underlying}`;
-  }
-
-  trackByFamily(_index: number, group: FamilyGroup): string {
-    return group.family_name;
+  getUnderlyingKey(subClass: string, assetName: string, underlying: string): string {
+    return `${subClass}::${assetName}::${underlying}`;
   }
 
   trackBySubClass(_index: number, group: SubClassGroup): string {
@@ -346,7 +568,57 @@ export class ReportsComponent implements OnInit {
   }
 
   /* ============================================================
-     DOWNLOAD MENU
+     PER-ASSET-NAME DOWNLOAD
+     Sits directly under the Asset Name header (above its
+     Underlying list), and downloads every transaction across all
+     of that Asset Name's Underlyings. Reuses the same
+     styled-workbook exporter the top Download menu already uses.
+     ============================================================ */
+
+  async downloadAssetNameTransactions(
+    event: MouseEvent,
+    assetGroup: AssetNameGroup,
+  ): Promise<void> {
+    event.stopPropagation();
+
+    const allTransactions: Transaction[] = [];
+
+    for (const underlyingGroup of assetGroup.underlyings) {
+      allTransactions.push(...underlyingGroup.transactions);
+    }
+
+    const rows = allTransactions
+      .slice()
+      .sort((a, b) => b.transaction_date.localeCompare(a.transaction_date))
+      .map((tx) => ({
+        underlying: this.getUnderlyingName(tx),
+        transaction_date: new Date(tx.transaction_date),
+        transaction_type: tx.transaction_type_display || tx.transaction_type,
+        isin: tx.isin || '-',
+        quantity: this.toNumber(tx.quantity),
+        price_per_unit: this.toNumber(tx.price_per_unit),
+        amount: this.toNumber(tx.amount),
+      }));
+
+    await this.exportWorkbook({
+      sheetName: 'Transactions',
+      title: `${assetGroup.asset_name} — Transactions (as of ${this.todayLabel()})`,
+      columns: [
+        { header: 'Underlying', key: 'underlying', width: 24 },
+        { header: 'Transaction Date', key: 'transaction_date', width: 18, numFmt: 'dd-mmm-yyyy' },
+        { header: 'Type', key: 'transaction_type', width: 16 },
+        { header: 'ISIN', key: 'isin', width: 16 },
+        { header: 'Quantity', key: 'quantity', width: 14, numFmt: '#,##,##0.00' },
+        { header: 'Price', key: 'price_per_unit', width: 16, numFmt: '"₹"#,##,##0.00' },
+        { header: 'Amount', key: 'amount', width: 18, numFmt: '"₹"#,##,##0' },
+      ],
+      rows,
+      filename: `${this.slugify(assetGroup.asset_name)}_transactions_${this.todayStamp()}.xlsx`,
+    });
+  }
+
+  /* ============================================================
+     DOWNLOAD MENU (top of page — unchanged)
      ============================================================ */
 
   toggleDownloadMenu(): void {
@@ -483,7 +755,7 @@ export class ReportsComponent implements OnInit {
   /**
    * Lowercases and replaces anything that isn't alphanumeric with
    * an underscore, for building a safe filename segment from a
-   * Family name.
+   * Family name (or, now, an Asset Name).
    */
   private slugify(value: string): string {
     return value
@@ -499,85 +771,50 @@ export class ReportsComponent implements OnInit {
    * From/To with the actual earliest/latest dates in the data.
    */
   private allTransactionDates(): string[] {
-    const dates: string[] = [];
-
-    for (const family of this.families) {
-      for (const subClass of family.sub_classes) {
-        for (const assetNameGroup of subClass.asset_names) {
-          for (const underlyingGroup of assetNameGroup.underlyings) {
-            for (const tx of underlyingGroup.transactions) {
-              if (tx.transaction_date) {
-                dates.push(tx.transaction_date);
-              }
-            }
-          }
-        }
-      }
-    }
-
-    return dates.sort();
+    return this.transactions
+      .map((tx) => tx.transaction_date)
+      .filter((date): date is string => !!date)
+      .sort();
   }
 
   /**
-   * Flattens the Family -> Sub Class -> Asset Name -> Underlying ->
-   * Transactions tree into rows for the Detailed download, filtered
-   * to the given date range (inclusive; an empty bound means
-   * unbounded on that side) and optionally to one Family (an empty
-   * value means all Families), and sorted by Transaction Date across
-   * the whole sheet (most recent first) - so the export is indexed
-   * by date rather than clustered by Underlying. Family/Sub
+   * Flattens all transactions into rows for the Detailed download,
+   * filtered to the given date range (inclusive; an empty bound
+   * means unbounded on that side) and optionally to one Family (an
+   * empty value means all Families), and sorted by Transaction Date
+   * across the whole sheet (most recent first) - so the export is
+   * indexed by date rather than clustered by Underlying. Family/Sub
    * Class/Underlying are still included as columns on every row so
    * the hierarchy stays identifiable per the Detailed View's
-   * requirements. The export columns are unchanged - Asset Name is
-   * only used here to walk the tree, not added as a new column.
+   * requirements.
    */
   private buildDetailedRows(from: string, to: string, family?: string): Record<string, unknown>[] {
-    const flat: {
-      family_name: string;
-      sub_class: string;
-      underlying: string;
-      tx: Transaction;
-    }[] = [];
-
-    for (const familyGroup of this.families) {
-      if (family && familyGroup.family_name !== family) {
-        continue;
+    const filtered = this.transactions.filter((tx) => {
+      if (!tx.transaction_date) {
+        return false;
       }
 
-      for (const subClass of familyGroup.sub_classes) {
-        for (const assetNameGroup of subClass.asset_names) {
-          for (const underlyingGroup of assetNameGroup.underlyings) {
-            for (const tx of underlyingGroup.transactions) {
-              if (!tx.transaction_date) {
-                continue;
-              }
-
-              if (from && tx.transaction_date < from) {
-                continue;
-              }
-
-              if (to && tx.transaction_date > to) {
-                continue;
-              }
-
-              flat.push({
-                family_name: familyGroup.family_name,
-                sub_class: subClass.sub_class,
-                underlying: underlyingGroup.underlying,
-                tx,
-              });
-            }
-          }
-        }
+      if (family && this.clean(tx.family_name) !== family) {
+        return false;
       }
-    }
 
-    flat.sort((a, b) => b.tx.transaction_date.localeCompare(a.tx.transaction_date));
+      if (from && tx.transaction_date < from) {
+        return false;
+      }
 
-    return flat.map(({ family_name, sub_class, underlying, tx }) => ({
-      family_name,
-      sub_class,
-      underlying,
+      if (to && tx.transaction_date > to) {
+        return false;
+      }
+
+      return true;
+    });
+
+    filtered.sort((a, b) => b.transaction_date.localeCompare(a.transaction_date));
+
+    return filtered.map((tx) => ({
+      family_name: this.clean(tx.family_name),
+      sub_class: this.clean(tx.sub_class),
+      underlying: this.getUnderlyingName(tx),
       isin: tx.isin || '-',
       transaction_date: new Date(tx.transaction_date),
       transaction_type: tx.transaction_type_display || tx.transaction_type,
@@ -865,6 +1102,10 @@ export class ReportsComponent implements OnInit {
     }).format(this.toNumber(value));
   }
 
+  formatAbsoluteCurrency(value: number): string {
+    return this.formatCurrency(Math.abs(this.toNumber(value)));
+  }
+
   formatNumber(value: number): string {
     return new Intl.NumberFormat('en-IN', {
       minimumFractionDigits: 0,
@@ -877,6 +1118,30 @@ export class ReportsComponent implements OnInit {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(this.toNumber(value));
+  }
+
+  formatPercentage(value: number | null): string {
+    if (value === null || value === undefined) {
+      return '-';
+    }
+
+    return `${this.formatDecimal(value)}%`;
+  }
+
+  /**
+   * Same green/red/gray classification Portfolio uses for its
+   * Gain and XIRR cells.
+   */
+  getPnlClass(value: number): string {
+    if (value > 0) {
+      return 'positive';
+    }
+
+    if (value < 0) {
+      return 'negative';
+    }
+
+    return 'neutral';
   }
 
   private toNumber(value: number | null | undefined): number {
