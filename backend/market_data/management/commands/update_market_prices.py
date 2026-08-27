@@ -5,6 +5,9 @@ from investments.models import Asset
 from market_data.services.market_data_manager import (
     MarketDataManager,
 )
+from market_data.services.security_resolver import (
+    SecurityResolver,
+)
 
 
 class Command(BaseCommand):
@@ -26,6 +29,67 @@ class Command(BaseCommand):
             ),
         )
 
+    def _refresh_security_master_if_needed(self, assets):
+        """
+        Auto-refresh security_master.xlsx when any STOCK/ETF asset's
+        ISIN isn't in it yet.
+
+        This is what lets newly added securities get picked up
+        without anyone manually deleting/regenerating the workbook -
+        the generator (NSE download + Yahoo search/validation) only
+        runs when there's actually something new to resolve, instead
+        of on every single command run.
+        """
+
+        known_isins = SecurityResolver.known_isins()
+
+        missing_isins = {
+            SecurityResolver.clean_isin(asset.isin)
+            for asset in assets
+            if asset.isin
+            and SecurityResolver.clean_isin(asset.isin)
+                not in known_isins
+        }
+
+        if not missing_isins:
+            return
+
+        self.stdout.write(
+            self.style.NOTICE(
+                f"{len(missing_isins)} asset(s) not found in "
+                "security_master.xlsx - refreshing it before "
+                "fetching prices..."
+            )
+        )
+
+        try:
+
+            from market_data.services.security_master_generator import (
+                SecurityMasterGenerator,
+            )
+
+            result = SecurityMasterGenerator.generate()
+
+            SecurityResolver.reload_security_master()
+
+            self.stdout.write(
+                self.style.SUCCESS(
+                    "Security master refreshed: "
+                    f"{result['resolved']} resolved, "
+                    f"{result['unresolved']} unresolved, "
+                    f"{result['non_yahoo']} non-Yahoo assets."
+                )
+            )
+
+        except Exception as exc:
+
+            self.stdout.write(
+                self.style.WARNING(
+                    "Security master refresh failed: "
+                    f"{exc}. Continuing with existing mappings."
+                )
+            )
+
     def handle(self, *args, **options):
 
         user_id = options.get("user_id")
@@ -42,6 +106,8 @@ class Command(BaseCommand):
             assets = assets.filter(
                 owner_id=user_id
             )
+
+        self._refresh_security_master_if_needed(assets)
 
         total = assets.count()
 

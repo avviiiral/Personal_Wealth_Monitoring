@@ -386,6 +386,22 @@ class SecurityResolver:
         cls._load_security_master()
 
     @classmethod
+    def known_isins(cls):
+        """
+        Return the set of cleaned ISINs currently mapped to a Yahoo
+        symbol in the loaded Security Master.
+
+        Used by callers (e.g. update_market_prices) to detect assets
+        that have never gone through Security Master resolution, so
+        the workbook can be refreshed automatically instead of
+        silently leaving those assets unresolved forever.
+        """
+
+        cls._load_security_master()
+
+        return set(cls._security_master_isin.keys())
+
+    @classmethod
     def resolve_from_isin(cls, isin):
         """
         Resolve Yahoo symbol directly from ISIN.

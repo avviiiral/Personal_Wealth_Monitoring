@@ -646,15 +646,56 @@ class MarketDataManager:
 
         except Exception as exc:
 
+            # Same reasoning as the "if not yahoo_symbol" branch
+            # below: SecurityResolver.resolve_yahoo_symbol() raises
+            # (rather than returning a falsy value) when nothing
+            # resolves, so THIS is actually the branch that fires
+            # for an unresolvable asset - it must also create the
+            # Holding row, or the position stays invisible on the
+            # dashboard indefinitely.
+            holding = (
+                cls._rebuild_holding(
+                    asset
+                )
+            )
+
             return {
                 "success": False,
                 "skipped": True,
                 "reason": str(exc),
                 "symbol": None,
+                "holding_id": (
+                    holding.id
+                    if holding
+                    else None
+                ),
+                "current_price": (
+                    str(holding.current_price)
+                    if holding
+                    else "0"
+                ),
+                "current_value": (
+                    str(holding.current_value)
+                    if holding
+                    else "0"
+                ),
             }
 
         if not yahoo_symbol:
-            holding = cls._rebuild_holding(asset)    
+
+            # Even without a price, the position itself (quantity,
+            # invested value) must still show up on the dashboard -
+            # see every other early-return path below, which all
+            # call _rebuild_holding() before returning. Without this,
+            # an asset that never resolves a Yahoo symbol would have
+            # no Holding row at all, invisible from every summary
+            # that reads Holding directly.
+            holding = (
+                cls._rebuild_holding(
+                    asset
+                )
+            )
+
             return {
                 "success": False,
                 "skipped": True,
@@ -665,6 +706,21 @@ class MarketDataManager:
                     f"{asset.isin or 'N/A'})."
                 ),
                 "symbol": None,
+                "holding_id": (
+                    holding.id
+                    if holding
+                    else None
+                ),
+                "current_price": (
+                    str(holding.current_price)
+                    if holding
+                    else "0"
+                ),
+                "current_value": (
+                    str(holding.current_value)
+                    if holding
+                    else "0"
+                ),
             }
 
         # ======================================================
