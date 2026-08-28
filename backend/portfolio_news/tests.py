@@ -2490,7 +2490,7 @@ class _FakeAnalyzer:
         self.fail = fail
         self.call_count = 0
 
-    def analyze(self, article, holding):
+    def analyze(self, article, holding, user=None):
         self.call_count += 1
 
         if self.fail:

@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 
 import requests
@@ -19,6 +20,10 @@ from .services.portfolio_context import (
 from .services.portfolio_news_context import (
     PortfolioNewsChatContextBuilder,
 )
+from .services.usage_tracking import record_gemini_usage
+
+
+logger = logging.getLogger(__name__)
 
 
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -289,6 +294,37 @@ summary described in rule 16) follows.
         response.raise_for_status()
 
         data = response.json()
+
+        usage = data.get("usageMetadata", {})
+
+        logger.info(
+            "Gemini usage | endpoint=portfolio_chat | user_id=%s | "
+            "input=%s | output=%s | total=%s | cached=%s",
+            request.user.id,
+            usage.get("promptTokenCount", 0),
+            usage.get("candidatesTokenCount", 0),
+            usage.get("totalTokenCount", 0),
+            usage.get("cachedContentTokenCount", 0),
+        )
+
+        try:
+            record_gemini_usage(
+                user=request.user,
+                endpoint="portfolio_chat",
+                model_name=model,
+                usage_metadata=usage,
+            )
+        except Exception:
+            # Defense in depth: record_gemini_usage already
+            # catches its own internal failures, but this call
+            # site must not depend on that - the Gemini answer
+            # below was already successfully obtained and must
+            # still be returned even if usage tracking somehow
+            # raises anyway.
+            logger.exception(
+                "record_gemini_usage raised unexpectedly for "
+                "portfolio_chat; continuing without it."
+            )
 
         answer = extract_response_text(data)
 

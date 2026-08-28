@@ -277,3 +277,205 @@ class PortfolioChatNewsIntegrationTests(TestCase):
         self.assertIn(
             "could not be loaded", user_content
         )
+
+
+class GeminiUsageTrackingTests(TestCase):
+    """
+    Covers ai/services/usage_tracking.py and its wiring into
+    portfolio_chat - both that a successful call is recorded,
+    and that a recording failure never breaks the actual
+    response (the API call already happened/was billed by the
+    time recording runs, so losing the record must never mean
+    losing the answer).
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="usageuser",
+            password="testpassword",
+        )
+
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def _mock_gemini_response(self, text="Here is your answer."):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = {
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [{"text": text}],
+                    }
+                }
+            ],
+            "usageMetadata": {
+                "promptTokenCount": 500,
+                "candidatesTokenCount": 50,
+                "totalTokenCount": 550,
+                "cachedContentTokenCount": 0,
+            },
+        }
+        return mock_response
+
+    def test_successful_chat_call_records_usage(self):
+        from ai.models import GeminiUsageLog
+
+        with patch(
+            "ai.views.get_gemini_api_key",
+            return_value="fake-key",
+        ):
+            with patch(
+                "ai.views.PortfolioContextBuilder.build",
+                return_value={"user": {"id": self.user.id}},
+            ):
+                with patch(
+                    "ai.views.requests.post"
+                ) as mock_post:
+                    mock_post.return_value = (
+                        self._mock_gemini_response()
+                    )
+
+                    response = self.client.post(
+                        "/api/ai/chat/",
+                        {"message": "What's my portfolio worth?"},
+                        format="json",
+                    )
+
+        self.assertEqual(response.status_code, 200)
+
+        log = GeminiUsageLog.objects.filter(
+            endpoint="portfolio_chat"
+        ).first()
+
+        self.assertIsNotNone(log)
+        self.assertEqual(log.user, self.user)
+        self.assertEqual(log.prompt_tokens, 500)
+        self.assertEqual(log.output_tokens, 50)
+        self.assertEqual(log.total_tokens, 550)
+
+    def test_usage_recording_failure_does_not_break_chat_response(
+        self,
+    ):
+        with patch(
+            "ai.views.get_gemini_api_key",
+            return_value="fake-key",
+        ):
+            with patch(
+                "ai.views.PortfolioContextBuilder.build",
+                return_value={"user": {"id": self.user.id}},
+            ):
+                with patch(
+                    "ai.views.requests.post"
+                ) as mock_post:
+                    mock_post.return_value = (
+                        self._mock_gemini_response()
+                    )
+
+                    with patch(
+                        "ai.views.record_gemini_usage",
+                        side_effect=Exception("db down"),
+                    ):
+                        response = self.client.post(
+                            "/api/ai/chat/",
+                            {"message": "Hello"},
+                            format="json",
+                        )
+
+        # The chat answer must still succeed even though usage
+        # recording itself raised.
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("answer", response.data)
+
+    def test_record_gemini_usage_handles_missing_fields_safely(self):
+        from ai.models import GeminiUsageLog
+        from ai.services.usage_tracking import record_gemini_usage
+
+        record_gemini_usage(
+            user=self.user,
+            endpoint="article_analysis",
+            model_name="gemini-3.6-flash",
+            usage_metadata={},
+        )
+
+        log = GeminiUsageLog.objects.filter(
+            endpoint="article_analysis"
+        ).first()
+
+        self.assertIsNotNone(log)
+        self.assertEqual(log.prompt_tokens, 0)
+        self.assertEqual(log.total_tokens, 0)
+
+    def test_record_gemini_usage_never_raises_on_db_failure(self):
+        from ai.services.usage_tracking import record_gemini_usage
+
+        with patch(
+            "ai.models.GeminiUsageLog.objects.create",
+            side_effect=Exception("simulated db failure"),
+        ):
+            # Must not raise.
+            record_gemini_usage(
+                user=self.user,
+                endpoint="portfolio_chat",
+                model_name="gemini-3.6-flash",
+                usage_metadata={"totalTokenCount": 100},
+            )
+
+    def test_article_analysis_records_usage_with_user(self):
+        from ai.models import GeminiUsageLog
+        from portfolio_news.services.gemini_analyzer import (
+            GeminiArticleAnalyzer,
+        )
+        from portfolio_news.services.holdings_registry import (
+            HoldingType,
+            MonitoredHolding,
+        )
+
+        holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=1,
+            display_name="Aurobindo Pharma Limited",
+            symbol="AUROPHARMA",
+        )
+
+        class _FakeArticle:
+            id = 1
+            title = "Aurobindo Pharma receives USFDA approval"
+            description = "Approval news."
+            source = "Reuters"
+            published_at = None
+
+        analyzer = GeminiArticleAnalyzer()
+
+        mock_response = self._mock_gemini_response(
+            text=(
+                '{"relevant": true, "relevance_score": 90, '
+                '"sentiment": "positive", "impact": "high", '
+                '"impact_score": 80, "category": "REGULATORY", '
+                '"time_horizon": "medium_term", "summary": "s", '
+                '"portfolio_implication": "p", "reason": "r", '
+                '"confidence": 0.9, "materiality": "high", '
+                '"key_facts": "f", "interpretation": "i", '
+                '"uncertainty_notes": "u"}'
+            )
+        )
+
+        with patch(
+            "portfolio_news.services.gemini_analyzer.get_gemini_api_key",
+            return_value="fake-key",
+        ):
+            with patch(
+                "portfolio_news.services.gemini_analyzer.requests.post",
+                return_value=mock_response,
+            ):
+                analyzer.analyze(
+                    _FakeArticle(), holding, user=self.user
+                )
+
+        log = GeminiUsageLog.objects.filter(
+            endpoint="article_analysis"
+        ).first()
+
+        self.assertIsNotNone(log)
+        self.assertEqual(log.user, self.user)
+        self.assertEqual(log.total_tokens, 550)

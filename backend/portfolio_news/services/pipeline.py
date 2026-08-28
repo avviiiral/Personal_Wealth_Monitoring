@@ -277,7 +277,7 @@ def _process_holding(
         if ai_call_delay_seconds > 0:
             time.sleep(ai_call_delay_seconds)
 
-        analysis = analyzer.analyze(article, holding)
+        analysis = analyzer.analyze(article, holding, user=user)
 
         if analysis is None:
             stats["ai_failures"] += 1

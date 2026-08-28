@@ -359,6 +359,7 @@ class GeminiArticleAnalyzer:
         self,
         article,
         holding,
+        user=None,
     ) -> Optional[ArticleAnalysis]:
 
         api_key = get_gemini_api_key()
@@ -403,6 +404,27 @@ class GeminiArticleAnalyzer:
                 usage.get("totalTokenCount", 0),
                 usage.get("cachedContentTokenCount", 0),
             )
+
+            from ai.services.usage_tracking import (
+                record_gemini_usage,
+            )
+
+            try:
+                record_gemini_usage(
+                    user=user,
+                    endpoint="article_analysis",
+                    model_name=model,
+                    usage_metadata=usage,
+                )
+            except Exception:
+                # Same defense-in-depth as portfolio_chat: the
+                # article analysis below must proceed even if
+                # usage tracking somehow raises past its own
+                # internal safety net.
+                logger.exception(
+                    "record_gemini_usage raised unexpectedly "
+                    "for article_analysis; continuing without it."
+                )
 
             raw_text = extract_response_text(data)
 
