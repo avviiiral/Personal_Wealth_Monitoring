@@ -2,6 +2,7 @@
   <div class="portfolio-header">
     <div>
       <h1>Portfolio</h1>
+      <p>Your holdings, drilled down from sub class to underlying asset.</p>
     </div>
 
     <div class="portfolio-header-actions">
@@ -19,10 +20,29 @@
         [disabled]="uploadingTransactions"
         (click)="transactionFileInput.click()"
       >
+        <svg
+          *ngIf="!uploadingTransactions"
+          class="button-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          aria-hidden="true"
+        >
+          <path d="M12 16V4M12 4 7.5 8.5M12 4l4.5 4.5" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+
+        <span class="button-spinner" *ngIf="uploadingTransactions"></span>
+
         {{ uploadingTransactions ? 'Uploading…' : 'Upload Transactions' }}
       </button>
 
       <button type="button" class="refresh-button" [disabled]="loading" (click)="refresh()">
+        <svg class="button-icon refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <path d="M20 11A8 8 0 1 0 18.5 16" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M20 5v6h-6" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
         Refresh
       </button>
     </div>
@@ -109,9 +129,16 @@
     </div>
   </div>
 
-  <div *ngIf="loading" class="loading-state">Loading portfolio...</div>
+  <div *ngIf="loading" class="loading-state">
+    <span class="loading-spinner"></span>
+    Loading portfolio...
+  </div>
 
   <div *ngIf="!loading && error" class="error-state">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v5M12 16h.01" stroke-linecap="round" />
+    </svg>
     {{ error }}
   </div>
 
@@ -438,7 +465,13 @@
           </ng-container>
 
           <tr *ngIf="subClassSummaries.length === 0">
-            <td colspan="7" class="empty-table">No portfolio data available.</td>
+            <td colspan="7" class="empty-table">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                <rect x="3.5" y="4" width="17" height="16" rx="2" />
+                <path d="M7.5 9h9M7.5 13h6" stroke-linecap="round" />
+              </svg>
+              No portfolio data available.
+            </td>
           </tr>
         </tbody>
       </table>

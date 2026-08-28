@@ -1,7 +1,16 @@
 <section class="portfolio-news-page">
   <div class="page-heading">
-    <h1>Portfolio News</h1>
-    <p>AI-assessed news specifically matched to the holdings you actually own.</p>
+    <div class="page-heading-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+        <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H15l5 5v9.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5Z" stroke-linejoin="round" />
+        <path d="M15 4v4.5a1 1 0 0 0 1 1H20" stroke-linejoin="round" />
+        <path d="M8 13h8M8 16.5h5" stroke-linecap="round" />
+      </svg>
+    </div>
+    <div>
+      <h1>Portfolio News</h1>
+      <p>AI-assessed news specifically matched to the holdings you actually own.</p>
+    </div>
   </div>
 
   <div class="view-mode-toggle">
@@ -11,6 +20,9 @@
       [class.active]="viewMode === 'feed'"
       (click)="setViewMode('feed')"
     >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+        <path d="M4 6h16M4 12h16M4 18h10" stroke-linecap="round" />
+      </svg>
       Feed
     </button>
     <button
@@ -19,6 +31,10 @@
       [class.active]="viewMode === 'digest'"
       (click)="setViewMode('digest')"
     >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+        <path d="M4 4.5A1.5 1.5 0 0 1 5.5 3h9L19 8v12.5a1.5 1.5 0 0 1-1.5 1.5h-12A1.5 1.5 0 0 1 4 20.5Z" stroke-linejoin="round" />
+        <path d="M8 12h8M8 16h5" stroke-linecap="round" />
+      </svg>
       Today's Digest
     </button>
   </div>
@@ -64,11 +80,24 @@
       </div>
     </div>
 
-    <div class="news-loading" *ngIf="loading">Loading your portfolio news...</div>
+    <div class="news-loading" *ngIf="loading">
+      <span class="loading-spinner"></span>
+      Loading your portfolio news...
+    </div>
 
-    <div class="news-error" *ngIf="error && !loading">{{ error }}</div>
+    <div class="news-error" *ngIf="error && !loading">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 8v5M12 16h.01" stroke-linecap="round" />
+      </svg>
+      {{ error }}
+    </div>
 
     <div class="news-empty" *ngIf="!loading && !error && items.length === 0">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H15l5 5v9.5a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5Z" stroke-linejoin="round" />
+        <path d="M15 4v4.5a1 1 0 0 0 1 1H20" stroke-linejoin="round" />
+      </svg>
       No portfolio news yet. As soon as something material happens with your holdings, it will show
       up here.
     </div>
@@ -113,9 +142,18 @@
   </ng-container>
 
   <ng-container *ngIf="viewMode === 'digest'">
-    <div class="news-loading" *ngIf="digestLoading">Loading today's digest...</div>
+    <div class="news-loading" *ngIf="digestLoading">
+      <span class="loading-spinner"></span>
+      Loading today's digest...
+    </div>
 
-    <div class="news-error" *ngIf="digestError && !digestLoading">{{ digestError }}</div>
+    <div class="news-error" *ngIf="digestError && !digestLoading">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M12 8v5M12 16h.01" stroke-linecap="round" />
+      </svg>
+      {{ digestError }}
+    </div>
 
     <ng-container *ngIf="!digestLoading && !digestError && digest as d">
       <div class="digest-heading">
@@ -125,6 +163,10 @@
       </div>
 
       <div class="news-empty" *ngIf="d.item_count === 0">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+          <path d="M4 4.5A1.5 1.5 0 0 1 5.5 3h9L19 8v12.5a1.5 1.5 0 0 1-1.5 1.5h-12A1.5 1.5 0 0 1 4 20.5Z" stroke-linejoin="round" />
+          <path d="M8 12h8M8 16h5" stroke-linecap="round" />
+        </svg>
         Nothing notable to summarize for this date yet.
       </div>
 

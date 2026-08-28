@@ -20,3 +20,44 @@ body {
   background: #f6f7f9;
   color: #161b26;
 }
+
+/* -----------------------------
+   SHARED DESIGN TOKENS
+
+   One considered accent (deep emerald, for growth/positive
+   signal) layered onto an ink-black anchor - used across every
+   feature page for visual consistency, rather than each
+   component drifting to its own slightly-different palette.
+----------------------------- */
+
+:root {
+  --ink: #111827;
+  --ink-soft: #1f2937;
+
+  --canvas-from: #f8f9fc;
+  --canvas-to: #eef1f7;
+
+  --surface: #ffffff;
+  --surface-line: #e8eaef;
+
+  --muted: #7a8495;
+  --muted-soft: #9aa2af;
+
+  --accent: #0f7a5c;
+  --accent-soft: #e6f4ef;
+  --accent-line: #bfe3d5;
+
+  --negative: #b42318;
+  --negative-soft: #fdeeed;
+
+  --warning: #b45309;
+  --warning-soft: #fef3e2;
+
+  --shadow-sm: 0 1px 2px rgba(17, 24, 39, 0.04), 0 1px 1px rgba(17, 24, 39, 0.03);
+  --shadow-md: 0 6px 20px -8px rgba(17, 24, 39, 0.14), 0 2px 6px -2px rgba(17, 24, 39, 0.06);
+  --shadow-lift: 0 14px 32px -12px rgba(17, 24, 39, 0.2), 0 4px 10px -4px rgba(17, 24, 39, 0.08);
+
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 8px;
+}

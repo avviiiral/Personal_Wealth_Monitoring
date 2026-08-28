@@ -1,11 +1,23 @@
 <section class="news-detail-page">
   <button type="button" class="back-button" (click)="goBack()">
-    &larr; Back to Portfolio News
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+      <path d="M15 5 8 12l7 7" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+    Back to Portfolio News
   </button>
 
-  <div class="detail-loading" *ngIf="loading">Loading...</div>
+  <div class="detail-loading" *ngIf="loading">
+    <span class="loading-spinner"></span>
+    Loading...
+  </div>
 
-  <div class="detail-error" *ngIf="error && !loading">{{ error }}</div>
+  <div class="detail-error" *ngIf="error && !loading">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v5M12 16h.01" stroke-linecap="round" />
+    </svg>
+    {{ error }}
+  </div>
 
   <ng-container *ngIf="!loading && !error && alert as a">
     <div class="detail-header">
@@ -26,13 +38,22 @@
       <span>{{ formattedPublishedAt() }}</span>
     </div>
 
-    <a class="read-original-button" [href]="a.article_url" target="_blank" rel="noopener noreferrer"
-      >Read Original Article (opens in new tab)</a
-    >
+    <a class="read-original-button" [href]="a.article_url" target="_blank" rel="noopener noreferrer">
+      Read Original Article
+      <span class="sr-only">(opens in new tab)</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M7 17 17 7M9 7h8v8" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </a>
 
     <!-- WHY THIS MATTERS TO YOU -->
     <div class="why-matters-card">
-      <h3>Why this matters to you</h3>
+      <h3>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <path d="M12 3 4 7v5c0 4.5 3.2 8 8 9 4.8-1 8-4.5 8-9V7Z" stroke-linejoin="round" />
+        </svg>
+        Why this matters to you
+      </h3>
 
       <p>
         <strong>{{ a.holding_display_name }}</strong> represents about
@@ -86,7 +107,15 @@
 
     <!-- SOURCES -->
     <div class="detail-section" *ngIf="a.sources && a.sources.length > 1">
-      <h3>Reported by {{ a.sources.length }} sources</h3>
+      <h3>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <circle cx="6" cy="12" r="2.5" />
+          <circle cx="18" cy="6" r="2.5" />
+          <circle cx="18" cy="18" r="2.5" />
+          <path d="m8.2 10.8 7.6-3.6M8.2 13.2l7.6 3.6" stroke-linecap="round" />
+        </svg>
+        Reported by {{ a.sources.length }} sources
+      </h3>
       <ul class="sources-list">
         <li *ngFor="let source of a.sources">
           <a [href]="source.url" target="_blank" rel="noopener noreferrer">{{ source.publisher_name }}</a>
