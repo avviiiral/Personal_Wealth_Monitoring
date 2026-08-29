@@ -20,6 +20,12 @@ import {
   PortfolioTreeResponse,
 } from '../../core/services/portfolio-api.service';
 
+import {
+  PortfolioReportPdfService,
+  SubClassDetail,
+  SubClassSummaryRow,
+} from '../../core/services/portfolio-report-pdf.service';
+
 Chart.register(...registerables);
 
 @Component({
@@ -33,6 +39,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   private readonly wealthApi = inject(WealthApiService);
   private readonly portfolioApi = inject(PortfolioApiService);
   private readonly cdr = inject(ChangeDetectorRef);
+  private readonly reportPdf = new PortfolioReportPdfService();
 
   @ViewChild('wealthChart')
   wealthChartRef?: ElementRef<HTMLCanvasElement>;
@@ -48,6 +55,21 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   historical: any = null;
   investmentSummary: any = null;
   investmentSummaryError = '';
+
+  /*
+   * Allocation/performance by Advisor - fetched alongside the rest
+   * of the Dashboard's data but not currently rendered on the page
+   * itself; used only to populate the "Advisor Comparison" section
+   * of the downloadable Portfolio Review PDF (see
+   * downloadPortfolioReview()). Failure to load either is silent
+   * (an empty array), matching the PDF service's own graceful
+   * handling of an empty Advisor section, since this data isn't
+   * critical to the Dashboard page loading successfully.
+   */
+  advisorAllocation: any[] = [];
+  advisorPerformance: any[] = [];
+
+  generatingReport = false;
 
   portfolioTree: PortfolioTreeResponse | null = null;
 
@@ -216,6 +238,32 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
         this.investmentSummaryError = 'Unable to load investment summary.';
 
         this.cdr.markForCheck();
+      },
+    });
+
+    // ADVISOR ALLOCATION / PERFORMANCE
+    // (see the advisorAllocation/advisorPerformance field docs)
+    this.wealthApi.getAllocationByAdvisor().subscribe({
+      next: (data) => {
+        this.advisorAllocation = data?.results ?? [];
+        this.cdr.markForCheck();
+      },
+
+      error: (error) => {
+        console.error('ALLOCATION BY ADVISOR API ERROR:', error);
+        this.advisorAllocation = [];
+      },
+    });
+
+    this.wealthApi.getPerformanceByAdvisor().subscribe({
+      next: (data) => {
+        this.advisorPerformance = data?.results ?? [];
+        this.cdr.markForCheck();
+      },
+
+      error: (error) => {
+        console.error('PERFORMANCE BY ADVISOR API ERROR:', error);
+        this.advisorPerformance = [];
       },
     });
 
@@ -508,13 +556,24 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
    * current value and % of total, so the Allocation chart shows the
    * exact same categorization and totals as the Investment Summary
    * table below it — one source of truth for both.
+   *
+   * FIX: the backend (InvestmentSummaryService.calculate(), reached
+   * via /api/analytics/wealth/investment-summary/) returns a bare
+   * array — not { results: [...] } — and each row carries
+   * `current_value` / `invested_value` / `pnl_percentage`, not
+   * `percentage_of_total`. Reading `.results` off an array is always
+   * `undefined`, so this getter previously always returned `[]` and
+   * the allocation chart silently rendered nothing. Percentage is
+   * now computed client-side from the real per-row current_value
+   * against the row set's own total, since the backend does not
+   * send a percentage figure at all.
    */
   get allocationByCategory(): Array<{
     category: string;
     value: number;
     percentage: number;
   }> {
-    const results = this.investmentSummary?.results ?? [];
+    const results = Array.isArray(this.investmentSummary) ? this.investmentSummary : [];
 
     const order: string[] = [];
     const totals = new Map<
@@ -540,18 +599,28 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       const entry = totals.get(category)!;
 
       entry.value += this.toNumber(row.current_value);
-
-      entry.percentage += this.toNumber(row.percentage_of_total);
     }
+
+    // Percentage is computed here from the row set's own total,
+    // since the backend does not return one. This intentionally
+    // uses the sum of investment-summary rows (not summary.total_
+    // current_value) as the denominator, so the percentages always
+    // add up to 100% of what's actually charted here.
+    const grandTotal = Array.from(totals.values()).reduce(
+      (sum, entry) => sum + entry.value,
+      0,
+    );
 
     return order
       .map((category) => {
         const entry = totals.get(category)!;
 
+        const percentage = grandTotal ? (entry.value / grandTotal) * 100 : 0;
+
         return {
           category,
           value: entry.value,
-          percentage: Math.round(entry.percentage * 100) / 100,
+          percentage: Math.round(percentage * 100) / 100,
         };
       })
       .filter((entry) => entry.value > 0);
@@ -580,7 +649,10 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       raw_asset_classes: string[];
     }>;
   }> {
-    const results = this.investmentSummary?.results ?? [];
+    // Same fix as allocationByCategory above: the backend returns a
+    // bare array, and the raw rows have no percentage_of_total field
+    // — percentage is computed below from this row set's own total.
+    const results = Array.isArray(this.investmentSummary) ? this.investmentSummary : [];
 
     const groups = new Map<
       string,
@@ -617,11 +689,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
       const currentValue = this.toNumber(row.current_value);
 
-      const percentage = this.toNumber(row.percentage_of_total);
-
       group.current_value += currentValue;
-
-      group.percentage_of_total += percentage;
 
       let classRow = group.asset_classes.find((item) => item.asset_class === assetClass);
 
@@ -638,8 +706,9 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
       classRow.current_value += currentValue;
 
-      classRow.percentage_of_total += percentage;
-
+      // The backend does not currently send a list of raw source
+      // asset-class labels per canonical class (raw_asset_classes) —
+      // left as an empty array rather than fabricated.
       const rawAssetClasses = Array.isArray(row.raw_asset_classes) ? row.raw_asset_classes : [];
 
       for (const rawAssetClass of rawAssetClasses) {
@@ -649,15 +718,23 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       }
     }
 
+    const grandTotal = Array.from(groups.values()).reduce(
+      (sum, group) => sum + group.current_value,
+      0,
+    );
+
+    const pct = (value: number): number =>
+      grandTotal ? Math.round((value / grandTotal) * 100 * 100) / 100 : 0;
+
     return Array.from(groups.values()).map((group) => ({
       ...group,
 
-      percentage_of_total: Math.round(group.percentage_of_total * 100) / 100,
+      percentage_of_total: pct(group.current_value),
 
       asset_classes: group.asset_classes.map((assetClass) => ({
         ...assetClass,
 
-        percentage_of_total: Math.round(assetClass.percentage_of_total * 100) / 100,
+        percentage_of_total: pct(assetClass.current_value),
       })),
     }));
   }
@@ -1080,5 +1157,151 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       day: '2-digit',
       month: 'short',
     });
+  }
+
+  /**
+   * Sub Class rollup for the Portfolio Review PDF's holdings page:
+   * sums current/invested value and P&L per Sub Class across the
+   * (already-loaded) Portfolio Tree, scoped to the currently
+   * selected Family - the same source data and Family scoping the
+   * live Dashboard/Portfolio pages already use.
+   *
+   * Deliberately does NOT compute a rolled-up XIRR here: Portfolio's
+   * own subClassSummaries getter derives that via a real XIRR
+   * calculation over each asset's cashflows, and duplicating an
+   * approximation of that here risks silently disagreeing with the
+   * number shown on the Portfolio page. Better to omit it in the
+   * PDF than to show a number that might not match.
+   */
+  private buildSubClassSummariesForReport(): SubClassSummaryRow[] {
+    const totals = new Map<
+      string,
+      { current_value: number; invested_value: number; pnl: number }
+    >();
+
+    for (const family of this.portfolioTree?.families ?? []) {
+      if (this.selectedFamily && family.family_name !== this.selectedFamily) {
+        continue;
+      }
+
+      for (const portfolio of family.portfolios) {
+        for (const assetClass of portfolio.asset_classes) {
+          for (const subClass of assetClass.sub_classes) {
+            const key = subClass.sub_class || 'Unassigned';
+
+            const existing = totals.get(key) ?? {
+              current_value: 0,
+              invested_value: 0,
+              pnl: 0,
+            };
+
+            for (const asset of subClass.assets) {
+              existing.current_value += asset.current_value ?? 0;
+              existing.invested_value += asset.invested_value ?? 0;
+              existing.pnl += asset.pnl ?? 0;
+            }
+
+            totals.set(key, existing);
+          }
+        }
+      }
+    }
+
+    return Array.from(totals.entries())
+      .map(([sub_class, values]) => ({
+        sub_class,
+        ...values,
+      }))
+      .sort((a, b) => b.current_value - a.current_value);
+  }
+
+  /**
+   * Per-scheme/per-holding detail for the Portfolio Review PDF,
+   * grouped by Sub Class - the source of the "Equities: Mutual
+   * Funds/ETFs", "Fixed Income: Bonds" etc. style detail pages.
+   * Every field here comes straight from the Portfolio Tree's own
+   * PortfolioAssetNode (the same data the Portfolio page's
+   * Underlying table already renders) - no new calculation.
+   */
+  private buildSubClassDetailsForReport(): SubClassDetail[] {
+    const bySubClass = new Map<string, SubClassDetail>();
+
+    for (const family of this.portfolioTree?.families ?? []) {
+      if (this.selectedFamily && family.family_name !== this.selectedFamily) {
+        continue;
+      }
+
+      for (const portfolio of family.portfolios) {
+        for (const assetClass of portfolio.asset_classes) {
+          for (const subClass of assetClass.sub_classes) {
+            const key = subClass.sub_class || 'Unassigned';
+
+            const existing = bySubClass.get(key) ?? {
+              sub_class: key,
+              assets: [],
+            };
+
+            for (const asset of subClass.assets) {
+              existing.assets.push({
+                asset_name: asset.asset_name || asset.underlying || '-',
+                isin: asset.isin,
+                advisors: asset.advisors,
+                quantity: asset.quantity ?? 0,
+                average_cost: asset.average_cost ?? 0,
+                invested_value: asset.invested_value ?? 0,
+                current_price: asset.current_price ?? 0,
+                current_value: asset.current_value ?? 0,
+                pnl: asset.pnl ?? 0,
+                pnl_percentage: asset.pnl_percentage ?? 0,
+                xirr: asset.xirr,
+              });
+            }
+
+            bySubClass.set(key, existing);
+          }
+        }
+      }
+    }
+
+    return Array.from(bySubClass.values()).sort(
+      (a, b) => a.sub_class.localeCompare(b.sub_class)
+    );
+  }
+
+  /**
+   * Builds and downloads the "Portfolio Review" PDF from data
+   * already loaded on this page - see
+   * core/services/portfolio-report-pdf.service.ts for what it
+   * contains and why some institutional-report sections (scheme
+   * overlap, credit ratings, sector look-through) aren't included
+   * yet: they need a market-data vendor feed PWMS doesn't currently
+   * have.
+   */
+  downloadPortfolioReview(): void {
+    this.generatingReport = true;
+
+    try {
+      this.reportPdf.generate({
+        familyName: this.selectedFamily,
+        totalWealth:
+          this.summary?.total_current_value ?? this.summary?.total_wealth ?? 0,
+        totalInvested:
+          this.summary?.total_invested ?? this.summary?.invested_value ?? 0,
+        totalPnl: this.summary?.total_pnl ?? this.summary?.pnl ?? 0,
+        xirrPercentage:
+          this.xirr?.xirr_percentage ??
+          this.summary?.xirr_percentage ??
+          null,
+        investmentSummary: this.investmentSummary?.results ?? [],
+        advisorAllocation: this.advisorAllocation,
+        advisorPerformance: this.advisorPerformance,
+        subClassSummaries: this.buildSubClassSummariesForReport(),
+        subClassDetails: this.buildSubClassDetailsForReport(),
+      });
+    } catch (error) {
+      console.error('Failed to generate Portfolio Review PDF:', error);
+    } finally {
+      this.generatingReport = false;
+    }
   }
 }

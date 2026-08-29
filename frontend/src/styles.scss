@@ -61,3 +61,47 @@ body {
   --radius-md: 12px;
   --radius-sm: 8px;
 }
+
+/* -----------------------------
+   PORTFOLIO REVIEW / NEXEDGE-STYLE REPORT TOKENS
+
+   Scoped as a second, parallel token set - NOT a replacement
+   for the --ink/--accent tokens above, which the rest of the
+   app (dashboard, portfolio, settings, etc.) already relies on.
+   Applied only within the Reports feature and any component
+   that opts in via a wrapping class (e.g. `.nx-report-theme`),
+   so existing pages are visually unaffected.
+
+   Source: reference PDF ("Nexedge" portfolio review) + HTML
+   reference. Institutional wealth-management palette.
+----------------------------- */
+
+:root {
+  --nx-navy: #051233;
+  --nx-orange: #fd7740;
+  --nx-gold: #cc9f53;
+  --nx-ice: #e7f1f1;
+  --nx-white: #ffffff;
+  --nx-grey: #c8c8c8;
+  --nx-blue: #085888;
+
+  /* Slightly deeper navy for secondary surfaces (drawers, footers) */
+  --nx-deep: #030b22;
+
+  --nx-font-heading:
+    'Playfair Display',
+    Georgia,
+    'Times New Roman',
+    serif;
+  --nx-font-body:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
+
+  --nx-radius-sm: 4px;
+  --nx-radius-md: 8px;
+
+  --nx-border: 1px solid rgba(5, 18, 51, 0.12);
+}

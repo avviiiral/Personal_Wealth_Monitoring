@@ -335,3 +335,58 @@ def wealth_historical(request):
         "end_date": end_date,
         "results": results,
     })
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def wealth_composition_by_amc(request):
+    """
+    Return current-value allocation aggregated by AMC, for
+    Portfolio Composition Analysis (Top AMC exposures, AMC
+    concentration).
+    """
+
+    data = (
+        InvestmentSummaryService
+        .calculate_composition_by_amc(
+            request.user
+        )
+    )
+
+    return Response(data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def wealth_equity_analysis(request):
+    """
+    Return the Equity Analysis view: current value, market-cap
+    allocation, and value-weighted P/E, P/B, ROE.
+    """
+
+    data = (
+        InvestmentSummaryService
+        .calculate_equity_analysis(
+            request.user
+        )
+    )
+
+    return Response(data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def wealth_fixed_income_analysis(request):
+    """
+    Return the Fixed Income Analysis view: current value, credit
+    rating distribution, and value-weighted YTM / Modified Duration
+    / Average Maturity.
+    """
+
+    data = (
+        InvestmentSummaryService
+        .calculate_fixed_income_analysis(
+            request.user
+        )
+    )
+
+    return Response(data)

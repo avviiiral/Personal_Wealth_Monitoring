@@ -124,6 +124,52 @@
   transform: rotate(150deg);
 }
 
+.download-report-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft, #e6f4ef);
+  color: var(--accent);
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.15s ease;
+  white-space: nowrap;
+
+  &:hover:not(:disabled) {
+    background: var(--accent);
+    color: #ffffff;
+    box-shadow: var(--shadow-md);
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+.download-report-button .button-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
 /* -----------------------------
    FAMILY FILTER
    Bordered box next to the Refresh button, label above the
@@ -1026,6 +1072,11 @@
   }
 
   .refresh-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .download-report-button {
     width: 100%;
     justify-content: center;
   }

@@ -7,6 +7,9 @@ from .views import (
     analytics_summary,
     wealth_allocation,
     wealth_allocation_by_advisor,
+    wealth_composition_by_amc,
+    wealth_equity_analysis,
+    wealth_fixed_income_analysis,
     wealth_investment_summary,
     wealth_performance,
     wealth_performance_by_advisor,
@@ -84,6 +87,24 @@ urlpatterns = [
         "wealth/allocation-by-advisor/",
         wealth_allocation_by_advisor,
         name="wealth-allocation-by-advisor",
+    ),
+
+    path(
+        "wealth/composition-by-amc/",
+        wealth_composition_by_amc,
+        name="wealth-composition-by-amc",
+    ),
+
+    path(
+        "wealth/equity-analysis/",
+        wealth_equity_analysis,
+        name="wealth-equity-analysis",
+    ),
+
+    path(
+        "wealth/fixed-income-analysis/",
+        wealth_fixed_income_analysis,
+        name="wealth-fixed-income-analysis",
     ),
 
     path(

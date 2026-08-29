@@ -511,6 +511,100 @@ class SecurityMaster(models.Model):
         null=True,
     )
 
+    # ==========================================================
+    # AMC / ISSUER
+    #
+    # Stored here (not as a separate FK model yet) matching the
+    # existing sector/cap_type pattern. Free-text for now — see
+    # the note on Advisor below for the same known limitation:
+    # two schemes from the same AMC spelled differently in the
+    # source Excel will not roll up together. Promote to a real
+    # AMC model with an FK once AMC-level concentration reporting
+    # is built (Portfolio Composition Analysis).
+    # ==========================================================
+
+    amc_name = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+    )
+
+    # ==========================================================
+    # EQUITY QUANTS
+    #
+    # Portfolio-level P/E, P/B, ROE aggregation in the reporting
+    # layer weights these by each holding's current_value — see
+    # PortfolioAnalytics/UnifiedWealthAnalytics for that logic.
+    # These three fields hold the value for a single security.
+    # ==========================================================
+
+    pe_ratio = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        blank=True,
+        null=True,
+    )
+
+    pb_ratio = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        blank=True,
+        null=True,
+    )
+
+    roe = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        blank=True,
+        null=True,
+    )
+
+    # ==========================================================
+    # FIXED INCOME QUANTS
+    #
+    # average_maturity is stored in years (matches the Nexedge
+    # reference report's "Avg Maturity 4.4" style), which the
+    # frontend buckets into 0-3m/3-12m/1-3y/3-10y/10y+ ranges —
+    # no separate maturity_date field needed unless a specific
+    # instrument's exact maturity date is required elsewhere.
+    # ==========================================================
+
+    credit_rating = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        choices=[
+            ("SOVEREIGN", "Sovereign"),
+            ("AAA", "AAA / AAA+"),
+            ("AA", "AA / AA+"),
+            ("A_AND_BELOW", "A and Below"),
+            ("UNRATED", "Unrated"),
+        ],
+    )
+
+    ytm = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        help_text="Yield to Maturity, percent.",
+    )
+
+    modified_duration = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        blank=True,
+        null=True,
+    )
+
+    average_maturity = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        help_text="Years.",
+    )
+
     manual_nav_enabled = models.BooleanField(
         default=False,
     )

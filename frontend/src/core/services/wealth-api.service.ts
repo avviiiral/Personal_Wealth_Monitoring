@@ -86,6 +86,40 @@ export class WealthApiService {
     });
   }
 
+  /**
+   * Current-value allocation by AMC (Top AMC exposures, AMC
+   * concentration) — see analytics.services.investment_summary.
+   * InvestmentSummaryService.calculate_composition_by_amc.
+   */
+  getCompositionByAmc(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/composition-by-amc/`, {
+      withCredentials: true,
+    });
+  }
+
+  /**
+   * Value-weighted P/E, P/B, ROE and market-cap allocation across
+   * every equity/other-investment holding with SecurityMaster quant
+   * data — see InvestmentSummaryService.calculate_equity_analysis.
+   */
+  getEquityAnalysis(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/equity-analysis/`, {
+      withCredentials: true,
+    });
+  }
+
+  /**
+   * Value-weighted YTM / Modified Duration / Average Maturity and
+   * credit-rating distribution across Fixed-Income-classified
+   * holdings — see
+   * InvestmentSummaryService.calculate_fixed_income_analysis.
+   */
+  getFixedIncomeAnalysis(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/fixed-income-analysis/`, {
+      withCredentials: true,
+    });
+  }
+
   getPerformanceByAdvisor(): Observable<any> {
     return this.http.get<any>(`${this.baseUrl}/performance-by-advisor/`, {
       withCredentials: true,

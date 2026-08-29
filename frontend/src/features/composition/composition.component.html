@@ -1,0 +1,75 @@
+<div class="composition-page nx-report-theme">
+  <header class="page-header">
+    <h1>Portfolio Composition Analysis</h1>
+
+    <p class="page-subtitle" *ngIf="composition as data">
+      Overall Portfolio: {{ formatCurrency(data.total_current_value) }} · {{ data.number_of_amcs }}
+      AMC{{ data.number_of_amcs === 1 ? '' : 's' }}
+    </p>
+  </header>
+
+  <div class="loading-card" *ngIf="loading">Loading composition data…</div>
+
+  <div class="error-card" *ngIf="error">{{ error }}</div>
+
+  <ng-container *ngIf="!loading && !error">
+    <div class="empty-state" *ngIf="!hasData">
+      No holdings with a current value greater than zero were found.
+    </div>
+
+    <div class="composition-grid" *ngIf="hasData">
+      <section class="panel">
+        <h2>Top AMC Exposures</h2>
+
+        <div class="chart-container">
+          <canvas #amcChart></canvas>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>AMC Concentration</h2>
+
+        <div class="table-scroll">
+          <table class="amc-table">
+            <thead>
+              <tr>
+                <th>AMC</th>
+                <th>Holdings</th>
+                <th>Invested</th>
+                <th>Current Value</th>
+                <th>Allocation</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              <tr *ngFor="let row of topAmcs">
+                <td class="amc-name">
+                  {{ row.amc_name }}
+                  <span class="unassigned-tag" *ngIf="row.amc_name === 'Unassigned'">
+                    no AMC data yet
+                  </span>
+                </td>
+
+                <td>{{ row.holding_count }}</td>
+
+                <td>{{ formatCurrency(row.invested_value) }}</td>
+
+                <td>{{ formatCurrency(row.current_value) }}</td>
+
+                <td>
+                  <div class="allocation-cell">
+                    <div class="allocation-bar">
+                      <div class="allocation-bar-fill" [style.width.%]="row.percentage"></div>
+                    </div>
+
+                    <span>{{ formatPercentage(row.percentage) }}</span>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </ng-container>
+</div>

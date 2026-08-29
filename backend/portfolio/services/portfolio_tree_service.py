@@ -377,6 +377,107 @@ class PortfolioTreeService:
                 if security_master
                 else None
             ),
+
+            # =====================================================
+            # AMC / EQUITY / FIXED-INCOME QUANTS
+            #
+            # Sourced from SecurityMaster the same way as sector/
+            # cap_type above — None whenever no SecurityMaster row
+            # exists for this asset, or the field hasn't been filled
+            # in yet. Never fabricated/defaulted here.
+            # =====================================================
+
+            "amc_name": (
+                getattr(
+                    security_master,
+                    "amc_name",
+                    None,
+                )
+                if security_master
+                else None
+            ),
+
+            "pe_ratio": (
+                cls._optional_float(
+                    getattr(
+                        security_master,
+                        "pe_ratio",
+                        None,
+                    )
+                )
+                if security_master
+                else None
+            ),
+
+            "pb_ratio": (
+                cls._optional_float(
+                    getattr(
+                        security_master,
+                        "pb_ratio",
+                        None,
+                    )
+                )
+                if security_master
+                else None
+            ),
+
+            "roe": (
+                cls._optional_float(
+                    getattr(
+                        security_master,
+                        "roe",
+                        None,
+                    )
+                )
+                if security_master
+                else None
+            ),
+
+            "credit_rating": (
+                getattr(
+                    security_master,
+                    "credit_rating",
+                    None,
+                )
+                if security_master
+                else None
+            ),
+
+            "ytm": (
+                cls._optional_float(
+                    getattr(
+                        security_master,
+                        "ytm",
+                        None,
+                    )
+                )
+                if security_master
+                else None
+            ),
+
+            "modified_duration": (
+                cls._optional_float(
+                    getattr(
+                        security_master,
+                        "modified_duration",
+                        None,
+                    )
+                )
+                if security_master
+                else None
+            ),
+
+            "average_maturity": (
+                cls._optional_float(
+                    getattr(
+                        security_master,
+                        "average_maturity",
+                        None,
+                    )
+                )
+                if security_master
+                else None
+            ),
         }
 
     @classmethod

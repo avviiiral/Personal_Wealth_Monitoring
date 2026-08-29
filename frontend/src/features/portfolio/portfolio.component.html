@@ -324,12 +324,16 @@
                                   <th>Gain</th>
 
                                   <th>XIRR</th>
+
+                                  <th>Details</th>
                                 </tr>
                               </thead>
 
                               <tbody>
-                                <tr
+                                <ng-container
                                   *ngFor="let asset of assetGroup.assets; trackBy: trackByAssetId"
+                                >
+                                <tr
                                   class="underlying-row"
                                 >
                                   <!-- FINAL NAME
@@ -451,7 +455,106 @@
                                         : formatPercentage(asset.xirr)
                                     }}
                                   </td>
+
+                                  <td class="quant-toggle-cell">
+                                    <button
+                                      *ngIf="hasQuantDetails(asset)"
+                                      type="button"
+                                      class="quant-toggle-button"
+                                      (click)="toggleQuantDetails(asset)"
+                                    >
+                                      {{ isQuantDetailsExpanded(asset) ? 'Hide' : 'Details' }}
+                                    </button>
+                                  </td>
                                 </tr>
+
+                                <!--
+                                  QUANT DETAILS — SecurityMaster-sourced fields
+                                  (Sector / Cap Type / AMC / Credit Rating /
+                                  P/E / P/B / ROE / YTM / Modified Duration /
+                                  Average Maturity). Only individual chips
+                                  with a non-null value render — nothing is
+                                  padded with a placeholder for missing data.
+                                -->
+                                <tr
+                                  *ngIf="isQuantDetailsExpanded(asset)"
+                                  class="quant-details-row nx-report-theme"
+                                >
+                                  <td colspan="10">
+                                    <div class="quant-details">
+                                      <div class="quant-chip" *ngIf="asset.sector">
+                                        <span class="quant-chip-label">Sector</span>
+                                        <span class="quant-chip-value">{{ asset.sector }}</span>
+                                      </div>
+
+                                      <div class="quant-chip" *ngIf="asset.cap_type">
+                                        <span class="quant-chip-label">Cap Type</span>
+                                        <span class="quant-chip-value">{{ asset.cap_type }}</span>
+                                      </div>
+
+                                      <div class="quant-chip" *ngIf="asset.amc_name">
+                                        <span class="quant-chip-label">AMC</span>
+                                        <span class="quant-chip-value">{{ asset.amc_name }}</span>
+                                      </div>
+
+                                      <div class="quant-chip" *ngIf="asset.credit_rating">
+                                        <span class="quant-chip-label">Credit Rating</span>
+                                        <span class="quant-chip-value">{{
+                                          asset.credit_rating
+                                        }}</span>
+                                      </div>
+
+                                      <div class="quant-chip" *ngIf="asset.pe_ratio !== null">
+                                        <span class="quant-chip-label">P/E</span>
+                                        <span class="quant-chip-value">{{
+                                          formatDecimal(asset.pe_ratio)
+                                        }}</span>
+                                      </div>
+
+                                      <div class="quant-chip" *ngIf="asset.pb_ratio !== null">
+                                        <span class="quant-chip-label">P/B</span>
+                                        <span class="quant-chip-value">{{
+                                          formatDecimal(asset.pb_ratio)
+                                        }}</span>
+                                      </div>
+
+                                      <div class="quant-chip" *ngIf="asset.roe !== null">
+                                        <span class="quant-chip-label">ROE</span>
+                                        <span class="quant-chip-value"
+                                          >{{ formatDecimal(asset.roe) }}%</span
+                                        >
+                                      </div>
+
+                                      <div class="quant-chip" *ngIf="asset.ytm !== null">
+                                        <span class="quant-chip-label">YTM</span>
+                                        <span class="quant-chip-value"
+                                          >{{ formatDecimal(asset.ytm) }}%</span
+                                        >
+                                      </div>
+
+                                      <div
+                                        class="quant-chip"
+                                        *ngIf="asset.modified_duration !== null"
+                                      >
+                                        <span class="quant-chip-label">Mod. Duration</span>
+                                        <span class="quant-chip-value">{{
+                                          formatDecimal(asset.modified_duration)
+                                        }}</span>
+                                      </div>
+
+                                      <div
+                                        class="quant-chip"
+                                        *ngIf="asset.average_maturity !== null"
+                                      >
+                                        <span class="quant-chip-label">Avg. Maturity</span>
+                                        <span class="quant-chip-value"
+                                          >{{ formatDecimal(asset.average_maturity) }} yrs</span
+                                        >
+                                      </div>
+                                    </div>
+                                  </td>
+                                </tr>
+                                </ng-container>
                               </tbody>
                             </table>
                           </div>

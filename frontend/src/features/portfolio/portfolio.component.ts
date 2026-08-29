@@ -58,6 +58,13 @@ export class PortfolioComponent implements OnInit, OnDestroy {
   expandedSubClass = '';
   expandedAsset = '';
 
+  /*
+   * Keyed by asset.id (not a compound key like expandedAsset above,
+   * since Quant Details lives at the final, already-unique
+   * underlying row level, one row per asset id).
+   */
+  expandedQuantsAssetId: number | null = null;
+
   loading = true;
   error = '';
 
@@ -322,6 +329,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     if (this.expandedSubClass === subClass) {
       this.expandedSubClass = '';
       this.expandedAsset = '';
+      this.expandedQuantsAssetId = null;
       return;
     }
 
@@ -371,6 +379,43 @@ export class PortfolioComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * Expand / collapse the Quant Details row for one underlying
+   * asset — Sector / Cap Type / AMC / Credit Rating / P/E / P/B /
+   * ROE / YTM / Modified Duration / Average Maturity, sourced from
+   * SecurityMaster via the Portfolio Tree API. Independent of
+   * expandedSubClass/expandedAsset so opening quant details doesn't
+   * collapse the underlying table it lives inside.
+   */
+  toggleQuantDetails(asset: PortfolioAssetNode): void {
+    this.expandedQuantsAssetId = this.expandedQuantsAssetId === asset.id ? null : asset.id;
+  }
+
+  isQuantDetailsExpanded(asset: PortfolioAssetNode): boolean {
+    return this.expandedQuantsAssetId === asset.id;
+  }
+
+  /**
+   * True when at least one SecurityMaster-sourced field is present
+   * for this asset, so the "Quant Details" toggle is only shown
+   * when there's actually something to show — never a button that
+   * opens onto an all-dashes row.
+   */
+  hasQuantDetails(asset: PortfolioAssetNode): boolean {
+    return (
+      asset.sector != null ||
+      asset.cap_type != null ||
+      asset.amc_name != null ||
+      asset.credit_rating != null ||
+      asset.pe_ratio != null ||
+      asset.pb_ratio != null ||
+      asset.roe != null ||
+      asset.ytm != null ||
+      asset.modified_duration != null ||
+      asset.average_maturity != null
+    );
+  }
+
+  /**
    * Stable key for an Asset Name group.
    */
   getAssetKey(subClass: string, assetName: string): string {
@@ -401,6 +446,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     this.selectedAdvisor = '';
     this.expandedSubClass = '';
     this.expandedAsset = '';
+    this.expandedQuantsAssetId = null;
   }
 
   selectAssetClass(assetClass: string): void {
@@ -409,6 +455,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     this.selectedAdvisor = '';
     this.expandedSubClass = '';
     this.expandedAsset = '';
+    this.expandedQuantsAssetId = null;
   }
 
   selectAdvisor(advisor: string): void {
@@ -416,6 +463,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
 
     this.expandedSubClass = '';
     this.expandedAsset = '';
+    this.expandedQuantsAssetId = null;
   }
 
   clearFamily(): void {
@@ -424,6 +472,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     this.selectedAdvisor = '';
     this.expandedSubClass = '';
     this.expandedAsset = '';
+    this.expandedQuantsAssetId = null;
   }
 
   clearAssetClass(): void {
@@ -431,12 +480,14 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     this.selectedAdvisor = '';
     this.expandedSubClass = '';
     this.expandedAsset = '';
+    this.expandedQuantsAssetId = null;
   }
 
   clearAdvisor(): void {
     this.selectedAdvisor = '';
     this.expandedSubClass = '';
     this.expandedAsset = '';
+    this.expandedQuantsAssetId = null;
   }
 
   isFamilySelected(family: string): boolean {
@@ -781,6 +832,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
     ) {
       this.expandedSubClass = '';
       this.expandedAsset = '';
+      this.expandedQuantsAssetId = null;
     }
   }
 }

@@ -1,0 +1,147 @@
+.analysis-page {
+  padding: 24px;
+  font-family: var(--nx-font-body);
+}
+
+.page-header {
+  margin-bottom: 20px;
+
+  h1 {
+    font-family: var(--nx-font-heading);
+    font-size: 26px;
+    font-weight: 400;
+    color: var(--nx-navy);
+    margin: 0;
+  }
+}
+
+.loading-card,
+.error-card,
+.empty-state {
+  padding: 24px;
+  border-radius: var(--nx-radius-md);
+  background: var(--nx-white);
+  border: var(--nx-border);
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.error-card {
+  color: var(--negative);
+  border-color: var(--negative-soft);
+}
+
+.analysis-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+
+  @media (max-width: 960px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel {
+  background: var(--nx-white);
+  border: var(--nx-border);
+  border-radius: var(--nx-radius-md);
+  padding: 18px 20px;
+
+  h2 {
+    font-family: var(--nx-font-heading);
+    font-size: 17px;
+    font-weight: 400;
+    color: var(--nx-navy);
+    margin: 0 0 14px;
+    border-bottom: 1px solid var(--nx-grey);
+    padding-bottom: 8px;
+  }
+}
+
+.spec-list {
+  margin: 0;
+}
+
+.spec-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--surface-line);
+  font-size: 14px;
+
+  dt {
+    color: var(--nx-blue);
+    font-weight: 500;
+  }
+
+  dd {
+    margin: 0;
+    color: var(--nx-navy);
+    font-weight: 600;
+  }
+}
+
+.quant-basis {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.quant-note {
+  margin: 14px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.cap-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+
+  th {
+    text-align: left;
+    padding: 8px 10px;
+    color: var(--nx-blue);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--nx-grey);
+  }
+
+  td {
+    padding: 10px;
+    border-bottom: 1px solid var(--surface-line);
+    color: var(--nx-navy);
+    white-space: nowrap;
+  }
+}
+
+.cap-name {
+  font-weight: 600;
+}
+
+.allocation-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 120px;
+}
+
+.allocation-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--nx-ice);
+  overflow: hidden;
+}
+
+.allocation-bar-fill {
+  height: 100%;
+  background: var(--nx-blue);
+}

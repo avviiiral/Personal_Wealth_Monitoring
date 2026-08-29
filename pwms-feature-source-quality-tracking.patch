@@ -1,0 +1,3600 @@
+diff --git a/backend/analytics/services/investment_summary.py b/backend/analytics/services/investment_summary.py
+index 7e13085..093a097 100644
+--- a/backend/analytics/services/investment_summary.py
++++ b/backend/analytics/services/investment_summary.py
+@@ -1002,4 +1002,571 @@ class InvestmentSummaryService:
+             results,
+             key=lambda item: item["pnl_percentage"],
+             reverse=True,
+-        )
+\ No newline at end of file
++        )
++
++    # ==========================================================
++    # COMPOSITION BY AMC
++    #
++    # Two distinct real data sources, deliberately not unified into
++    # a single AMC model yet (see the note on SecurityMaster.amc_name
++    # in investments/models.py — same fragile free-text limitation):
++    #
++    #   - Mutual fund holdings: MutualFundScheme.amc_name, an
++    #     existing, independently populated field.
++    #   - Equity/other holdings: SecurityMaster.amc_name, added
++    #     alongside credit_rating/pe_ratio/etc — populated via
++    #     Django admin, empty until filled in.
++    #
++    # A holding with no AMC name available from either source is
++    # bucketed under UNASSIGNED_AMC rather than dropped, same
++    # pattern as UNASSIGNED_ADVISOR above.
++    # ==========================================================
++
++    UNASSIGNED_AMC = "Unassigned"
++
++    @staticmethod
++    def _amc_by_equity_asset_id(user):
++        """
++        Resolve every equity/other-investment asset's AMC from its
++        linked SecurityMaster row, the same lookup shape as
++        _advisor_by_asset_id (dict of asset_id -> value).
++        """
++
++        from investments.models import Asset
++
++        rows = (
++            Asset.objects
++            .filter(
++                owner=user,
++                security_master__isnull=False,
++            )
++            .exclude(security_master__amc_name__isnull=True)
++            .exclude(security_master__amc_name__exact="")
++            .values_list(
++                "id",
++                "security_master__amc_name",
++            )
++        )
++
++        return dict(rows)
++
++    @classmethod
++    def calculate_composition_by_amc(cls, user):
++        """
++        Aggregate current value, invested value, and holding count
++        by AMC, for Portfolio Composition Analysis (Top AMC
++        exposures, AMC concentration).
++        """
++
++        totals = {}
++
++        amc_by_asset_id = (
++            cls._amc_by_equity_asset_id(user)
++        )
++
++        equity_holdings = (
++            UnifiedWealthAnalytics
++            .get_equity_holdings(user)
++        )
++
++        for holding in equity_holdings:
++            amc = (
++                amc_by_asset_id.get(holding.asset_id)
++                or ""
++            ).strip() or cls.UNASSIGNED_AMC
++
++            if amc not in totals:
++                totals[amc] = {
++                    "invested": cls.ZERO,
++                    "current": cls.ZERO,
++                    "holding_count": 0,
++                }
++
++            totals[amc]["invested"] += (
++                holding.invested_value or cls.ZERO
++            )
++
++            totals[amc]["current"] += (
++                holding.current_value or cls.ZERO
++            )
++
++            totals[amc]["holding_count"] += 1
++
++        mutual_fund_holdings = (
++            UnifiedWealthAnalytics
++            .get_mutual_fund_holdings(user)
++        )
++
++        for holding in mutual_fund_holdings:
++            amc = (
++                getattr(
++                    holding.scheme,
++                    "amc_name",
++                    None,
++                )
++                or ""
++            ).strip() or cls.UNASSIGNED_AMC
++
++            if amc not in totals:
++                totals[amc] = {
++                    "invested": cls.ZERO,
++                    "current": cls.ZERO,
++                    "holding_count": 0,
++                }
++
++            totals[amc]["invested"] += (
++                holding.invested_value or cls.ZERO
++            )
++
++            totals[amc]["current"] += (
++                holding.current_value or cls.ZERO
++            )
++
++            totals[amc]["holding_count"] += 1
++
++        grand_total = sum(
++            (entry["current"] for entry in totals.values()),
++            cls.ZERO,
++        )
++
++        results = []
++
++        for amc, entry in totals.items():
++            current = entry["current"]
++
++            if current <= 0:
++                continue
++
++            percentage = (
++                (current / grand_total) * 100
++                if grand_total
++                else cls.ZERO
++            )
++
++            results.append({
++                "amc_name": amc,
++                "invested_value": entry["invested"],
++                "current_value": current,
++                "holding_count": entry["holding_count"],
++                "percentage": round(
++                    percentage,
++                    2,
++                ),
++            })
++
++        return {
++            "results": sorted(
++                results,
++                key=lambda item: item["current_value"],
++                reverse=True,
++            ),
++            "total_current_value": grand_total,
++            "number_of_amcs": len(results),
++        }
++
++
++    # ==========================================================
++    # EQUITY ANALYSIS
++    #
++    # Sourced entirely from SecurityMaster (pe_ratio/pb_ratio/roe/
++    # cap_type — investments/migrations/0007_...) joined onto
++    # equity/other-investment Holdings via Asset.security_master.
++    #
++    # Only Holding-based (equity/other) positions are considered —
++    # mutual fund SIP/scheme holdings do not carry a SecurityMaster
++    # link, so they contribute to "Market Value" and the product-
++    # category split's own count, but not to the P/E, P/B, ROE
++    # weighted averages or market-cap allocation below, since there
++    # is no per-holding quant data to weight.
++    # ==========================================================
++
++    @staticmethod
++    def _security_master_by_asset_id(user):
++        """
++        Bulk-fetch SecurityMaster fields keyed by asset_id, in one
++        query, for every asset owned by the user that has one
++        linked — same shape as _advisor_by_asset_id /
++        _amc_by_equity_asset_id above.
++        """
++
++        from investments.models import Asset
++
++        rows = (
++            Asset.objects
++            .filter(
++                owner=user,
++                security_master__isnull=False,
++            )
++            .values_list(
++                "id",
++                "security_master__cap_type",
++                "security_master__pe_ratio",
++                "security_master__pb_ratio",
++                "security_master__roe",
++            )
++        )
++
++        return {
++            asset_id: {
++                "cap_type": cap_type,
++                "pe_ratio": pe_ratio,
++                "pb_ratio": pb_ratio,
++                "roe": roe,
++            }
++            for asset_id, cap_type, pe_ratio, pb_ratio, roe in rows
++        }
++
++    @classmethod
++    def calculate_equity_analysis(cls, user):
++        """
++        Return the Equity Analysis view: current value / allocation
++        of the overall portfolio, market-cap allocation, and
++        value-weighted P/E, P/B, ROE across every equity/other-
++        investment Holding that has SecurityMaster quant data.
++
++        Weighting: each holding's ratio is weighted by its
++        current_value's share of the total current_value of ONLY
++        the holdings that have that specific ratio populated — so a
++        handful of populated holdings don't get diluted to near-zero
++        by every unpopulated one. This means the three weighted
++        averages (P/E, P/B, ROE) may each be computed over a
++        different, smaller base than "Current Value" below, and
++        that base size is returned explicitly rather than left
++        implicit.
++        """
++
++        equity_holdings = list(
++            UnifiedWealthAnalytics
++            .get_equity_holdings(user)
++        )
++
++        sm_by_asset_id = (
++            cls._security_master_by_asset_id(user)
++        )
++
++        total_current_value = sum(
++            (
++                holding.current_value
++                or cls.ZERO
++            )
++            for holding in equity_holdings
++        )
++
++        cap_totals = {}
++
++        weighted_sums = {
++            "pe_ratio": cls.ZERO,
++            "pb_ratio": cls.ZERO,
++            "roe": cls.ZERO,
++        }
++
++        weighted_bases = {
++            "pe_ratio": cls.ZERO,
++            "pb_ratio": cls.ZERO,
++            "roe": cls.ZERO,
++        }
++
++        weighted_counts = {
++            "pe_ratio": 0,
++            "pb_ratio": 0,
++            "roe": 0,
++        }
++
++        for holding in equity_holdings:
++            current_value = (
++                holding.current_value
++                or cls.ZERO
++            )
++
++            sm = sm_by_asset_id.get(
++                holding.asset_id,
++                {},
++            )
++
++            cap_type = (
++                sm.get("cap_type")
++                or ""
++            ).strip() or "Unclassified"
++
++            cap_totals[cap_type] = (
++                cap_totals.get(
++                    cap_type,
++                    cls.ZERO,
++                )
++                + current_value
++            )
++
++            for field in (
++                "pe_ratio",
++                "pb_ratio",
++                "roe",
++            ):
++                value = sm.get(field)
++
++                if value is None or current_value <= 0:
++                    continue
++
++                weighted_sums[field] += (
++                    value * current_value
++                )
++
++                weighted_bases[field] += current_value
++
++                weighted_counts[field] += 1
++
++        market_cap_allocation = []
++
++        for cap_type, value in sorted(
++            cap_totals.items(),
++            key=lambda item: item[1],
++            reverse=True,
++        ):
++            percentage = (
++                (value / total_current_value) * 100
++                if total_current_value
++                else cls.ZERO
++            )
++
++            market_cap_allocation.append({
++                "cap_type": cap_type,
++                "current_value": value,
++                "percentage": round(
++                    percentage,
++                    2,
++                ),
++            })
++
++        def weighted_average(field):
++            base = weighted_bases[field]
++
++            if not base:
++                return None
++
++            return round(
++                weighted_sums[field] / base,
++                2,
++            )
++
++        return {
++            "current_value": total_current_value,
++            "number_of_holdings": len(equity_holdings),
++            "portfolio_pe": weighted_average("pe_ratio"),
++            "portfolio_pe_holding_count": weighted_counts["pe_ratio"],
++            "portfolio_pb": weighted_average("pb_ratio"),
++            "portfolio_pb_holding_count": weighted_counts["pb_ratio"],
++            "portfolio_roe": weighted_average("roe"),
++            "portfolio_roe_holding_count": weighted_counts["roe"],
++            "market_cap_allocation": market_cap_allocation,
++        }
++
++    # ==========================================================
++    # FIXED INCOME ANALYSIS
++    #
++    # Same sourcing/weighting approach as Equity Analysis, but for
++    # the Fixed Income quant fields (ytm/modified_duration/
++    # average_maturity/credit_rating) — see the same migration.
++    # ==========================================================
++
++    @staticmethod
++    def _fixed_income_security_master_by_asset_id(user):
++        from investments.models import Asset
++
++        rows = (
++            Asset.objects
++            .filter(
++                owner=user,
++                security_master__isnull=False,
++            )
++            .values_list(
++                "id",
++                "security_master__credit_rating",
++                "security_master__ytm",
++                "security_master__modified_duration",
++                "security_master__average_maturity",
++            )
++        )
++
++        return {
++            asset_id: {
++                "credit_rating": credit_rating,
++                "ytm": ytm,
++                "modified_duration": modified_duration,
++                "average_maturity": average_maturity,
++            }
++            for (
++                asset_id,
++                credit_rating,
++                ytm,
++                modified_duration,
++                average_maturity,
++            ) in rows
++        }
++
++    CREDIT_RATING_LABELS = {
++        "SOVEREIGN": "Sovereign",
++        "AAA": "AAA / AAA+",
++        "AA": "AA / AA+",
++        "A_AND_BELOW": "A and Below",
++        "UNRATED": "Unrated",
++    }
++
++    @classmethod
++    def calculate_fixed_income_analysis(cls, user):
++        """
++        Return the Fixed Income Analysis view: current value /
++        allocation, credit rating distribution, and value-weighted
++        YTM / Modified Duration / Average Maturity — restricted to
++        Holdings whose Asset is classified under the Fixed Income
++        canonical asset category (see
++        InvestmentSummaryService.MASTER_MAPPING), the same
++        classification the Dashboard's Investment Summary already
++        uses, so this page's "Current Value" always reconciles with
++        that table's Fixed Income row.
++        """
++
++        asset_class_by_asset_id = (
++            cls._equity_asset_class_by_asset_id(user)
++        )
++
++        fixed_income_classes = set()
++
++        for category, asset_classes in cls.MASTER_MAPPING:
++            if category == "Fixed Income":
++                fixed_income_classes.update(asset_classes)
++
++        equity_holdings = list(
++            UnifiedWealthAnalytics
++            .get_equity_holdings(user)
++        )
++
++        fi_holdings = [
++            holding
++            for holding in equity_holdings
++            if cls._normalize_asset_class(
++                asset_class_by_asset_id.get(holding.asset_id)
++            )
++            in fixed_income_classes
++        ]
++
++        sm_by_asset_id = (
++            cls._fixed_income_security_master_by_asset_id(user)
++        )
++
++        total_current_value = sum(
++            (
++                holding.current_value
++                or cls.ZERO
++            )
++            for holding in fi_holdings
++        )
++
++        rating_totals = {}
++
++        weighted_sums = {
++            "ytm": cls.ZERO,
++            "modified_duration": cls.ZERO,
++            "average_maturity": cls.ZERO,
++        }
++
++        weighted_bases = {
++            "ytm": cls.ZERO,
++            "modified_duration": cls.ZERO,
++            "average_maturity": cls.ZERO,
++        }
++
++        weighted_counts = {
++            "ytm": 0,
++            "modified_duration": 0,
++            "average_maturity": 0,
++        }
++
++        for holding in fi_holdings:
++            current_value = (
++                holding.current_value
++                or cls.ZERO
++            )
++
++            sm = sm_by_asset_id.get(
++                holding.asset_id,
++                {},
++            )
++
++            raw_rating = sm.get("credit_rating")
++
++            rating_label = (
++                cls.CREDIT_RATING_LABELS.get(
++                    raw_rating,
++                    "Unrated",
++                )
++            )
++
++            rating_totals[rating_label] = (
++                rating_totals.get(
++                    rating_label,
++                    cls.ZERO,
++                )
++                + current_value
++            )
++
++            for field in (
++                "ytm",
++                "modified_duration",
++                "average_maturity",
++            ):
++                value = sm.get(field)
++
++                if value is None or current_value <= 0:
++                    continue
++
++                weighted_sums[field] += (
++                    value * current_value
++                )
++
++                weighted_bases[field] += current_value
++
++                weighted_counts[field] += 1
++
++        rating_distribution = []
++
++        for rating, value in sorted(
++            rating_totals.items(),
++            key=lambda item: item[1],
++            reverse=True,
++        ):
++            percentage = (
++                (value / total_current_value) * 100
++                if total_current_value
++                else cls.ZERO
++            )
++
++            rating_distribution.append({
++                "credit_rating": rating,
++                "current_value": value,
++                "percentage": round(
++                    percentage,
++                    2,
++                ),
++            })
++
++        def weighted_average(field):
++            base = weighted_bases[field]
++
++            if not base:
++                return None
++
++            return round(
++                weighted_sums[field] / base,
++                2,
++            )
++
++        return {
++            "current_value": total_current_value,
++            "number_of_holdings": len(fi_holdings),
++            "ytm": weighted_average("ytm"),
++            "ytm_holding_count": weighted_counts["ytm"],
++            "modified_duration": weighted_average("modified_duration"),
++            "modified_duration_holding_count": weighted_counts["modified_duration"],
++            "average_maturity": weighted_average("average_maturity"),
++            "average_maturity_holding_count": weighted_counts["average_maturity"],
++            "credit_rating_distribution": rating_distribution,
++        }
+diff --git a/backend/analytics/urls.py b/backend/analytics/urls.py
+index 64b31c7..f53944e 100644
+--- a/backend/analytics/urls.py
++++ b/backend/analytics/urls.py
+@@ -7,6 +7,9 @@ from .views import (
+     analytics_summary,
+     wealth_allocation,
+     wealth_allocation_by_advisor,
++    wealth_composition_by_amc,
++    wealth_equity_analysis,
++    wealth_fixed_income_analysis,
+     wealth_investment_summary,
+     wealth_performance,
+     wealth_performance_by_advisor,
+@@ -86,6 +89,24 @@ urlpatterns = [
+         name="wealth-allocation-by-advisor",
+     ),
+ 
++    path(
++        "wealth/composition-by-amc/",
++        wealth_composition_by_amc,
++        name="wealth-composition-by-amc",
++    ),
++
++    path(
++        "wealth/equity-analysis/",
++        wealth_equity_analysis,
++        name="wealth-equity-analysis",
++    ),
++
++    path(
++        "wealth/fixed-income-analysis/",
++        wealth_fixed_income_analysis,
++        name="wealth-fixed-income-analysis",
++    ),
++
+     path(
+         "wealth/performance-by-advisor/",
+         wealth_performance_by_advisor,
+diff --git a/backend/analytics/views.py b/backend/analytics/views.py
+index fad6fde..65bf235 100644
+--- a/backend/analytics/views.py
++++ b/backend/analytics/views.py
+@@ -334,4 +334,59 @@ def wealth_historical(request):
+         "start_date": start_date,
+         "end_date": end_date,
+         "results": results,
+-    })
+\ No newline at end of file
++    })
++
++@api_view(["GET"])
++@permission_classes([IsAuthenticated])
++def wealth_composition_by_amc(request):
++    """
++    Return current-value allocation aggregated by AMC, for
++    Portfolio Composition Analysis (Top AMC exposures, AMC
++    concentration).
++    """
++
++    data = (
++        InvestmentSummaryService
++        .calculate_composition_by_amc(
++            request.user
++        )
++    )
++
++    return Response(data)
++
++
++@api_view(["GET"])
++@permission_classes([IsAuthenticated])
++def wealth_equity_analysis(request):
++    """
++    Return the Equity Analysis view: current value, market-cap
++    allocation, and value-weighted P/E, P/B, ROE.
++    """
++
++    data = (
++        InvestmentSummaryService
++        .calculate_equity_analysis(
++            request.user
++        )
++    )
++
++    return Response(data)
++
++
++@api_view(["GET"])
++@permission_classes([IsAuthenticated])
++def wealth_fixed_income_analysis(request):
++    """
++    Return the Fixed Income Analysis view: current value, credit
++    rating distribution, and value-weighted YTM / Modified Duration
++    / Average Maturity.
++    """
++
++    data = (
++        InvestmentSummaryService
++        .calculate_fixed_income_analysis(
++            request.user
++        )
++    )
++
++    return Response(data)
+diff --git a/backend/investments/admin.py b/backend/investments/admin.py
+index fedc0bd..3da1862 100644
+--- a/backend/investments/admin.py
++++ b/backend/investments/admin.py
+@@ -48,6 +48,8 @@ class SecurityMasterAdmin(admin.ModelAdmin):
+         "isin",
+         "sector",
+         "cap_type",
++        "amc_name",
++        "credit_rating",
+         "manual_nav_enabled",
+         "manual_nav",
+         "updated_at",
+@@ -57,6 +59,8 @@ class SecurityMasterAdmin(admin.ModelAdmin):
+         "manual_nav_enabled",
+         "sector",
+         "cap_type",
++        "amc_name",
++        "credit_rating",
+     )
+ 
+     search_fields = (
+@@ -64,6 +68,60 @@ class SecurityMasterAdmin(admin.ModelAdmin):
+         "isin",
+         "sector",
+         "cap_type",
++        "amc_name",
++    )
++
++    fieldsets = (
++        (
++            None,
++            {
++                "fields": (
++                    "owner",
++                    "isin",
++                    "asset_name",
++                ),
++            },
++        ),
++        (
++            "Classification",
++            {
++                "fields": (
++                    "sector",
++                    "cap_type",
++                    "amc_name",
++                ),
++            },
++        ),
++        (
++            "Equity Quants",
++            {
++                "fields": (
++                    "pe_ratio",
++                    "pb_ratio",
++                    "roe",
++                ),
++            },
++        ),
++        (
++            "Fixed Income Quants",
++            {
++                "fields": (
++                    "credit_rating",
++                    "ytm",
++                    "modified_duration",
++                    "average_maturity",
++                ),
++            },
++        ),
++        (
++            "Manual NAV",
++            {
++                "fields": (
++                    "manual_nav_enabled",
++                    "manual_nav",
++                ),
++            },
++        ),
+     )
+ 
+ 
+diff --git a/backend/investments/migrations/0007_securitymaster_amc_name_and_more.py b/backend/investments/migrations/0007_securitymaster_amc_name_and_more.py
+new file mode 100644
+index 0000000..4ba46b2
+--- /dev/null
++++ b/backend/investments/migrations/0007_securitymaster_amc_name_and_more.py
+@@ -0,0 +1,74 @@
++from django.db import migrations, models
++
++
++class Migration(migrations.Migration):
++
++    dependencies = [
++        ('investments', '0006_transaction_advisors_transaction_asset_class_and_more'),
++    ]
++
++    operations = [
++        migrations.AddField(
++            model_name='securitymaster',
++            name='amc_name',
++            field=models.CharField(blank=True, max_length=255, null=True),
++        ),
++        migrations.AddField(
++            model_name='securitymaster',
++            name='pe_ratio',
++            field=models.DecimalField(blank=True, decimal_places=2, max_digits=10, null=True),
++        ),
++        migrations.AddField(
++            model_name='securitymaster',
++            name='pb_ratio',
++            field=models.DecimalField(blank=True, decimal_places=2, max_digits=10, null=True),
++        ),
++        migrations.AddField(
++            model_name='securitymaster',
++            name='roe',
++            field=models.DecimalField(blank=True, decimal_places=2, max_digits=10, null=True),
++        ),
++        migrations.AddField(
++            model_name='securitymaster',
++            name='credit_rating',
++            field=models.CharField(
++                blank=True,
++                choices=[
++                    ('SOVEREIGN', 'Sovereign'),
++                    ('AAA', 'AAA / AAA+'),
++                    ('AA', 'AA / AA+'),
++                    ('A_AND_BELOW', 'A and Below'),
++                    ('UNRATED', 'Unrated'),
++                ],
++                max_length=20,
++                null=True,
++            ),
++        ),
++        migrations.AddField(
++            model_name='securitymaster',
++            name='ytm',
++            field=models.DecimalField(
++                blank=True,
++                decimal_places=2,
++                help_text='Yield to Maturity, percent.',
++                max_digits=6,
++                null=True,
++            ),
++        ),
++        migrations.AddField(
++            model_name='securitymaster',
++            name='modified_duration',
++            field=models.DecimalField(blank=True, decimal_places=2, max_digits=6, null=True),
++        ),
++        migrations.AddField(
++            model_name='securitymaster',
++            name='average_maturity',
++            field=models.DecimalField(
++                blank=True,
++                decimal_places=2,
++                help_text='Years.',
++                max_digits=6,
++                null=True,
++            ),
++        ),
++    ]
+diff --git a/backend/investments/models.py b/backend/investments/models.py
+index 9f6b26d..2a012f1 100644
+--- a/backend/investments/models.py
++++ b/backend/investments/models.py
+@@ -511,6 +511,100 @@ class SecurityMaster(models.Model):
+         null=True,
+     )
+ 
++    # ==========================================================
++    # AMC / ISSUER
++    #
++    # Stored here (not as a separate FK model yet) matching the
++    # existing sector/cap_type pattern. Free-text for now — see
++    # the note on Advisor below for the same known limitation:
++    # two schemes from the same AMC spelled differently in the
++    # source Excel will not roll up together. Promote to a real
++    # AMC model with an FK once AMC-level concentration reporting
++    # is built (Portfolio Composition Analysis).
++    # ==========================================================
++
++    amc_name = models.CharField(
++        max_length=255,
++        blank=True,
++        null=True,
++    )
++
++    # ==========================================================
++    # EQUITY QUANTS
++    #
++    # Portfolio-level P/E, P/B, ROE aggregation in the reporting
++    # layer weights these by each holding's current_value — see
++    # PortfolioAnalytics/UnifiedWealthAnalytics for that logic.
++    # These three fields hold the value for a single security.
++    # ==========================================================
++
++    pe_ratio = models.DecimalField(
++        max_digits=10,
++        decimal_places=2,
++        blank=True,
++        null=True,
++    )
++
++    pb_ratio = models.DecimalField(
++        max_digits=10,
++        decimal_places=2,
++        blank=True,
++        null=True,
++    )
++
++    roe = models.DecimalField(
++        max_digits=10,
++        decimal_places=2,
++        blank=True,
++        null=True,
++    )
++
++    # ==========================================================
++    # FIXED INCOME QUANTS
++    #
++    # average_maturity is stored in years (matches the Nexedge
++    # reference report's "Avg Maturity 4.4" style), which the
++    # frontend buckets into 0-3m/3-12m/1-3y/3-10y/10y+ ranges —
++    # no separate maturity_date field needed unless a specific
++    # instrument's exact maturity date is required elsewhere.
++    # ==========================================================
++
++    credit_rating = models.CharField(
++        max_length=20,
++        blank=True,
++        null=True,
++        choices=[
++            ("SOVEREIGN", "Sovereign"),
++            ("AAA", "AAA / AAA+"),
++            ("AA", "AA / AA+"),
++            ("A_AND_BELOW", "A and Below"),
++            ("UNRATED", "Unrated"),
++        ],
++    )
++
++    ytm = models.DecimalField(
++        max_digits=6,
++        decimal_places=2,
++        blank=True,
++        null=True,
++        help_text="Yield to Maturity, percent.",
++    )
++
++    modified_duration = models.DecimalField(
++        max_digits=6,
++        decimal_places=2,
++        blank=True,
++        null=True,
++    )
++
++    average_maturity = models.DecimalField(
++        max_digits=6,
++        decimal_places=2,
++        blank=True,
++        null=True,
++        help_text="Years.",
++    )
++
+     manual_nav_enabled = models.BooleanField(
+         default=False,
+     )
+diff --git a/backend/portfolio/services/portfolio_tree_service.py b/backend/portfolio/services/portfolio_tree_service.py
+index 0e059c6..749f4d0 100644
+--- a/backend/portfolio/services/portfolio_tree_service.py
++++ b/backend/portfolio/services/portfolio_tree_service.py
+@@ -377,6 +377,107 @@ class PortfolioTreeService:
+                 if security_master
+                 else None
+             ),
++
++            # =====================================================
++            # AMC / EQUITY / FIXED-INCOME QUANTS
++            #
++            # Sourced from SecurityMaster the same way as sector/
++            # cap_type above — None whenever no SecurityMaster row
++            # exists for this asset, or the field hasn't been filled
++            # in yet. Never fabricated/defaulted here.
++            # =====================================================
++
++            "amc_name": (
++                getattr(
++                    security_master,
++                    "amc_name",
++                    None,
++                )
++                if security_master
++                else None
++            ),
++
++            "pe_ratio": (
++                cls._optional_float(
++                    getattr(
++                        security_master,
++                        "pe_ratio",
++                        None,
++                    )
++                )
++                if security_master
++                else None
++            ),
++
++            "pb_ratio": (
++                cls._optional_float(
++                    getattr(
++                        security_master,
++                        "pb_ratio",
++                        None,
++                    )
++                )
++                if security_master
++                else None
++            ),
++
++            "roe": (
++                cls._optional_float(
++                    getattr(
++                        security_master,
++                        "roe",
++                        None,
++                    )
++                )
++                if security_master
++                else None
++            ),
++
++            "credit_rating": (
++                getattr(
++                    security_master,
++                    "credit_rating",
++                    None,
++                )
++                if security_master
++                else None
++            ),
++
++            "ytm": (
++                cls._optional_float(
++                    getattr(
++                        security_master,
++                        "ytm",
++                        None,
++                    )
++                )
++                if security_master
++                else None
++            ),
++
++            "modified_duration": (
++                cls._optional_float(
++                    getattr(
++                        security_master,
++                        "modified_duration",
++                        None,
++                    )
++                )
++                if security_master
++                else None
++            ),
++
++            "average_maturity": (
++                cls._optional_float(
++                    getattr(
++                        security_master,
++                        "average_maturity",
++                        None,
++                    )
++                )
++                if security_master
++                else None
++            ),
+         }
+ 
+     @classmethod
+diff --git a/frontend/src/app/app.routes.ts b/frontend/src/app/app.routes.ts
+index 82133a6..a2ec92b 100644
+--- a/frontend/src/app/app.routes.ts
++++ b/frontend/src/app/app.routes.ts
+@@ -8,6 +8,10 @@ import { PortfolioComponent } from '../features/portfolio/portfolio.component';
+ import { ReportsComponent } from '../features/reports/reports.component';
+ 
+ import { AnalyticsComponent } from '../features/analytics/analytics.component';
++import { CompositionComponent } from '../features/composition/composition.component';
++import { EquityAnalysisComponent } from '../features/equity-analysis/equity-analysis.component';
++import { FixedIncomeAnalysisComponent } from '../features/fixed-income-analysis/fixed-income-analysis.component';
++import { SchemeAnalyticsComponent } from '../features/scheme-analytics/scheme-analytics.component';
+ import { SettingsComponent } from '../features/settings/settings.component';
+ import { AiChatComponent } from '../features/ai-chat/ai-chat.component';
+ import { PortfolioNewsListComponent } from '../features/portfolio-news/portfolio-news-list.component';
+@@ -64,6 +68,26 @@ export const routes: Routes = [
+         component: AnalyticsComponent,
+       },
+ 
++      {
++        path: 'composition',
++        component: CompositionComponent,
++      },
++
++      {
++        path: 'equity-analysis',
++        component: EquityAnalysisComponent,
++      },
++
++      {
++        path: 'fixed-income-analysis',
++        component: FixedIncomeAnalysisComponent,
++      },
++
++      {
++        path: 'scheme-analytics',
++        component: SchemeAnalyticsComponent,
++      },
++
+       {
+         path: 'settings',
+         component: SettingsComponent,
+diff --git a/frontend/src/app/layout/sidebar/sidebar.component.html b/frontend/src/app/layout/sidebar/sidebar.component.html
+index 08909f3..6762227 100644
+--- a/frontend/src/app/layout/sidebar/sidebar.component.html
++++ b/frontend/src/app/layout/sidebar/sidebar.component.html
+@@ -139,6 +139,95 @@
+ 
+         <span> Analytics </span>
+       </a>
++
++      <a routerLink="/composition" routerLinkActive="active" class="nav-item">
++        <!-- Layers -->
++        <svg
++          width="19"
++          height="19"
++          viewBox="0 0 24 24"
++          fill="none"
++          stroke="currentColor"
++          stroke-width="2"
++          stroke-linecap="round"
++          stroke-linejoin="round"
++          aria-hidden="true"
++        >
++          <path
++            d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"
++          />
++          <path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65" />
++          <path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65" />
++        </svg>
++
++        <span> Composition </span>
++      </a>
++
++      <a routerLink="/equity-analysis" routerLinkActive="active" class="nav-item">
++        <!-- Trending Up -->
++        <svg
++          width="19"
++          height="19"
++          viewBox="0 0 24 24"
++          fill="none"
++          stroke="currentColor"
++          stroke-width="2"
++          stroke-linecap="round"
++          stroke-linejoin="round"
++          aria-hidden="true"
++        >
++          <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
++          <polyline points="16 7 22 7 22 13" />
++        </svg>
++
++        <span> Equity Analysis </span>
++      </a>
++
++      <a routerLink="/fixed-income-analysis" routerLinkActive="active" class="nav-item">
++        <!-- Landmark -->
++        <svg
++          width="19"
++          height="19"
++          viewBox="0 0 24 24"
++          fill="none"
++          stroke="currentColor"
++          stroke-width="2"
++          stroke-linecap="round"
++          stroke-linejoin="round"
++          aria-hidden="true"
++        >
++          <line x1="3" x2="21" y1="22" y2="22" />
++          <line x1="6" x2="6" y1="18" y2="11" />
++          <line x1="10" x2="10" y1="18" y2="11" />
++          <line x1="14" x2="14" y1="18" y2="11" />
++          <line x1="18" x2="18" y1="18" y2="11" />
++          <polygon points="12 2 20 7 4 7" />
++        </svg>
++
++        <span> Fixed Income Analysis </span>
++      </a>
++
++      <a routerLink="/scheme-analytics" routerLinkActive="active" class="nav-item">
++        <!-- Table -->
++        <svg
++          width="19"
++          height="19"
++          viewBox="0 0 24 24"
++          fill="none"
++          stroke="currentColor"
++          stroke-width="2"
++          stroke-linecap="round"
++          stroke-linejoin="round"
++          aria-hidden="true"
++        >
++          <path d="M12 3v18" />
++          <rect width="18" height="18" x="3" y="3" rx="2" />
++          <path d="M3 9h18" />
++          <path d="M3 15h18" />
++        </svg>
++
++        <span> Scheme Analytics </span>
++      </a>
+     </div>
+ 
+     <!-- SETTINGS -->
+diff --git a/frontend/src/core/services/portfolio-api.service.ts b/frontend/src/core/services/portfolio-api.service.ts
+index 42f6283..696f30f 100644
+--- a/frontend/src/core/services/portfolio-api.service.ts
++++ b/frontend/src/core/services/portfolio-api.service.ts
+@@ -126,6 +126,23 @@ export interface PortfolioAssetNode {
+   sector: string | null;
+   cap_type: string | null;
+ 
++  /* ============================================================
++     Added alongside the SecurityMaster schema extension
++     (investments/migrations/0007_...). All null whenever no
++     SecurityMaster row exists for the asset yet, or the specific
++     field hasn't been filled in via Django admin — never
++     defaulted/fabricated on the backend, so treat null as
++     "unknown", not zero.
++     ============================================================ */
++  amc_name: string | null;
++  pe_ratio: number | null;
++  pb_ratio: number | null;
++  roe: number | null;
++  credit_rating: string | null;
++  ytm: number | null;
++  modified_duration: number | null;
++  average_maturity: number | null;
++
+   price_source: string | null;
+ }
+ 
+diff --git a/frontend/src/core/services/wealth-api.service.ts b/frontend/src/core/services/wealth-api.service.ts
+index 97518ca..73c32ce 100644
+--- a/frontend/src/core/services/wealth-api.service.ts
++++ b/frontend/src/core/services/wealth-api.service.ts
+@@ -86,6 +86,40 @@ export class WealthApiService {
+     });
+   }
+ 
++  /**
++   * Current-value allocation by AMC (Top AMC exposures, AMC
++   * concentration) — see analytics.services.investment_summary.
++   * InvestmentSummaryService.calculate_composition_by_amc.
++   */
++  getCompositionByAmc(): Observable<any> {
++    return this.http.get<any>(`${this.baseUrl}/composition-by-amc/`, {
++      withCredentials: true,
++    });
++  }
++
++  /**
++   * Value-weighted P/E, P/B, ROE and market-cap allocation across
++   * every equity/other-investment holding with SecurityMaster quant
++   * data — see InvestmentSummaryService.calculate_equity_analysis.
++   */
++  getEquityAnalysis(): Observable<any> {
++    return this.http.get<any>(`${this.baseUrl}/equity-analysis/`, {
++      withCredentials: true,
++    });
++  }
++
++  /**
++   * Value-weighted YTM / Modified Duration / Average Maturity and
++   * credit-rating distribution across Fixed-Income-classified
++   * holdings — see
++   * InvestmentSummaryService.calculate_fixed_income_analysis.
++   */
++  getFixedIncomeAnalysis(): Observable<any> {
++    return this.http.get<any>(`${this.baseUrl}/fixed-income-analysis/`, {
++      withCredentials: true,
++    });
++  }
++
+   getPerformanceByAdvisor(): Observable<any> {
+     return this.http.get<any>(`${this.baseUrl}/performance-by-advisor/`, {
+       withCredentials: true,
+diff --git a/frontend/src/features/composition/composition.component.html b/frontend/src/features/composition/composition.component.html
+new file mode 100644
+index 0000000..91bb771
+--- /dev/null
++++ b/frontend/src/features/composition/composition.component.html
+@@ -0,0 +1,75 @@
++<div class="composition-page nx-report-theme">
++  <header class="page-header">
++    <h1>Portfolio Composition Analysis</h1>
++
++    <p class="page-subtitle" *ngIf="composition as data">
++      Overall Portfolio: {{ formatCurrency(data.total_current_value) }} · {{ data.number_of_amcs }}
++      AMC{{ data.number_of_amcs === 1 ? '' : 's' }}
++    </p>
++  </header>
++
++  <div class="loading-card" *ngIf="loading">Loading composition data…</div>
++
++  <div class="error-card" *ngIf="error">{{ error }}</div>
++
++  <ng-container *ngIf="!loading && !error">
++    <div class="empty-state" *ngIf="!hasData">
++      No holdings with a current value greater than zero were found.
++    </div>
++
++    <div class="composition-grid" *ngIf="hasData">
++      <section class="panel">
++        <h2>Top AMC Exposures</h2>
++
++        <div class="chart-container">
++          <canvas #amcChart></canvas>
++        </div>
++      </section>
++
++      <section class="panel">
++        <h2>AMC Concentration</h2>
++
++        <div class="table-scroll">
++          <table class="amc-table">
++            <thead>
++              <tr>
++                <th>AMC</th>
++                <th>Holdings</th>
++                <th>Invested</th>
++                <th>Current Value</th>
++                <th>Allocation</th>
++              </tr>
++            </thead>
++
++            <tbody>
++              <tr *ngFor="let row of topAmcs">
++                <td class="amc-name">
++                  {{ row.amc_name }}
++                  <span class="unassigned-tag" *ngIf="row.amc_name === 'Unassigned'">
++                    no AMC data yet
++                  </span>
++                </td>
++
++                <td>{{ row.holding_count }}</td>
++
++                <td>{{ formatCurrency(row.invested_value) }}</td>
++
++                <td>{{ formatCurrency(row.current_value) }}</td>
++
++                <td>
++                  <div class="allocation-cell">
++                    <div class="allocation-bar">
++                      <div class="allocation-bar-fill" [style.width.%]="row.percentage"></div>
++                    </div>
++
++                    <span>{{ formatPercentage(row.percentage) }}</span>
++                  </div>
++                </td>
++              </tr>
++            </tbody>
++          </table>
++        </div>
++      </section>
++    </div>
++  </ng-container>
++</div>
+diff --git a/frontend/src/features/composition/composition.component.scss b/frontend/src/features/composition/composition.component.scss
+new file mode 100644
+index 0000000..755d57f
+--- /dev/null
++++ b/frontend/src/features/composition/composition.component.scss
+@@ -0,0 +1,130 @@
++.composition-page {
++  padding: 24px;
++  font-family: var(--nx-font-body);
++}
++
++.page-header {
++  margin-bottom: 20px;
++
++  h1 {
++    font-family: var(--nx-font-heading);
++    font-size: 26px;
++    font-weight: 400;
++    color: var(--nx-navy);
++    margin: 0 0 4px;
++  }
++}
++
++.page-subtitle {
++  color: var(--nx-orange);
++  font-size: 14px;
++  font-weight: 600;
++  margin: 0;
++}
++
++.loading-card,
++.error-card,
++.empty-state {
++  padding: 24px;
++  border-radius: var(--nx-radius-md);
++  background: var(--nx-white);
++  border: var(--nx-border);
++  color: var(--muted);
++  font-size: 14px;
++}
++
++.error-card {
++  color: var(--negative);
++  border-color: var(--negative-soft);
++}
++
++.composition-grid {
++  display: grid;
++  grid-template-columns: 1fr 1fr;
++  gap: 20px;
++
++  @media (max-width: 960px) {
++    grid-template-columns: 1fr;
++  }
++}
++
++.panel {
++  background: var(--nx-white);
++  border: var(--nx-border);
++  border-radius: var(--nx-radius-md);
++  padding: 18px 20px;
++
++  h2 {
++    font-family: var(--nx-font-heading);
++    font-size: 17px;
++    font-weight: 400;
++    color: var(--nx-navy);
++    margin: 0 0 14px;
++    border-bottom: 1px solid var(--nx-grey);
++    padding-bottom: 8px;
++  }
++}
++
++.chart-container {
++  height: 320px;
++}
++
++.table-scroll {
++  overflow-x: auto;
++}
++
++.amc-table {
++  width: 100%;
++  border-collapse: collapse;
++  font-size: 13px;
++
++  th {
++    text-align: left;
++    padding: 8px 10px;
++    color: var(--nx-blue);
++    font-size: 11px;
++    font-weight: 600;
++    letter-spacing: 0.03em;
++    text-transform: uppercase;
++    border-bottom: 1px solid var(--nx-grey);
++  }
++
++  td {
++    padding: 10px;
++    border-bottom: 1px solid var(--surface-line);
++    color: var(--nx-navy);
++    white-space: nowrap;
++  }
++}
++
++.amc-name {
++  font-weight: 600;
++}
++
++.unassigned-tag {
++  display: block;
++  font-weight: 400;
++  font-size: 11px;
++  color: var(--muted);
++  white-space: normal;
++}
++
++.allocation-cell {
++  display: flex;
++  align-items: center;
++  gap: 8px;
++  min-width: 120px;
++}
++
++.allocation-bar {
++  flex: 1;
++  height: 6px;
++  border-radius: 3px;
++  background: var(--nx-ice);
++  overflow: hidden;
++}
++
++.allocation-bar-fill {
++  height: 100%;
++  background: var(--nx-orange);
++}
+diff --git a/frontend/src/features/composition/composition.component.ts b/frontend/src/features/composition/composition.component.ts
+new file mode 100644
+index 0000000..7f61d2d
+--- /dev/null
++++ b/frontend/src/features/composition/composition.component.ts
+@@ -0,0 +1,213 @@
++import {
++  AfterViewInit,
++  ChangeDetectorRef,
++  Component,
++  ElementRef,
++  OnDestroy,
++  OnInit,
++  ViewChild,
++  inject,
++} from '@angular/core';
++
++import { CommonModule } from '@angular/common';
++
++import { Chart, ChartConfiguration, registerables } from 'chart.js';
++
++import { WealthApiService } from '../../core/services/wealth-api.service';
++
++Chart.register(...registerables);
++
++export interface AmcCompositionRow {
++  amc_name: string;
++  invested_value: number;
++  current_value: number;
++  holding_count: number;
++  percentage: number;
++}
++
++export interface CompositionByAmcResponse {
++  results: AmcCompositionRow[];
++  total_current_value: number;
++  number_of_amcs: number;
++}
++
++/**
++ * PORTFOLIO COMPOSITION ANALYSIS
++ *
++ * Top AMC exposures / AMC concentration, sourced from
++ * /api/analytics/wealth/composition-by-amc/ (see
++ * InvestmentSummaryService.calculate_composition_by_amc).
++ *
++ * Two real, independent AMC data sources feed this — Mutual Fund
++ * holdings via MutualFundScheme.amc_name (already populated),
++ * Equity/other holdings via SecurityMaster.amc_name (populated via
++ * Django admin, may be empty). Anything without an AMC on either
++ * side is bucketed under "Unassigned" rather than dropped — that
++ * bucket is real portfolio value, just not yet attributable.
++ *
++ * The rest of the Nexedge-style Composition Analysis brief (top
++ * instruments, sector concentration, per-asset-class composition)
++ * is NOT built here — this page covers AMC concentration only.
++ * Sector concentration needs SecurityMaster.sector aggregated the
++ * same way this page aggregates amc_name (straightforward follow-
++ * up once wanted); top-instruments-by-performance needs the
++ * benchmark work that's still open.
++ */
++@Component({
++  selector: 'app-composition',
++  standalone: true,
++  imports: [CommonModule],
++  templateUrl: './composition.component.html',
++  styleUrl: './composition.component.scss',
++})
++export class CompositionComponent implements OnInit, AfterViewInit, OnDestroy {
++  private readonly wealthApi = inject(WealthApiService);
++  private readonly cdr = inject(ChangeDetectorRef);
++
++  @ViewChild('amcChart')
++  amcChartRef?: ElementRef<HTMLCanvasElement>;
++
++  loading = true;
++  error = '';
++
++  composition: CompositionByAmcResponse | null = null;
++
++  private amcChart?: Chart;
++  private viewReady = false;
++
++  ngOnInit(): void {
++    this.loadComposition();
++  }
++
++  ngAfterViewInit(): void {
++    this.viewReady = true;
++
++    if (!this.loading) {
++      setTimeout(() => this.renderChart());
++    }
++  }
++
++  ngOnDestroy(): void {
++    this.amcChart?.destroy();
++    this.amcChart = undefined;
++  }
++
++  loadComposition(): void {
++    this.loading = true;
++    this.error = '';
++
++    this.wealthApi.getCompositionByAmc().subscribe({
++      next: (data: CompositionByAmcResponse) => {
++        this.composition = data;
++        this.loading = false;
++        this.cdr.markForCheck();
++
++        if (this.viewReady) {
++          setTimeout(() => this.renderChart());
++        }
++      },
++
++      error: (error) => {
++        console.error('COMPOSITION BY AMC API ERROR:', error);
++
++        this.loading = false;
++        this.error = 'Unable to load composition data.';
++        this.cdr.markForCheck();
++      },
++    });
++  }
++
++  /**
++   * Top N AMCs by current value, for the table and the horizontal
++   * bar chart. Everything beyond N rolls into an "Others" row so a
++   * long tail of small/Unassigned exposures doesn't dominate the
++   * chart — same intent as the reference report's "Top 5 AMC
++   * Exposures" section.
++   */
++  get topAmcs(): AmcCompositionRow[] {
++    return (this.composition?.results ?? []).slice(0, 10);
++  }
++
++  get hasData(): boolean {
++    return (this.composition?.results?.length ?? 0) > 0;
++  }
++
++  private renderChart(): void {
++    const canvas = this.amcChartRef?.nativeElement;
++
++    if (!canvas) {
++      return;
++    }
++
++    this.amcChart?.destroy();
++
++    const rows = this.topAmcs;
++
++    if (!rows.length) {
++      return;
++    }
++
++    const labels = rows.map((row) => row.amc_name);
++    const values = rows.map((row) => row.current_value);
++    const percentages = rows.map((row) => row.percentage);
++
++    const config: ChartConfiguration<'bar'> = {
++      type: 'bar',
++
++      data: {
++        labels,
++
++        datasets: [
++          {
++            data: values,
++            backgroundColor: '#085888',
++            borderRadius: 4,
++          },
++        ],
++      },
++
++      options: {
++        indexAxis: 'y',
++        responsive: true,
++        maintainAspectRatio: false,
++
++        plugins: {
++          legend: {
++            display: false,
++          },
++
++          tooltip: {
++            callbacks: {
++              label: (context) => {
++                const index = context.dataIndex;
++                const percentage = percentages[index] ?? 0;
++
++                return `${this.formatCurrency(Number(context.raw))} (${percentage.toFixed(2)}%)`;
++              },
++            },
++          },
++        },
++
++        scales: {
++          x: {
++            ticks: {
++              callback: (value) => this.formatCurrency(Number(value)),
++            },
++          },
++        },
++      },
++    };
++
++    this.amcChart = new Chart(canvas, config);
++  }
++
++  formatCurrency(value: number): string {
++    return `₹${value.toLocaleString('en-IN', {
++      maximumFractionDigits: 0,
++    })}`;
++  }
++
++  formatPercentage(value: number): string {
++    return `${value.toFixed(2)}%`;
++  }
++}
+diff --git a/frontend/src/features/dashboard/dashboard.component.ts b/frontend/src/features/dashboard/dashboard.component.ts
+index 3576bd6..97413b0 100644
+--- a/frontend/src/features/dashboard/dashboard.component.ts
++++ b/frontend/src/features/dashboard/dashboard.component.ts
+@@ -508,13 +508,24 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
+    * current value and % of total, so the Allocation chart shows the
+    * exact same categorization and totals as the Investment Summary
+    * table below it — one source of truth for both.
++   *
++   * FIX: the backend (InvestmentSummaryService.calculate(), reached
++   * via /api/analytics/wealth/investment-summary/) returns a bare
++   * array — not { results: [...] } — and each row carries
++   * `current_value` / `invested_value` / `pnl_percentage`, not
++   * `percentage_of_total`. Reading `.results` off an array is always
++   * `undefined`, so this getter previously always returned `[]` and
++   * the allocation chart silently rendered nothing. Percentage is
++   * now computed client-side from the real per-row current_value
++   * against the row set's own total, since the backend does not
++   * send a percentage figure at all.
+    */
+   get allocationByCategory(): Array<{
+     category: string;
+     value: number;
+     percentage: number;
+   }> {
+-    const results = this.investmentSummary?.results ?? [];
++    const results = Array.isArray(this.investmentSummary) ? this.investmentSummary : [];
+ 
+     const order: string[] = [];
+     const totals = new Map<
+@@ -540,18 +551,28 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
+       const entry = totals.get(category)!;
+ 
+       entry.value += this.toNumber(row.current_value);
+-
+-      entry.percentage += this.toNumber(row.percentage_of_total);
+     }
+ 
++    // Percentage is computed here from the row set's own total,
++    // since the backend does not return one. This intentionally
++    // uses the sum of investment-summary rows (not summary.total_
++    // current_value) as the denominator, so the percentages always
++    // add up to 100% of what's actually charted here.
++    const grandTotal = Array.from(totals.values()).reduce(
++      (sum, entry) => sum + entry.value,
++      0,
++    );
++
+     return order
+       .map((category) => {
+         const entry = totals.get(category)!;
+ 
++        const percentage = grandTotal ? (entry.value / grandTotal) * 100 : 0;
++
+         return {
+           category,
+           value: entry.value,
+-          percentage: Math.round(entry.percentage * 100) / 100,
++          percentage: Math.round(percentage * 100) / 100,
+         };
+       })
+       .filter((entry) => entry.value > 0);
+@@ -580,7 +601,10 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
+       raw_asset_classes: string[];
+     }>;
+   }> {
+-    const results = this.investmentSummary?.results ?? [];
++    // Same fix as allocationByCategory above: the backend returns a
++    // bare array, and the raw rows have no percentage_of_total field
++    // — percentage is computed below from this row set's own total.
++    const results = Array.isArray(this.investmentSummary) ? this.investmentSummary : [];
+ 
+     const groups = new Map<
+       string,
+@@ -617,12 +641,8 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
+ 
+       const currentValue = this.toNumber(row.current_value);
+ 
+-      const percentage = this.toNumber(row.percentage_of_total);
+-
+       group.current_value += currentValue;
+ 
+-      group.percentage_of_total += percentage;
+-
+       let classRow = group.asset_classes.find((item) => item.asset_class === assetClass);
+ 
+       if (!classRow) {
+@@ -638,8 +658,9 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
+ 
+       classRow.current_value += currentValue;
+ 
+-      classRow.percentage_of_total += percentage;
+-
++      // The backend does not currently send a list of raw source
++      // asset-class labels per canonical class (raw_asset_classes) —
++      // left as an empty array rather than fabricated.
+       const rawAssetClasses = Array.isArray(row.raw_asset_classes) ? row.raw_asset_classes : [];
+ 
+       for (const rawAssetClass of rawAssetClasses) {
+@@ -649,15 +670,23 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
+       }
+     }
+ 
++    const grandTotal = Array.from(groups.values()).reduce(
++      (sum, group) => sum + group.current_value,
++      0,
++    );
++
++    const pct = (value: number): number =>
++      grandTotal ? Math.round((value / grandTotal) * 100 * 100) / 100 : 0;
++
+     return Array.from(groups.values()).map((group) => ({
+       ...group,
+ 
+-      percentage_of_total: Math.round(group.percentage_of_total * 100) / 100,
++      percentage_of_total: pct(group.current_value),
+ 
+       asset_classes: group.asset_classes.map((assetClass) => ({
+         ...assetClass,
+ 
+-        percentage_of_total: Math.round(assetClass.percentage_of_total * 100) / 100,
++        percentage_of_total: pct(assetClass.current_value),
+       })),
+     }));
+   }
+diff --git a/frontend/src/features/equity-analysis/equity-analysis.component.html b/frontend/src/features/equity-analysis/equity-analysis.component.html
+new file mode 100644
+index 0000000..f39a9fa
+--- /dev/null
++++ b/frontend/src/features/equity-analysis/equity-analysis.component.html
+@@ -0,0 +1,101 @@
++<div class="analysis-page nx-report-theme">
++  <header class="page-header">
++    <h1>Equity Analysis</h1>
++  </header>
++
++  <div class="loading-card" *ngIf="loading">Loading equity analysis…</div>
++
++  <div class="error-card" *ngIf="error">{{ error }}</div>
++
++  <ng-container *ngIf="!loading && !error && analysis as data">
++    <div class="empty-state" *ngIf="!hasData">No equity holdings found.</div>
++
++    <div class="analysis-grid" *ngIf="hasData">
++      <section class="panel spec-panel">
++        <h2>Portfolio Specification</h2>
++
++        <dl class="spec-list">
++          <div class="spec-row">
++            <dt>Current Value</dt>
++            <dd>{{ formatCurrency(data.current_value) }}</dd>
++          </div>
++
++          <div class="spec-row">
++            <dt>Number of Holdings</dt>
++            <dd>{{ data.number_of_holdings }}</dd>
++          </div>
++
++          <div class="spec-row">
++            <dt>
++              Portfolio P/E
++              <span class="quant-basis" *ngIf="data.portfolio_pe !== null">
++                ({{ data.portfolio_pe_holding_count }} of {{ data.number_of_holdings }} holdings)
++              </span>
++            </dt>
++            <dd>{{ formatRatio(data.portfolio_pe) }}</dd>
++          </div>
++
++          <div class="spec-row">
++            <dt>
++              Portfolio P/B
++              <span class="quant-basis" *ngIf="data.portfolio_pb !== null">
++                ({{ data.portfolio_pb_holding_count }} of {{ data.number_of_holdings }} holdings)
++              </span>
++            </dt>
++            <dd>{{ formatRatio(data.portfolio_pb) }}</dd>
++          </div>
++
++          <div class="spec-row">
++            <dt>
++              Portfolio ROE
++              <span class="quant-basis" *ngIf="data.portfolio_roe !== null">
++                ({{ data.portfolio_roe_holding_count }} of {{ data.number_of_holdings }}
++                holdings)
++              </span>
++            </dt>
++            <dd>{{ formatRatio(data.portfolio_roe) }}{{ data.portfolio_roe !== null ? '%' : '' }}</dd>
++          </div>
++        </dl>
++
++        <p class="quant-note" *ngIf="!data.portfolio_pe_holding_count">
++          No holdings have P/E, P/B, or ROE data yet — fill in Security Master via Django admin to
++          populate this section.
++        </p>
++      </section>
++
++      <section class="panel">
++        <h2>Market Cap Allocation</h2>
++
++        <div class="table-scroll">
++          <table class="cap-table">
++            <thead>
++              <tr>
++                <th>Cap Type</th>
++                <th>Current Value</th>
++                <th>Allocation</th>
++              </tr>
++            </thead>
++
++            <tbody>
++              <tr *ngFor="let row of data.market_cap_allocation">
++                <td class="cap-name">{{ row.cap_type }}</td>
++
++                <td>{{ formatCurrency(row.current_value) }}</td>
++
++                <td>
++                  <div class="allocation-cell">
++                    <div class="allocation-bar">
++                      <div class="allocation-bar-fill" [style.width.%]="row.percentage"></div>
++                    </div>
++
++                    <span>{{ formatPercentage(row.percentage) }}</span>
++                  </div>
++                </td>
++              </tr>
++            </tbody>
++          </table>
++        </div>
++      </section>
++    </div>
++  </ng-container>
++</div>
+diff --git a/frontend/src/features/equity-analysis/equity-analysis.component.scss b/frontend/src/features/equity-analysis/equity-analysis.component.scss
+new file mode 100644
+index 0000000..41a62d7
+--- /dev/null
++++ b/frontend/src/features/equity-analysis/equity-analysis.component.scss
+@@ -0,0 +1,147 @@
++.analysis-page {
++  padding: 24px;
++  font-family: var(--nx-font-body);
++}
++
++.page-header {
++  margin-bottom: 20px;
++
++  h1 {
++    font-family: var(--nx-font-heading);
++    font-size: 26px;
++    font-weight: 400;
++    color: var(--nx-navy);
++    margin: 0;
++  }
++}
++
++.loading-card,
++.error-card,
++.empty-state {
++  padding: 24px;
++  border-radius: var(--nx-radius-md);
++  background: var(--nx-white);
++  border: var(--nx-border);
++  color: var(--muted);
++  font-size: 14px;
++}
++
++.error-card {
++  color: var(--negative);
++  border-color: var(--negative-soft);
++}
++
++.analysis-grid {
++  display: grid;
++  grid-template-columns: 1fr 1fr;
++  gap: 20px;
++
++  @media (max-width: 960px) {
++    grid-template-columns: 1fr;
++  }
++}
++
++.panel {
++  background: var(--nx-white);
++  border: var(--nx-border);
++  border-radius: var(--nx-radius-md);
++  padding: 18px 20px;
++
++  h2 {
++    font-family: var(--nx-font-heading);
++    font-size: 17px;
++    font-weight: 400;
++    color: var(--nx-navy);
++    margin: 0 0 14px;
++    border-bottom: 1px solid var(--nx-grey);
++    padding-bottom: 8px;
++  }
++}
++
++.spec-list {
++  margin: 0;
++}
++
++.spec-row {
++  display: flex;
++  justify-content: space-between;
++  align-items: baseline;
++  padding: 8px 0;
++  border-bottom: 1px solid var(--surface-line);
++  font-size: 14px;
++
++  dt {
++    color: var(--nx-blue);
++    font-weight: 500;
++  }
++
++  dd {
++    margin: 0;
++    color: var(--nx-navy);
++    font-weight: 600;
++  }
++}
++
++.quant-basis {
++  font-size: 11px;
++  font-weight: 400;
++  color: var(--muted);
++}
++
++.quant-note {
++  margin: 14px 0 0;
++  font-size: 12px;
++  color: var(--muted);
++}
++
++.table-scroll {
++  overflow-x: auto;
++}
++
++.cap-table {
++  width: 100%;
++  border-collapse: collapse;
++  font-size: 13px;
++
++  th {
++    text-align: left;
++    padding: 8px 10px;
++    color: var(--nx-blue);
++    font-size: 11px;
++    font-weight: 600;
++    letter-spacing: 0.03em;
++    text-transform: uppercase;
++    border-bottom: 1px solid var(--nx-grey);
++  }
++
++  td {
++    padding: 10px;
++    border-bottom: 1px solid var(--surface-line);
++    color: var(--nx-navy);
++    white-space: nowrap;
++  }
++}
++
++.cap-name {
++  font-weight: 600;
++}
++
++.allocation-cell {
++  display: flex;
++  align-items: center;
++  gap: 8px;
++  min-width: 120px;
++}
++
++.allocation-bar {
++  flex: 1;
++  height: 6px;
++  border-radius: 3px;
++  background: var(--nx-ice);
++  overflow: hidden;
++}
++
++.allocation-bar-fill {
++  height: 100%;
++  background: var(--nx-gold);
++}
+diff --git a/frontend/src/features/equity-analysis/equity-analysis.component.ts b/frontend/src/features/equity-analysis/equity-analysis.component.ts
+new file mode 100644
+index 0000000..f7453d5
+--- /dev/null
++++ b/frontend/src/features/equity-analysis/equity-analysis.component.ts
+@@ -0,0 +1,98 @@
++import { ChangeDetectorRef, Component, OnInit, inject } from '@angular/core';
++
++import { CommonModule } from '@angular/common';
++
++import { WealthApiService } from '../../core/services/wealth-api.service';
++
++export interface MarketCapRow {
++  cap_type: string;
++  current_value: number;
++  percentage: number;
++}
++
++export interface EquityAnalysisResponse {
++  current_value: number;
++  number_of_holdings: number;
++  portfolio_pe: number | null;
++  portfolio_pe_holding_count: number;
++  portfolio_pb: number | null;
++  portfolio_pb_holding_count: number;
++  portfolio_roe: number | null;
++  portfolio_roe_holding_count: number;
++  market_cap_allocation: MarketCapRow[];
++}
++
++/**
++ * EQUITY ANALYSIS
++ *
++ * Sourced from /api/analytics/wealth/equity-analysis/ (see
++ * InvestmentSummaryService.calculate_equity_analysis). Every quant
++ * figure here (P/E, P/B, ROE) is a value-weighted average computed
++ * ONLY over holdings that have SecurityMaster data populated for
++ * that specific field — the holding_count next to each figure is
++ * the real denominator, shown explicitly rather than hidden, since
++ * with SecurityMaster still sparsely populated a "portfolio P/E"
++ * silently based on 1 of 40 holdings would be misleading without it.
++ *
++ * NOT built here (still open, same reasons noted throughout this
++ * conversation): sector allocation vs benchmark, forward P/E / P/B,
++ * top-stocks-by-exposure table, product-category performance
++ * (needs benchmark IRR, which is unbuilt).
++ */
++@Component({
++  selector: 'app-equity-analysis',
++  standalone: true,
++  imports: [CommonModule],
++  templateUrl: './equity-analysis.component.html',
++  styleUrl: './equity-analysis.component.scss',
++})
++export class EquityAnalysisComponent implements OnInit {
++  private readonly wealthApi = inject(WealthApiService);
++  private readonly cdr = inject(ChangeDetectorRef);
++
++  loading = true;
++  error = '';
++
++  analysis: EquityAnalysisResponse | null = null;
++
++  ngOnInit(): void {
++    this.load();
++  }
++
++  load(): void {
++    this.loading = true;
++    this.error = '';
++
++    this.wealthApi.getEquityAnalysis().subscribe({
++      next: (data: EquityAnalysisResponse) => {
++        this.analysis = data;
++        this.loading = false;
++        this.cdr.markForCheck();
++      },
++
++      error: (error) => {
++        console.error('EQUITY ANALYSIS API ERROR:', error);
++
++        this.loading = false;
++        this.error = 'Unable to load equity analysis.';
++        this.cdr.markForCheck();
++      },
++    });
++  }
++
++  get hasData(): boolean {
++    return (this.analysis?.number_of_holdings ?? 0) > 0;
++  }
++
++  formatCurrency(value: number): string {
++    return `₹${value.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
++  }
++
++  formatRatio(value: number | null): string {
++    return value === null ? '—' : value.toFixed(2);
++  }
++
++  formatPercentage(value: number): string {
++    return `${value.toFixed(2)}%`;
++  }
++}
+diff --git a/frontend/src/features/fixed-income-analysis/fixed-income-analysis.component.html b/frontend/src/features/fixed-income-analysis/fixed-income-analysis.component.html
+new file mode 100644
+index 0000000..bb586e4
+--- /dev/null
++++ b/frontend/src/features/fixed-income-analysis/fixed-income-analysis.component.html
+@@ -0,0 +1,102 @@
++<div class="analysis-page nx-report-theme">
++  <header class="page-header">
++    <h1>Fixed Income Analysis</h1>
++  </header>
++
++  <div class="loading-card" *ngIf="loading">Loading fixed income analysis…</div>
++
++  <div class="error-card" *ngIf="error">{{ error }}</div>
++
++  <ng-container *ngIf="!loading && !error && analysis as data">
++    <div class="empty-state" *ngIf="!hasData">No Fixed Income holdings found.</div>
++
++    <div class="analysis-grid" *ngIf="hasData">
++      <section class="panel spec-panel">
++        <h2>Portfolio Specification</h2>
++
++        <dl class="spec-list">
++          <div class="spec-row">
++            <dt>Current Value</dt>
++            <dd>{{ formatCurrency(data.current_value) }}</dd>
++          </div>
++
++          <div class="spec-row">
++            <dt>Number of Holdings</dt>
++            <dd>{{ data.number_of_holdings }}</dd>
++          </div>
++
++          <div class="spec-row">
++            <dt>
++              YTM
++              <span class="quant-basis" *ngIf="data.ytm !== null">
++                ({{ data.ytm_holding_count }} of {{ data.number_of_holdings }} holdings)
++              </span>
++            </dt>
++            <dd>{{ formatRatio(data.ytm, '%') }}</dd>
++          </div>
++
++          <div class="spec-row">
++            <dt>
++              Modified Duration
++              <span class="quant-basis" *ngIf="data.modified_duration !== null">
++                ({{ data.modified_duration_holding_count }} of {{ data.number_of_holdings }}
++                holdings)
++              </span>
++            </dt>
++            <dd>{{ formatRatio(data.modified_duration) }}</dd>
++          </div>
++
++          <div class="spec-row">
++            <dt>
++              Average Maturity
++              <span class="quant-basis" *ngIf="data.average_maturity !== null">
++                ({{ data.average_maturity_holding_count }} of {{ data.number_of_holdings }}
++                holdings)
++              </span>
++            </dt>
++            <dd>{{ formatRatio(data.average_maturity, ' yrs') }}</dd>
++          </div>
++        </dl>
++
++        <p class="quant-note" *ngIf="!data.ytm_holding_count">
++          No holdings have YTM, Duration, or Maturity data yet — fill in Security Master via
++          Django admin to populate this section.
++        </p>
++      </section>
++
++      <section class="panel">
++        <h2>Credit Rating Distribution</h2>
++
++        <div class="table-scroll">
++          <table class="cap-table">
++            <thead>
++              <tr>
++                <th>Rating</th>
++                <th>Current Value</th>
++                <th>Allocation</th>
++              </tr>
++            </thead>
++
++            <tbody>
++              <tr *ngFor="let row of data.credit_rating_distribution">
++                <td class="cap-name">{{ row.credit_rating }}</td>
++
++                <td>{{ formatCurrency(row.current_value) }}</td>
++
++                <td>
++                  <div class="allocation-cell">
++                    <div class="allocation-bar">
++                      <div class="allocation-bar-fill" [style.width.%]="row.percentage"></div>
++                    </div>
++
++                    <span>{{ formatPercentage(row.percentage) }}</span>
++                  </div>
++                </td>
++              </tr>
++            </tbody>
++          </table>
++        </div>
++      </section>
++    </div>
++  </ng-container>
++</div>
+diff --git a/frontend/src/features/fixed-income-analysis/fixed-income-analysis.component.scss b/frontend/src/features/fixed-income-analysis/fixed-income-analysis.component.scss
+new file mode 100644
+index 0000000..79a4381
+--- /dev/null
++++ b/frontend/src/features/fixed-income-analysis/fixed-income-analysis.component.scss
+@@ -0,0 +1,147 @@
++.analysis-page {
++  padding: 24px;
++  font-family: var(--nx-font-body);
++}
++
++.page-header {
++  margin-bottom: 20px;
++
++  h1 {
++    font-family: var(--nx-font-heading);
++    font-size: 26px;
++    font-weight: 400;
++    color: var(--nx-navy);
++    margin: 0;
++  }
++}
++
++.loading-card,
++.error-card,
++.empty-state {
++  padding: 24px;
++  border-radius: var(--nx-radius-md);
++  background: var(--nx-white);
++  border: var(--nx-border);
++  color: var(--muted);
++  font-size: 14px;
++}
++
++.error-card {
++  color: var(--negative);
++  border-color: var(--negative-soft);
++}
++
++.analysis-grid {
++  display: grid;
++  grid-template-columns: 1fr 1fr;
++  gap: 20px;
++
++  @media (max-width: 960px) {
++    grid-template-columns: 1fr;
++  }
++}
++
++.panel {
++  background: var(--nx-white);
++  border: var(--nx-border);
++  border-radius: var(--nx-radius-md);
++  padding: 18px 20px;
++
++  h2 {
++    font-family: var(--nx-font-heading);
++    font-size: 17px;
++    font-weight: 400;
++    color: var(--nx-navy);
++    margin: 0 0 14px;
++    border-bottom: 1px solid var(--nx-grey);
++    padding-bottom: 8px;
++  }
++}
++
++.spec-list {
++  margin: 0;
++}
++
++.spec-row {
++  display: flex;
++  justify-content: space-between;
++  align-items: baseline;
++  padding: 8px 0;
++  border-bottom: 1px solid var(--surface-line);
++  font-size: 14px;
++
++  dt {
++    color: var(--nx-blue);
++    font-weight: 500;
++  }
++
++  dd {
++    margin: 0;
++    color: var(--nx-navy);
++    font-weight: 600;
++  }
++}
++
++.quant-basis {
++  font-size: 11px;
++  font-weight: 400;
++  color: var(--muted);
++}
++
++.quant-note {
++  margin: 14px 0 0;
++  font-size: 12px;
++  color: var(--muted);
++}
++
++.table-scroll {
++  overflow-x: auto;
++}
++
++.cap-table {
++  width: 100%;
++  border-collapse: collapse;
++  font-size: 13px;
++
++  th {
++    text-align: left;
++    padding: 8px 10px;
++    color: var(--nx-blue);
++    font-size: 11px;
++    font-weight: 600;
++    letter-spacing: 0.03em;
++    text-transform: uppercase;
++    border-bottom: 1px solid var(--nx-grey);
++  }
++
++  td {
++    padding: 10px;
++    border-bottom: 1px solid var(--surface-line);
++    color: var(--nx-navy);
++    white-space: nowrap;
++  }
++}
++
++.cap-name {
++  font-weight: 600;
++}
++
++.allocation-cell {
++  display: flex;
++  align-items: center;
++  gap: 8px;
++  min-width: 120px;
++}
++
++.allocation-bar {
++  flex: 1;
++  height: 6px;
++  border-radius: 3px;
++  background: var(--nx-ice);
++  overflow: hidden;
++}
++
++.allocation-bar-fill {
++  height: 100%;
++  background: var(--nx-blue);
++}
+diff --git a/frontend/src/features/fixed-income-analysis/fixed-income-analysis.component.ts b/frontend/src/features/fixed-income-analysis/fixed-income-analysis.component.ts
+new file mode 100644
+index 0000000..6fa1e05
+--- /dev/null
++++ b/frontend/src/features/fixed-income-analysis/fixed-income-analysis.component.ts
+@@ -0,0 +1,99 @@
++import { ChangeDetectorRef, Component, OnInit, inject } from '@angular/core';
++
++import { CommonModule } from '@angular/common';
++
++import { WealthApiService } from '../../core/services/wealth-api.service';
++
++export interface CreditRatingRow {
++  credit_rating: string;
++  current_value: number;
++  percentage: number;
++}
++
++export interface FixedIncomeAnalysisResponse {
++  current_value: number;
++  number_of_holdings: number;
++  ytm: number | null;
++  ytm_holding_count: number;
++  modified_duration: number | null;
++  modified_duration_holding_count: number;
++  average_maturity: number | null;
++  average_maturity_holding_count: number;
++  credit_rating_distribution: CreditRatingRow[];
++}
++
++/**
++ * FIXED INCOME ANALYSIS
++ *
++ * Sourced from /api/analytics/wealth/fixed-income-analysis/ (see
++ * InvestmentSummaryService.calculate_fixed_income_analysis).
++ * Restricted to holdings classified under the Fixed Income
++ * canonical asset category (the same classification the Dashboard
++ * Investment Summary already uses), so "Current Value" here always
++ * reconciles with that table's Fixed Income row.
++ *
++ * Same weighted-average-with-explicit-denominator approach as
++ * Equity Analysis — see that component's doc comment.
++ *
++ * NOT built here: issuer concentration (Top 10 issuers — needs an
++ * issuer/ISIN rollup, a reasonable follow-up on the same pattern as
++ * Composition's AMC rollup), maturity-bucket chart (derivable from
++ * average_maturity client-side, not yet wired up).
++ */
++@Component({
++  selector: 'app-fixed-income-analysis',
++  standalone: true,
++  imports: [CommonModule],
++  templateUrl: './fixed-income-analysis.component.html',
++  styleUrl: './fixed-income-analysis.component.scss',
++})
++export class FixedIncomeAnalysisComponent implements OnInit {
++  private readonly wealthApi = inject(WealthApiService);
++  private readonly cdr = inject(ChangeDetectorRef);
++
++  loading = true;
++  error = '';
++
++  analysis: FixedIncomeAnalysisResponse | null = null;
++
++  ngOnInit(): void {
++    this.load();
++  }
++
++  load(): void {
++    this.loading = true;
++    this.error = '';
++
++    this.wealthApi.getFixedIncomeAnalysis().subscribe({
++      next: (data: FixedIncomeAnalysisResponse) => {
++        this.analysis = data;
++        this.loading = false;
++        this.cdr.markForCheck();
++      },
++
++      error: (error) => {
++        console.error('FIXED INCOME ANALYSIS API ERROR:', error);
++
++        this.loading = false;
++        this.error = 'Unable to load fixed income analysis.';
++        this.cdr.markForCheck();
++      },
++    });
++  }
++
++  get hasData(): boolean {
++    return (this.analysis?.number_of_holdings ?? 0) > 0;
++  }
++
++  formatCurrency(value: number): string {
++    return `₹${value.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
++  }
++
++  formatRatio(value: number | null, suffix = ''): string {
++    return value === null ? '—' : `${value.toFixed(2)}${suffix}`;
++  }
++
++  formatPercentage(value: number): string {
++    return `${value.toFixed(2)}%`;
++  }
++}
+diff --git a/frontend/src/features/portfolio/portfolio.component.html b/frontend/src/features/portfolio/portfolio.component.html
+index f5b01a8..620b5a7 100644
+--- a/frontend/src/features/portfolio/portfolio.component.html
++++ b/frontend/src/features/portfolio/portfolio.component.html
+@@ -324,12 +324,16 @@
+                                   <th>Gain</th>
+ 
+                                   <th>XIRR</th>
++
++                                  <th>Details</th>
+                                 </tr>
+                               </thead>
+ 
+                               <tbody>
+-                                <tr
++                                <ng-container
+                                   *ngFor="let asset of assetGroup.assets; trackBy: trackByAssetId"
++                                >
++                                <tr
+                                   class="underlying-row"
+                                 >
+                                   <!-- FINAL NAME
+@@ -451,7 +455,106 @@
+                                         : formatPercentage(asset.xirr)
+                                     }}
+                                   </td>
++
++                                  <td class="quant-toggle-cell">
++                                    <button
++                                      *ngIf="hasQuantDetails(asset)"
++                                      type="button"
++                                      class="quant-toggle-button"
++                                      (click)="toggleQuantDetails(asset)"
++                                    >
++                                      {{ isQuantDetailsExpanded(asset) ? 'Hide' : 'Details' }}
++                                    </button>
++                                  </td>
++                                </tr>
++
++                                <!--
++                                  QUANT DETAILS — SecurityMaster-sourced fields
++                                  (Sector / Cap Type / AMC / Credit Rating /
++                                  P/E / P/B / ROE / YTM / Modified Duration /
++                                  Average Maturity). Only individual chips
++                                  with a non-null value render — nothing is
++                                  padded with a placeholder for missing data.
++                                -->
++                                <tr
++                                  *ngIf="isQuantDetailsExpanded(asset)"
++                                  class="quant-details-row nx-report-theme"
++                                >
++                                  <td colspan="10">
++                                    <div class="quant-details">
++                                      <div class="quant-chip" *ngIf="asset.sector">
++                                        <span class="quant-chip-label">Sector</span>
++                                        <span class="quant-chip-value">{{ asset.sector }}</span>
++                                      </div>
++
++                                      <div class="quant-chip" *ngIf="asset.cap_type">
++                                        <span class="quant-chip-label">Cap Type</span>
++                                        <span class="quant-chip-value">{{ asset.cap_type }}</span>
++                                      </div>
++
++                                      <div class="quant-chip" *ngIf="asset.amc_name">
++                                        <span class="quant-chip-label">AMC</span>
++                                        <span class="quant-chip-value">{{ asset.amc_name }}</span>
++                                      </div>
++
++                                      <div class="quant-chip" *ngIf="asset.credit_rating">
++                                        <span class="quant-chip-label">Credit Rating</span>
++                                        <span class="quant-chip-value">{{
++                                          asset.credit_rating
++                                        }}</span>
++                                      </div>
++
++                                      <div class="quant-chip" *ngIf="asset.pe_ratio !== null">
++                                        <span class="quant-chip-label">P/E</span>
++                                        <span class="quant-chip-value">{{
++                                          formatDecimal(asset.pe_ratio)
++                                        }}</span>
++                                      </div>
++
++                                      <div class="quant-chip" *ngIf="asset.pb_ratio !== null">
++                                        <span class="quant-chip-label">P/B</span>
++                                        <span class="quant-chip-value">{{
++                                          formatDecimal(asset.pb_ratio)
++                                        }}</span>
++                                      </div>
++
++                                      <div class="quant-chip" *ngIf="asset.roe !== null">
++                                        <span class="quant-chip-label">ROE</span>
++                                        <span class="quant-chip-value"
++                                          >{{ formatDecimal(asset.roe) }}%</span
++                                        >
++                                      </div>
++
++                                      <div class="quant-chip" *ngIf="asset.ytm !== null">
++                                        <span class="quant-chip-label">YTM</span>
++                                        <span class="quant-chip-value"
++                                          >{{ formatDecimal(asset.ytm) }}%</span
++                                        >
++                                      </div>
++
++                                      <div
++                                        class="quant-chip"
++                                        *ngIf="asset.modified_duration !== null"
++                                      >
++                                        <span class="quant-chip-label">Mod. Duration</span>
++                                        <span class="quant-chip-value">{{
++                                          formatDecimal(asset.modified_duration)
++                                        }}</span>
++                                      </div>
++
++                                      <div
++                                        class="quant-chip"
++                                        *ngIf="asset.average_maturity !== null"
++                                      >
++                                        <span class="quant-chip-label">Avg. Maturity</span>
++                                        <span class="quant-chip-value"
++                                          >{{ formatDecimal(asset.average_maturity) }} yrs</span
++                                        >
++                                      </div>
++                                    </div>
++                                  </td>
+                                 </tr>
++                                </ng-container>
+                               </tbody>
+                             </table>
+                           </div>
+diff --git a/frontend/src/features/portfolio/portfolio.component.scss b/frontend/src/features/portfolio/portfolio.component.scss
+index 1c0594d..dd9a717 100644
+--- a/frontend/src/features/portfolio/portfolio.component.scss
++++ b/frontend/src/features/portfolio/portfolio.component.scss
+@@ -713,3 +713,82 @@
+   }
+ }
+ 
++
++/* ==============================================================
++   QUANT DETAILS
++   SecurityMaster-sourced fields (Sector / Cap Type / AMC /
++   Credit Rating / P/E / P/B / ROE / YTM / Modified Duration /
++   Average Maturity), shown as an expandable row per underlying
++   asset. Uses the --nx-* report tokens (see styles.scss) for a
++   deliberately distinct, institutional treatment against the
++   rest of the app's --ink/--accent palette.
++   ============================================================== */
++
++.quant-toggle-cell {
++  text-align: right;
++  white-space: nowrap;
++}
++
++.quant-toggle-button {
++  border: 1px solid var(--surface-line);
++  background: var(--surface);
++  color: var(--muted);
++  font-size: 11px;
++  font-weight: 600;
++  letter-spacing: 0.02em;
++  padding: 4px 10px;
++  border-radius: var(--radius-sm);
++  cursor: pointer;
++  transition:
++    color 0.15s ease,
++    border-color 0.15s ease;
++
++  &:hover {
++    color: var(--ink);
++    border-color: var(--muted-soft);
++  }
++}
++
++.quant-details-row td {
++  padding: 0;
++  border-bottom: 1px solid var(--surface-line);
++}
++
++.quant-details {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 10px;
++  padding: 14px 16px;
++  background: var(--nx-ice);
++  border-left: 3px solid var(--nx-navy);
++}
++
++.quant-chip {
++  display: flex;
++  flex-direction: column;
++  gap: 2px;
++  padding: 6px 12px;
++  background: var(--nx-white);
++  border: var(--nx-border);
++  border-radius: var(--nx-radius-sm);
++  min-width: 84px;
++}
++
++.quant-chip-label,
++.quant-chip-value {
++  font-family: var(--nx-font-body);
++}
++
++.quant-chip-label {
++  font-size: 10px;
++  font-weight: 600;
++  letter-spacing: 0.04em;
++  text-transform: uppercase;
++  color: var(--nx-blue);
++}
++
++.quant-chip-value {
++  font-size: 13px;
++  font-weight: 600;
++  color: var(--nx-navy);
++}
+diff --git a/frontend/src/features/portfolio/portfolio.component.spec.ts b/frontend/src/features/portfolio/portfolio.component.spec.ts
+index f1ad307..ce45459 100644
+--- a/frontend/src/features/portfolio/portfolio.component.spec.ts
++++ b/frontend/src/features/portfolio/portfolio.component.spec.ts
+@@ -76,6 +76,15 @@ describe('PortfolioComponent', () => {
+                         sector: 'Technology',
+                         cap_type: 'Large Cap',
+ 
++                        amc_name: 'ICICI Prudential',
++                        pe_ratio: 22.5,
++                        pb_ratio: 3.1,
++                        roe: 18.2,
++                        credit_rating: 'AAA',
++                        ytm: 7.2,
++                        modified_duration: 2.3,
++                        average_maturity: 4.4,
++
+                         price_source: 'MANUAL',
+                       },
+                     ],
+@@ -412,6 +421,62 @@ describe('PortfolioComponent', () => {
+     expect(component.hasPriceDate(asset)).toBe(false);
+   });
+ 
++  // ==========================================================
++  // QUANT DETAILS
++  // ==========================================================
++
++  it('should report quant details present when SecurityMaster fields are populated', () => {
++    const asset = component.subClassSummaries[0].assets[0];
++
++    expect(component.hasQuantDetails(asset)).toBe(true);
++  });
++
++  it('should report quant details absent when no SecurityMaster fields are populated', () => {
++    const asset = component.subClassSummaries[0].assets[0];
++
++    const bareAsset = {
++      ...asset,
++      sector: null,
++      cap_type: null,
++      amc_name: null,
++      credit_rating: null,
++      pe_ratio: null,
++      pb_ratio: null,
++      roe: null,
++      ytm: null,
++      modified_duration: null,
++      average_maturity: null,
++    };
++
++    expect(component.hasQuantDetails(bareAsset)).toBe(false);
++  });
++
++  it('should toggle quant details expansion independently per asset id', () => {
++    const asset = component.subClassSummaries[0].assets[0];
++
++    expect(component.isQuantDetailsExpanded(asset)).toBe(false);
++
++    component.toggleQuantDetails(asset);
++
++    expect(component.isQuantDetailsExpanded(asset)).toBe(true);
++
++    component.toggleQuantDetails(asset);
++
++    expect(component.isQuantDetailsExpanded(asset)).toBe(false);
++  });
++
++  it('should collapse quant details when filters are cleared', () => {
++    const asset = component.subClassSummaries[0].assets[0];
++
++    component.toggleQuantDetails(asset);
++
++    expect(component.isQuantDetailsExpanded(asset)).toBe(true);
++
++    component.clearFamily();
++
++    expect(component.isQuantDetailsExpanded(asset)).toBe(false);
++  });
++
+   // ==========================================================
+   // MANUAL PRICE
+   // ==========================================================
+diff --git a/frontend/src/features/portfolio/portfolio.component.ts b/frontend/src/features/portfolio/portfolio.component.ts
+index ea007a2..aa38635 100644
+--- a/frontend/src/features/portfolio/portfolio.component.ts
++++ b/frontend/src/features/portfolio/portfolio.component.ts
+@@ -58,6 +58,13 @@ export class PortfolioComponent implements OnInit, OnDestroy {
+   expandedSubClass = '';
+   expandedAsset = '';
+ 
++  /*
++   * Keyed by asset.id (not a compound key like expandedAsset above,
++   * since Quant Details lives at the final, already-unique
++   * underlying row level, one row per asset id).
++   */
++  expandedQuantsAssetId: number | null = null;
++
+   loading = true;
+   error = '';
+ 
+@@ -322,6 +329,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
+     if (this.expandedSubClass === subClass) {
+       this.expandedSubClass = '';
+       this.expandedAsset = '';
++      this.expandedQuantsAssetId = null;
+       return;
+     }
+ 
+@@ -370,6 +378,43 @@ export class PortfolioComponent implements OnInit, OnDestroy {
+     this.expandedAsset = this.expandedAsset === assetKey ? '' : assetKey;
+   }
+ 
++  /**
++   * Expand / collapse the Quant Details row for one underlying
++   * asset — Sector / Cap Type / AMC / Credit Rating / P/E / P/B /
++   * ROE / YTM / Modified Duration / Average Maturity, sourced from
++   * SecurityMaster via the Portfolio Tree API. Independent of
++   * expandedSubClass/expandedAsset so opening quant details doesn't
++   * collapse the underlying table it lives inside.
++   */
++  toggleQuantDetails(asset: PortfolioAssetNode): void {
++    this.expandedQuantsAssetId = this.expandedQuantsAssetId === asset.id ? null : asset.id;
++  }
++
++  isQuantDetailsExpanded(asset: PortfolioAssetNode): boolean {
++    return this.expandedQuantsAssetId === asset.id;
++  }
++
++  /**
++   * True when at least one SecurityMaster-sourced field is present
++   * for this asset, so the "Quant Details" toggle is only shown
++   * when there's actually something to show — never a button that
++   * opens onto an all-dashes row.
++   */
++  hasQuantDetails(asset: PortfolioAssetNode): boolean {
++    return (
++      asset.sector != null ||
++      asset.cap_type != null ||
++      asset.amc_name != null ||
++      asset.credit_rating != null ||
++      asset.pe_ratio != null ||
++      asset.pb_ratio != null ||
++      asset.roe != null ||
++      asset.ytm != null ||
++      asset.modified_duration != null ||
++      asset.average_maturity != null
++    );
++  }
++
+   /**
+    * Stable key for an Asset Name group.
+    */
+@@ -401,6 +446,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
+     this.selectedAdvisor = '';
+     this.expandedSubClass = '';
+     this.expandedAsset = '';
++    this.expandedQuantsAssetId = null;
+   }
+ 
+   selectAssetClass(assetClass: string): void {
+@@ -409,6 +455,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
+     this.selectedAdvisor = '';
+     this.expandedSubClass = '';
+     this.expandedAsset = '';
++    this.expandedQuantsAssetId = null;
+   }
+ 
+   selectAdvisor(advisor: string): void {
+@@ -416,6 +463,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
+ 
+     this.expandedSubClass = '';
+     this.expandedAsset = '';
++    this.expandedQuantsAssetId = null;
+   }
+ 
+   clearFamily(): void {
+@@ -424,6 +472,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
+     this.selectedAdvisor = '';
+     this.expandedSubClass = '';
+     this.expandedAsset = '';
++    this.expandedQuantsAssetId = null;
+   }
+ 
+   clearAssetClass(): void {
+@@ -431,12 +480,14 @@ export class PortfolioComponent implements OnInit, OnDestroy {
+     this.selectedAdvisor = '';
+     this.expandedSubClass = '';
+     this.expandedAsset = '';
++    this.expandedQuantsAssetId = null;
+   }
+ 
+   clearAdvisor(): void {
+     this.selectedAdvisor = '';
+     this.expandedSubClass = '';
+     this.expandedAsset = '';
++    this.expandedQuantsAssetId = null;
+   }
+ 
+   isFamilySelected(family: string): boolean {
+@@ -781,6 +832,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
+     ) {
+       this.expandedSubClass = '';
+       this.expandedAsset = '';
++      this.expandedQuantsAssetId = null;
+     }
+   }
+ }
+diff --git a/frontend/src/features/scheme-analytics/scheme-analytics.component.html b/frontend/src/features/scheme-analytics/scheme-analytics.component.html
+new file mode 100644
+index 0000000..801aa8f
+--- /dev/null
++++ b/frontend/src/features/scheme-analytics/scheme-analytics.component.html
+@@ -0,0 +1,126 @@
++<div class="scheme-page nx-report-theme">
++  <header class="page-header">
++    <h1>Scheme Analytics</h1>
++  </header>
++
++  <div class="loading-card" *ngIf="loading">Loading scheme data…</div>
++
++  <div class="error-card" *ngIf="error">{{ error }}</div>
++
++  <ng-container *ngIf="!loading && !error">
++    <div class="toolbar">
++      <input
++        type="text"
++        class="search-input"
++        placeholder="Search scheme, family, advisor, AMC, ISIN…"
++        [(ngModel)]="searchTerm"
++        (ngModelChange)="onSearchChange()"
++      />
++
++      <span class="result-count">
++        {{ filteredRows.length }} scheme{{ filteredRows.length === 1 ? '' : 's' }}
++      </span>
++    </div>
++
++    <div class="empty-state" *ngIf="filteredRows.length === 0">
++      No schemes match "{{ searchTerm }}".
++    </div>
++
++    <div class="table-scroll" *ngIf="filteredRows.length > 0">
++      <table class="scheme-table">
++        <thead>
++          <tr>
++            <th (click)="setSort('asset_name')" class="sortable">
++              Scheme {{ sortIndicator('asset_name') }}
++            </th>
++
++            <th (click)="setSort('asset_class')" class="sortable">
++              Category {{ sortIndicator('asset_class') }}
++            </th>
++
++            <th (click)="setSort('family_name')" class="sortable">
++              Family {{ sortIndicator('family_name') }}
++            </th>
++
++            <th (click)="setSort('advisors')" class="sortable">
++              Advisor {{ sortIndicator('advisors') }}
++            </th>
++
++            <th (click)="setSort('amc_name')" class="sortable">
++              AMC {{ sortIndicator('amc_name') }}
++            </th>
++
++            <th (click)="setSort('invested_value')" class="sortable numeric">
++              Holding Cost {{ sortIndicator('invested_value') }}
++            </th>
++
++            <th (click)="setSort('current_value')" class="sortable numeric">
++              Market Value {{ sortIndicator('current_value') }}
++            </th>
++
++            <th (click)="setSort('pnl')" class="sortable numeric">
++              Gain/Loss {{ sortIndicator('pnl') }}
++            </th>
++
++            <th (click)="setSort('pnl_percentage')" class="sortable numeric">
++              Abs. Return {{ sortIndicator('pnl_percentage') }}
++            </th>
++
++            <th (click)="setSort('xirr')" class="sortable numeric">
++              XIRR {{ sortIndicator('xirr') }}
++            </th>
++          </tr>
++        </thead>
++
++        <tbody>
++          <tr *ngFor="let row of pagedRows; trackBy: trackByAssetId">
++            <td class="scheme-name">
++              {{ row.underlying.trim() || row.asset_name }}
++              <span class="sub-class-tag">{{ row.sub_class }}</span>
++            </td>
++
++            <td>{{ row.asset_class }}</td>
++
++            <td>{{ row.family_name || '-' }}</td>
++
++            <td>{{ row.advisors || '-' }}</td>
++
++            <td>{{ row.amc_name || '-' }}</td>
++
++            <td class="numeric">{{ formatCurrency(row.invested_value) }}</td>
++
++            <td class="numeric">{{ formatCurrency(row.current_value) }}</td>
++
++            <td class="numeric" [ngClass]="getPnlClass(row.pnl)">
++              {{ formatCurrency(row.pnl) }}
++            </td>
++
++            <td class="numeric" [ngClass]="getPnlClass(row.pnl_percentage)">
++              {{ formatPercentage(row.pnl_percentage) }}
++            </td>
++
++            <td class="numeric" [ngClass]="getPnlClass(row.xirr)">
++              {{ formatPercentage(row.xirr) }}
++            </td>
++          </tr>
++        </tbody>
++      </table>
++    </div>
++
++    <div class="pagination" *ngIf="filteredRows.length > 0">
++      <span class="pagination-summary">
++        {{ pageStart }}–{{ pageEnd }} of {{ filteredRows.length }}
++      </span>
++
++      <div class="pagination-controls">
++        <button type="button" [disabled]="page <= 1" (click)="goToPage(page - 1)">Prev</button>
++
++        <span class="pagination-page">Page {{ page }} of {{ totalPages }}</span>
++
++        <button type="button" [disabled]="page >= totalPages" (click)="goToPage(page + 1)">
++          Next
++        </button>
++      </div>
++    </div>
++  </ng-container>
++</div>
+diff --git a/frontend/src/features/scheme-analytics/scheme-analytics.component.scss b/frontend/src/features/scheme-analytics/scheme-analytics.component.scss
+new file mode 100644
+index 0000000..07d8c04
+--- /dev/null
++++ b/frontend/src/features/scheme-analytics/scheme-analytics.component.scss
+@@ -0,0 +1,168 @@
++.scheme-page {
++  padding: 24px;
++  font-family: var(--nx-font-body);
++}
++
++.page-header {
++  margin-bottom: 20px;
++
++  h1 {
++    font-family: var(--nx-font-heading);
++    font-size: 26px;
++    font-weight: 400;
++    color: var(--nx-navy);
++    margin: 0;
++  }
++}
++
++.loading-card,
++.error-card,
++.empty-state {
++  padding: 24px;
++  border-radius: var(--nx-radius-md);
++  background: var(--nx-white);
++  border: var(--nx-border);
++  color: var(--muted);
++  font-size: 14px;
++}
++
++.error-card {
++  color: var(--negative);
++  border-color: var(--negative-soft);
++}
++
++.toolbar {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 12px;
++  margin-bottom: 14px;
++}
++
++.search-input {
++  flex: 1;
++  max-width: 420px;
++  padding: 9px 12px;
++  border: var(--nx-border);
++  border-radius: var(--nx-radius-sm);
++  font-size: 13px;
++  font-family: var(--nx-font-body);
++
++  &:focus {
++    outline: none;
++    border-color: var(--nx-blue);
++  }
++}
++
++.result-count {
++  font-size: 12px;
++  color: var(--muted);
++  white-space: nowrap;
++}
++
++.table-scroll {
++  overflow-x: auto;
++  background: var(--nx-white);
++  border: var(--nx-border);
++  border-radius: var(--nx-radius-md);
++}
++
++.scheme-table {
++  width: 100%;
++  border-collapse: collapse;
++  font-size: 13px;
++
++  th {
++    text-align: left;
++    padding: 10px;
++    color: var(--nx-blue);
++    font-size: 11px;
++    font-weight: 600;
++    letter-spacing: 0.03em;
++    text-transform: uppercase;
++    border-bottom: 1px solid var(--nx-grey);
++    white-space: nowrap;
++  }
++
++  th.sortable {
++    cursor: pointer;
++    user-select: none;
++
++    &:hover {
++      color: var(--nx-navy);
++    }
++  }
++
++  th.numeric,
++  td.numeric {
++    text-align: right;
++  }
++
++  td {
++    padding: 10px;
++    border-bottom: 1px solid var(--surface-line);
++    color: var(--nx-navy);
++    white-space: nowrap;
++  }
++}
++
++.scheme-name {
++  display: flex;
++  flex-direction: column;
++  gap: 2px;
++  font-weight: 600;
++  white-space: normal;
++  min-width: 180px;
++}
++
++.sub-class-tag {
++  font-size: 11px;
++  font-weight: 400;
++  color: var(--muted);
++}
++
++.positive {
++  color: #0f7a5c;
++}
++
++.negative {
++  color: var(--negative);
++}
++
++.neutral {
++  color: var(--muted);
++}
++
++.pagination {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  margin-top: 12px;
++  font-size: 12px;
++  color: var(--muted);
++}
++
++.pagination-controls {
++  display: flex;
++  align-items: center;
++  gap: 10px;
++
++  button {
++    border: var(--nx-border);
++    background: var(--nx-white);
++    color: var(--nx-navy);
++    padding: 5px 12px;
++    border-radius: var(--nx-radius-sm);
++    font-size: 12px;
++    cursor: pointer;
++
++    &:disabled {
++      opacity: 0.4;
++      cursor: not-allowed;
++    }
++
++    &:not(:disabled):hover {
++      border-color: var(--nx-blue);
++    }
++  }
++}
+diff --git a/frontend/src/features/scheme-analytics/scheme-analytics.component.ts b/frontend/src/features/scheme-analytics/scheme-analytics.component.ts
+new file mode 100644
+index 0000000..38f63b2
+--- /dev/null
++++ b/frontend/src/features/scheme-analytics/scheme-analytics.component.ts
+@@ -0,0 +1,243 @@
++import { CommonModule } from '@angular/common';
++import { FormsModule } from '@angular/forms';
++import { ChangeDetectorRef, Component, OnInit, inject } from '@angular/core';
++
++import {
++  PortfolioApiService,
++  PortfolioAssetNode,
++  PortfolioTreeResponse,
++} from '../../core/services/portfolio-api.service';
++
++/**
++ * Flattened row: every underlying asset across every
++ * Family/Portfolio/AssetClass/SubClass, with the hierarchy fields
++ * carried along for the Category/Family/Advisor columns.
++ *
++ * Columns NOT included, and why:
++ *   - Benchmark / Benchmark Return: no benchmark data source exists
++ *     yet (see the standing gap noted throughout this project).
++ *   - Fund Manager, Inception Date: no field on Asset/Holding/
++ *     Transaction — not fabricated here.
++ * Everything else in this row is a real field already returned by
++ * PortfolioTreeService.build() (family/advisor/amc/quant fields
++ * added in investments/migrations/0007_... last session).
++ */
++interface SchemeRow extends PortfolioAssetNode {
++  asset_class: string;
++  sub_class: string;
++}
++
++type SortKey =
++  | 'asset_name'
++  | 'asset_class'
++  | 'sub_class'
++  | 'family_name'
++  | 'advisors'
++  | 'amc_name'
++  | 'invested_value'
++  | 'current_value'
++  | 'pnl'
++  | 'pnl_percentage'
++  | 'xirr';
++
++/**
++ * SCHEME ANALYTICS
++ *
++ * A single flat, sortable/searchable/paginated table across every
++ * scheme/instrument in the portfolio, built entirely client-side
++ * from the existing Portfolio Tree API — no new backend endpoint
++ * needed, since PortfolioTreeService.build() already returns every
++ * field this table needs (including the SecurityMaster-sourced
++ * amc_name/credit_rating/etc. added in the previous session).
++ */
++@Component({
++  selector: 'app-scheme-analytics',
++  standalone: true,
++  imports: [CommonModule, FormsModule],
++  templateUrl: './scheme-analytics.component.html',
++  styleUrl: './scheme-analytics.component.scss',
++})
++export class SchemeAnalyticsComponent implements OnInit {
++  private readonly portfolioApi = inject(PortfolioApiService);
++  private readonly cdr = inject(ChangeDetectorRef);
++
++  loading = true;
++  error = '';
++
++  private allRows: SchemeRow[] = [];
++
++  searchTerm = '';
++  sortKey: SortKey = 'current_value';
++  sortDescending = true;
++
++  page = 1;
++  readonly pageSize = 25;
++
++  ngOnInit(): void {
++    this.load();
++  }
++
++  load(): void {
++    this.loading = true;
++    this.error = '';
++
++    this.portfolioApi.getPortfolioTree().subscribe({
++      next: (data: PortfolioTreeResponse) => {
++        this.allRows = this.flatten(data);
++        this.loading = false;
++        this.page = 1;
++        this.cdr.markForCheck();
++      },
++
++      error: (error) => {
++        console.error('SCHEME ANALYTICS TREE ERROR:', error);
++
++        this.loading = false;
++        this.error = 'Unable to load scheme data.';
++        this.cdr.markForCheck();
++      },
++    });
++  }
++
++  private flatten(tree: PortfolioTreeResponse): SchemeRow[] {
++    const rows: SchemeRow[] = [];
++
++    for (const family of tree.families ?? []) {
++      for (const portfolio of family.portfolios ?? []) {
++        for (const assetClass of portfolio.asset_classes ?? []) {
++          for (const subClass of assetClass.sub_classes ?? []) {
++            for (const asset of subClass.assets ?? []) {
++              rows.push({
++                ...asset,
++                asset_class: assetClass.asset_class,
++                sub_class: subClass.sub_class,
++              });
++            }
++          }
++        }
++      }
++    }
++
++    return rows;
++  }
++
++  setSort(key: SortKey): void {
++    if (this.sortKey === key) {
++      this.sortDescending = !this.sortDescending;
++    } else {
++      this.sortKey = key;
++      this.sortDescending = true;
++    }
++
++    this.page = 1;
++  }
++
++  sortIndicator(key: SortKey): string {
++    if (this.sortKey !== key) {
++      return '';
++    }
++
++    return this.sortDescending ? '▼' : '▲';
++  }
++
++  onSearchChange(): void {
++    this.page = 1;
++  }
++
++  private matchesSearch(row: SchemeRow): boolean {
++    const term = this.searchTerm.trim().toLowerCase();
++
++    if (!term) {
++      return true;
++    }
++
++    const haystack = [
++      row.asset_name,
++      row.underlying,
++      row.family_name,
++      row.advisors,
++      row.amc_name ?? '',
++      row.asset_class,
++      row.sub_class,
++      row.isin ?? '',
++    ]
++      .join(' ')
++      .toLowerCase();
++
++    return haystack.includes(term);
++  }
++
++  get filteredRows(): SchemeRow[] {
++    const filtered = this.allRows.filter((row) => this.matchesSearch(row));
++
++    const key = this.sortKey;
++    const direction = this.sortDescending ? -1 : 1;
++
++    return [...filtered].sort((a, b) => {
++      const aValue = a[key];
++      const bValue = b[key];
++
++      if (aValue === null || aValue === undefined) return 1;
++      if (bValue === null || bValue === undefined) return -1;
++
++      if (typeof aValue === 'number' && typeof bValue === 'number') {
++        return (aValue - bValue) * direction;
++      }
++
++      return String(aValue).localeCompare(String(bValue)) * direction;
++    });
++  }
++
++  get pagedRows(): SchemeRow[] {
++    const start = (this.page - 1) * this.pageSize;
++    return this.filteredRows.slice(start, start + this.pageSize);
++  }
++
++  get totalPages(): number {
++    return Math.max(1, Math.ceil(this.filteredRows.length / this.pageSize));
++  }
++
++  get pageStart(): number {
++    return this.filteredRows.length === 0 ? 0 : (this.page - 1) * this.pageSize + 1;
++  }
++
++  get pageEnd(): number {
++    return Math.min(this.page * this.pageSize, this.filteredRows.length);
++  }
++
++  goToPage(page: number): void {
++    if (page < 1 || page > this.totalPages) {
++      return;
++    }
++
++    this.page = page;
++  }
++
++  trackByAssetId(_index: number, row: SchemeRow): number {
++    return row.id;
++  }
++
++  formatCurrency(value: number | null | undefined): string {
++    if (value === null || value === undefined) {
++      return '-';
++    }
++
++    return `₹${value.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
++  }
++
++  formatPercentage(value: number | null | undefined): string {
++    if (value === null || value === undefined) {
++      return '-';
++    }
++
++    return `${value.toFixed(2)}%`;
++  }
++
++  getPnlClass(value: number | null | undefined): string {
++    if (value === null || value === undefined || value === 0) {
++      return 'neutral';
++    }
++
++    return value > 0 ? 'positive' : 'negative';
++  }
++}
+diff --git a/frontend/src/styles.scss b/frontend/src/styles.scss
+index ec664a1..e4d6e93 100644
+--- a/frontend/src/styles.scss
++++ b/frontend/src/styles.scss
+@@ -61,3 +61,47 @@ body {
+   --radius-md: 12px;
+   --radius-sm: 8px;
+ }
++
++/* -----------------------------
++   PORTFOLIO REVIEW / NEXEDGE-STYLE REPORT TOKENS
++
++   Scoped as a second, parallel token set - NOT a replacement
++   for the --ink/--accent tokens above, which the rest of the
++   app (dashboard, portfolio, settings, etc.) already relies on.
++   Applied only within the Reports feature and any component
++   that opts in via a wrapping class (e.g. `.nx-report-theme`),
++   so existing pages are visually unaffected.
++
++   Source: reference PDF ("Nexedge" portfolio review) + HTML
++   reference. Institutional wealth-management palette.
++----------------------------- */
++
++:root {
++  --nx-navy: #051233;
++  --nx-orange: #fd7740;
++  --nx-gold: #cc9f53;
++  --nx-ice: #e7f1f1;
++  --nx-white: #ffffff;
++  --nx-grey: #c8c8c8;
++  --nx-blue: #085888;
++
++  /* Slightly deeper navy for secondary surfaces (drawers, footers) */
++  --nx-deep: #030b22;
++
++  --nx-font-heading:
++    'Playfair Display',
++    Georgia,
++    'Times New Roman',
++    serif;
++  --nx-font-body:
++    Inter,
++    -apple-system,
++    BlinkMacSystemFont,
++    'Segoe UI',
++    sans-serif;
++
++  --nx-radius-sm: 4px;
++  --nx-radius-md: 8px;
++
++  --nx-border: 1px solid rgba(5, 18, 51, 0.12);
++}

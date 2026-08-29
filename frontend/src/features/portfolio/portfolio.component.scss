@@ -713,3 +713,82 @@
   }
 }
 
+
+/* ==============================================================
+   QUANT DETAILS
+   SecurityMaster-sourced fields (Sector / Cap Type / AMC /
+   Credit Rating / P/E / P/B / ROE / YTM / Modified Duration /
+   Average Maturity), shown as an expandable row per underlying
+   asset. Uses the --nx-* report tokens (see styles.scss) for a
+   deliberately distinct, institutional treatment against the
+   rest of the app's --ink/--accent palette.
+   ============================================================== */
+
+.quant-toggle-cell {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.quant-toggle-button {
+  border: 1px solid var(--surface-line);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+
+  &:hover {
+    color: var(--ink);
+    border-color: var(--muted-soft);
+  }
+}
+
+.quant-details-row td {
+  padding: 0;
+  border-bottom: 1px solid var(--surface-line);
+}
+
+.quant-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--nx-ice);
+  border-left: 3px solid var(--nx-navy);
+}
+
+.quant-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 12px;
+  background: var(--nx-white);
+  border: var(--nx-border);
+  border-radius: var(--nx-radius-sm);
+  min-width: 84px;
+}
+
+.quant-chip-label,
+.quant-chip-value {
+  font-family: var(--nx-font-body);
+}
+
+.quant-chip-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--nx-blue);
+}
+
+.quant-chip-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--nx-navy);
+}
