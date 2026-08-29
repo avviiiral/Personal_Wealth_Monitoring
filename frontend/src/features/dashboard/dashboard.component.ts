@@ -557,23 +557,22 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
    * exact same categorization and totals as the Investment Summary
    * table below it — one source of truth for both.
    *
-   * FIX: the backend (InvestmentSummaryService.calculate(), reached
-   * via /api/analytics/wealth/investment-summary/) returns a bare
-   * array — not { results: [...] } — and each row carries
-   * `current_value` / `invested_value` / `pnl_percentage`, not
-   * `percentage_of_total`. Reading `.results` off an array is always
-   * `undefined`, so this getter previously always returned `[]` and
-   * the allocation chart silently rendered nothing. Percentage is
-   * now computed client-side from the real per-row current_value
-   * against the row set's own total, since the backend does not
-   * send a percentage figure at all.
+   * CORRECTION: an earlier version of this getter assumed the
+   * backend (InvestmentSummaryService.calculate(), reached via
+   * /api/analytics/wealth/investment-summary/) returned a bare
+   * array. That assumption was wrong — traced and confirmed against
+   * the real service code and a live functional test — the backend
+   * actually returns { results: [...], total_current_value }, and
+   * each row genuinely carries percentage_of_total. The "fix" based
+   * on the wrong assumption broke this section (empty Allocation/
+   * Investment Summary); this restores the correct original logic.
    */
   get allocationByCategory(): Array<{
     category: string;
     value: number;
     percentage: number;
   }> {
-    const results = Array.isArray(this.investmentSummary) ? this.investmentSummary : [];
+    const results = this.investmentSummary?.results ?? [];
 
     const order: string[] = [];
     const totals = new Map<
@@ -599,28 +598,18 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       const entry = totals.get(category)!;
 
       entry.value += this.toNumber(row.current_value);
-    }
 
-    // Percentage is computed here from the row set's own total,
-    // since the backend does not return one. This intentionally
-    // uses the sum of investment-summary rows (not summary.total_
-    // current_value) as the denominator, so the percentages always
-    // add up to 100% of what's actually charted here.
-    const grandTotal = Array.from(totals.values()).reduce(
-      (sum, entry) => sum + entry.value,
-      0,
-    );
+      entry.percentage += this.toNumber(row.percentage_of_total);
+    }
 
     return order
       .map((category) => {
         const entry = totals.get(category)!;
 
-        const percentage = grandTotal ? (entry.value / grandTotal) * 100 : 0;
-
         return {
           category,
           value: entry.value,
-          percentage: Math.round(percentage * 100) / 100,
+          percentage: Math.round(entry.percentage * 100) / 100,
         };
       })
       .filter((entry) => entry.value > 0);
@@ -649,10 +638,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       raw_asset_classes: string[];
     }>;
   }> {
-    // Same fix as allocationByCategory above: the backend returns a
-    // bare array, and the raw rows have no percentage_of_total field
-    // — percentage is computed below from this row set's own total.
-    const results = Array.isArray(this.investmentSummary) ? this.investmentSummary : [];
+    const results = this.investmentSummary?.results ?? [];
 
     const groups = new Map<
       string,
@@ -689,7 +675,11 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
       const currentValue = this.toNumber(row.current_value);
 
+      const percentage = this.toNumber(row.percentage_of_total);
+
       group.current_value += currentValue;
+
+      group.percentage_of_total += percentage;
 
       let classRow = group.asset_classes.find((item) => item.asset_class === assetClass);
 
@@ -706,9 +696,8 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
       classRow.current_value += currentValue;
 
-      // The backend does not currently send a list of raw source
-      // asset-class labels per canonical class (raw_asset_classes) —
-      // left as an empty array rather than fabricated.
+      classRow.percentage_of_total += percentage;
+
       const rawAssetClasses = Array.isArray(row.raw_asset_classes) ? row.raw_asset_classes : [];
 
       for (const rawAssetClass of rawAssetClasses) {
@@ -718,23 +707,15 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       }
     }
 
-    const grandTotal = Array.from(groups.values()).reduce(
-      (sum, group) => sum + group.current_value,
-      0,
-    );
-
-    const pct = (value: number): number =>
-      grandTotal ? Math.round((value / grandTotal) * 100 * 100) / 100 : 0;
-
     return Array.from(groups.values()).map((group) => ({
       ...group,
 
-      percentage_of_total: pct(group.current_value),
+      percentage_of_total: Math.round(group.percentage_of_total * 100) / 100,
 
       asset_classes: group.asset_classes.map((assetClass) => ({
         ...assetClass,
 
-        percentage_of_total: pct(assetClass.current_value),
+        percentage_of_total: Math.round(assetClass.percentage_of_total * 100) / 100,
       })),
     }));
   }

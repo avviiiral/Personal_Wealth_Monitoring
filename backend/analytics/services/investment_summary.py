@@ -1,7 +1,7 @@
 import logging
 from decimal import Decimal
 
-from investments.models import Transaction
+from investments.models import Transaction, TransactionType
 from mutual_funds.models import MutualFundTransaction
 
 from .unified_wealth import UnifiedWealthAnalytics
@@ -276,6 +276,111 @@ class InvestmentSummaryService:
                 resolved[asset_id] = sub_class
 
         return resolved
+
+    @staticmethod
+    def _equity_asset_class_weights_by_asset_id(user, family_name=None):
+        """
+        Resolve every asset's sub_class as a set of WEIGHTS rather
+        than a single winner, for assets genuinely held across more
+        than one sub_class (e.g. the same stock bought partly
+        directly and partly through a PMS — see Bharti Airtel /
+        Bajaj Finance in this project's real data, discovered while
+        investigating why the Dashboard's Direct Equity / Equity PMS
+        split didn't reconcile with the Portfolio page's per-channel
+        breakdown).
+
+        _equity_asset_class_by_asset_id (above) picks ONE sub_class
+        per asset — whichever transaction was most recent — and
+        assigns the asset's ENTIRE current_value to that one class.
+        For an asset held through only one channel that's correct
+        and cheap. For an asset held through more than one channel,
+        it silently misattributes the other channel's share of the
+        value to the wrong class. This method instead computes each
+        channel's real weight from actual transaction quantities
+        (BUY quantity minus SELL quantity, per (asset_id, sub_class)
+        pair — the same net-position logic HoldingCalculationEngine
+        uses, just grouped by sub_class as well as asset), so a
+        Holding's current_value can be split proportionally across
+        the classes it actually spans, rather than assigned whole to
+        one of them.
+
+        Returns: {asset_id: {sub_class: weight}}, weights summing to
+        1.0 per asset. Assets held through only one sub_class get a
+        single-entry dict with weight 1.0 — behaviourally identical
+        to the old single-class lookup for the common case.
+        """
+
+        rows_qs = (
+            Transaction.objects
+            .filter(owner=user)
+            .exclude(sub_class__isnull=True)
+            .exclude(sub_class__exact="")
+        )
+
+        if family_name:
+            rows_qs = rows_qs.filter(
+                family_name=family_name
+            )
+
+        rows = rows_qs.values_list(
+            "asset_id",
+            "sub_class",
+            "transaction_type",
+            "quantity",
+        )
+
+        net_quantity = {}
+
+        for asset_id, sub_class, transaction_type, quantity in rows:
+
+            key = (asset_id, sub_class)
+
+            if key not in net_quantity:
+                net_quantity[key] = Decimal("0")
+
+            quantity = quantity or Decimal("0")
+
+            if transaction_type == TransactionType.SELL:
+                net_quantity[key] -= quantity
+            else:
+                # BUY, SIP, BONUS, SPLIT, and anything else that adds
+                # to the position. DIVIDEND/INTEREST/DEPOSIT/
+                # WITHDRAWAL/OTHER don't carry a meaningful quantity
+                # for this asset and are excluded upstream by
+                # requiring a non-blank sub_class in practice, but
+                # are harmless here even if present (quantity is
+                # typically 0/null for those).
+                net_quantity[key] += quantity
+
+        totals_by_asset = {}
+
+        for (asset_id, sub_class), qty in net_quantity.items():
+
+            if qty <= 0:
+                continue
+
+            totals_by_asset.setdefault(
+                asset_id, {}
+            )[sub_class] = qty
+
+        weights = {}
+
+        for asset_id, class_quantities in totals_by_asset.items():
+
+            asset_total = sum(
+                class_quantities.values(),
+                Decimal("0"),
+            )
+
+            if asset_total <= 0:
+                continue
+
+            weights[asset_id] = {
+                sub_class: (qty / asset_total)
+                for sub_class, qty in class_quantities.items()
+            }
+
+        return weights
 
     @classmethod
     def _family_equity_positions(cls, user, family_name):
@@ -1424,8 +1529,8 @@ class InvestmentSummaryService:
         that table's Fixed Income row.
         """
 
-        asset_class_by_asset_id = (
-            cls._equity_asset_class_by_asset_id(user)
+        asset_class_weights_by_asset_id = (
+            cls._equity_asset_class_weights_by_asset_id(user)
         )
 
         fixed_income_classes = set()
@@ -1439,14 +1544,39 @@ class InvestmentSummaryService:
             .get_equity_holdings(user)
         )
 
-        fi_holdings = [
-            holding
-            for holding in equity_holdings
-            if cls._normalize_asset_class(
-                asset_class_by_asset_id.get(holding.asset_id)
+        # (holding, fi_weight) pairs rather than a plain filtered
+        # list — fi_weight is the FRACTION of the holding's value
+        # genuinely bought through a Fixed-Income sub_class, from
+        # real transaction quantities (see
+        # _equity_asset_class_weights_by_asset_id). A holding bought
+        # entirely through one FI channel gets weight 1.0, same as
+        # a simple filter would give — this only differs for a
+        # holding split across an FI and a non-FI channel, where the
+        # old plain filter would have included/excluded the whole
+        # position based on whichever channel's transaction was most
+        # recent. No holding in this data is currently split this
+        # way, so this is a correctness safeguard, not something
+        # that changes today's numbers.
+        fi_holdings = []
+
+        for holding in equity_holdings:
+
+            class_weights = asset_class_weights_by_asset_id.get(
+                holding.asset_id
             )
-            in fixed_income_classes
-        ]
+
+            if not class_weights:
+                continue
+
+            fi_weight = sum(
+                weight
+                for raw_class, weight in class_weights.items()
+                if cls._normalize_asset_class(raw_class)
+                in fixed_income_classes
+            )
+
+            if fi_weight > 0:
+                fi_holdings.append((holding, fi_weight))
 
         sm_by_asset_id = (
             cls._fixed_income_security_master_by_asset_id(user)
@@ -1454,10 +1584,9 @@ class InvestmentSummaryService:
 
         total_current_value = sum(
             (
-                holding.current_value
-                or cls.ZERO
+                (holding.current_value or cls.ZERO) * fi_weight
             )
-            for holding in fi_holdings
+            for holding, fi_weight in fi_holdings
         )
 
         rating_totals = {}
@@ -1480,10 +1609,9 @@ class InvestmentSummaryService:
             "average_maturity": 0,
         }
 
-        for holding in fi_holdings:
+        for holding, fi_weight in fi_holdings:
             current_value = (
-                holding.current_value
-                or cls.ZERO
+                (holding.current_value or cls.ZERO) * fi_weight
             )
 
             sm = sm_by_asset_id.get(
