@@ -8,10 +8,6 @@ import { PortfolioComponent } from '../features/portfolio/portfolio.component';
 import { ReportsComponent } from '../features/reports/reports.component';
 
 import { AnalyticsComponent } from '../features/analytics/analytics.component';
-import { CompositionComponent } from '../features/composition/composition.component';
-import { EquityAnalysisComponent } from '../features/equity-analysis/equity-analysis.component';
-import { FixedIncomeAnalysisComponent } from '../features/fixed-income-analysis/fixed-income-analysis.component';
-import { SchemeAnalyticsComponent } from '../features/scheme-analytics/scheme-analytics.component';
 import { SettingsComponent } from '../features/settings/settings.component';
 import { AiChatComponent } from '../features/ai-chat/ai-chat.component';
 import { PortfolioNewsListComponent } from '../features/portfolio-news/portfolio-news-list.component';
@@ -66,26 +62,6 @@ export const routes: Routes = [
       {
         path: 'analytics',
         component: AnalyticsComponent,
-      },
-
-      {
-        path: 'composition',
-        component: CompositionComponent,
-      },
-
-      {
-        path: 'equity-analysis',
-        component: EquityAnalysisComponent,
-      },
-
-      {
-        path: 'fixed-income-analysis',
-        component: FixedIncomeAnalysisComponent,
-      },
-
-      {
-        path: 'scheme-analytics',
-        component: SchemeAnalyticsComponent,
       },
 
       {
