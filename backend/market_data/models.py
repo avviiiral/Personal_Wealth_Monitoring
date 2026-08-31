@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 from typing import TYPE_CHECKING
@@ -73,6 +74,18 @@ class MarketPrice(models.Model):
         max_length=30,
         choices=DataSource.choices,
         default=DataSource.YAHOO_FINANCE,
+    )
+
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="manual_price_updates",
+        help_text=(
+            "User who manually set this price. Only ever set for "
+            "source=MANUAL rows; audit trail for manual overrides."
+        ),
     )
 
     created_at = models.DateTimeField(

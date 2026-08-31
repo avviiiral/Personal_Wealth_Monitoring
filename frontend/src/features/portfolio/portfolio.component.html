@@ -381,6 +381,7 @@
                                       <button
                                         type="button"
                                         class="manual-price-edit"
+                                        *ngIf="rbac.canEditPrices()"
                                         (click)="onManualPriceEdit($event, asset)"
                                       >
                                         Edit

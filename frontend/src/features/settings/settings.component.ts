@@ -8,16 +8,23 @@ import { Router } from '@angular/router';
 
 import { AuthService } from '../../core/services/auth.service';
 
+import { RbacService } from '../../core/services/rbac.service';
+
 import {
   SettingsApiService,
   SettingsProfile,
   SettingsPreferences,
 } from '../../core/services/settings-api.service';
 
+import { UserManagementComponent } from './user-management/user-management.component';
+import { ManualPricesComponent } from './manual-prices/manual-prices.component';
+
+type SettingsTab = 'account' | 'preferences' | 'security' | 'users' | 'prices';
+
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, UserManagementComponent, ManualPricesComponent],
   templateUrl: './settings.component.html',
   styleUrl: './settings.component.scss',
 })
@@ -26,9 +33,13 @@ export class SettingsComponent implements OnInit {
 
   private readonly authService = inject(AuthService);
 
+  readonly rbac = inject(RbacService);
+
   private readonly router = inject(Router);
 
   private readonly cdr = inject(ChangeDetectorRef);
+
+  activeTab: SettingsTab = 'account';
 
   profile: SettingsProfile | null = null;
 
@@ -62,6 +73,33 @@ export class SettingsComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadSettings();
+
+    // The RBAC role is normally loaded by the auth guard before this
+    // component is ever reached; this is a safety net in case the
+    // page was rendered without a fresh navigation (e.g. resumed
+    // from a cached state).
+    if (!this.rbac.isLoaded()) {
+      this.rbac.load().subscribe({
+        next: () => this.cdr.detectChanges(),
+        error: () => this.cdr.detectChanges(),
+      });
+    }
+  }
+
+  // ======================================================
+  // TABS
+  // ======================================================
+
+  setTab(tab: SettingsTab): void {
+    this.activeTab = tab;
+  }
+
+  canManageUsers(): boolean {
+    return this.rbac.canManageUsers();
+  }
+
+  canEditPrices(): boolean {
+    return this.rbac.canEditPrices();
   }
 
   // ======================================================
@@ -265,5 +303,7 @@ export class SettingsComponent implements OnInit {
 
   refresh(): void {
     this.loadSettings();
+
+    this.rbac.load().subscribe();
   }
 }

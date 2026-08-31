@@ -17,6 +17,12 @@ urlpatterns = [
         include("api.urls"),
     ),
 
+    # RBAC / User Management / Settings-scoped prices
+    path(
+        "api/settings/",
+        include("users.urls"),
+    ),
+
     # Portfolio API
     path(
         "api/portfolio/",

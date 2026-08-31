@@ -1,0 +1,155 @@
+import { Injectable, inject } from '@angular/core';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
+
+import { Observable } from 'rxjs';
+
+import { PwmsRole } from './rbac.service';
+
+export interface ManagedUser {
+  id: number;
+  first_name: string;
+  last_name: string;
+  username: string;
+  email: string;
+  role: PwmsRole;
+  status: string;
+  is_active: boolean;
+  last_login: string | null;
+  date_joined: string;
+}
+
+export interface CreateUserPayload {
+  first_name?: string;
+  last_name?: string;
+  username: string;
+  email: string;
+  password: string;
+  confirm_password: string;
+  role: PwmsRole;
+  is_active?: boolean;
+}
+
+export interface UpdateUserPayload {
+  first_name?: string;
+  last_name?: string;
+  username?: string;
+  email?: string;
+  role?: PwmsRole;
+  is_active?: boolean;
+}
+
+export interface ApiErrorDetail {
+  detail: string | Record<string, string[] | string>;
+}
+
+@Injectable({
+  providedIn: 'root',
+})
+export class UserManagementApiService {
+  private readonly http = inject(HttpClient);
+
+  private readonly baseUrl = 'http://localhost:8000/api/settings';
+
+  private readonly requestOptions = {
+    withCredentials: true,
+  };
+
+  // ======================================================
+  // CSRF
+  // ======================================================
+
+  private readCsrfToken(): string | null {
+    const cookies = document.cookie.split(';');
+
+    for (const cookie of cookies) {
+      const [name, ...valueParts] = cookie.trim().split('=');
+
+      if (name === 'csrftoken') {
+        return decodeURIComponent(valueParts.join('='));
+      }
+    }
+
+    return null;
+  }
+
+  private writeHeaders(): { withCredentials: true; headers?: HttpHeaders } {
+    const csrfToken = this.readCsrfToken();
+
+    return {
+      withCredentials: true,
+      headers: csrfToken
+        ? new HttpHeaders({
+            'X-CSRFToken': csrfToken,
+            'Content-Type': 'application/json',
+          })
+        : undefined,
+    };
+  }
+
+  // ======================================================
+  // LIST / CREATE
+  // ======================================================
+
+  listUsers(): Observable<ManagedUser[]> {
+    return this.http.get<ManagedUser[]>(`${this.baseUrl}/users/`, this.requestOptions);
+  }
+
+  createUser(payload: CreateUserPayload): Observable<ManagedUser> {
+    return this.http.post<ManagedUser>(`${this.baseUrl}/users/`, payload, this.writeHeaders());
+  }
+
+  // ======================================================
+  // DETAIL / UPDATE
+  // ======================================================
+
+  getUser(id: number): Observable<ManagedUser> {
+    return this.http.get<ManagedUser>(`${this.baseUrl}/users/${id}/`, this.requestOptions);
+  }
+
+  updateUser(id: number, payload: UpdateUserPayload): Observable<ManagedUser> {
+    return this.http.patch<ManagedUser>(
+      `${this.baseUrl}/users/${id}/`,
+      payload,
+      this.writeHeaders(),
+    );
+  }
+
+  // ======================================================
+  // ACTIVATE / DEACTIVATE
+  // ======================================================
+
+  activateUser(id: number): Observable<ManagedUser> {
+    return this.http.post<ManagedUser>(
+      `${this.baseUrl}/users/${id}/activate/`,
+      {},
+      this.writeHeaders(),
+    );
+  }
+
+  deactivateUser(id: number): Observable<ManagedUser> {
+    return this.http.post<ManagedUser>(
+      `${this.baseUrl}/users/${id}/deactivate/`,
+      {},
+      this.writeHeaders(),
+    );
+  }
+
+  // ======================================================
+  // RESET PASSWORD
+  // ======================================================
+
+  resetPassword(
+    id: number,
+    newPassword: string,
+    confirmPassword: string,
+  ): Observable<{ message: string }> {
+    return this.http.post<{ message: string }>(
+      `${this.baseUrl}/users/${id}/reset-password/`,
+      {
+        new_password: newPassword,
+        confirm_password: confirmPassword,
+      },
+      this.writeHeaders(),
+    );
+  }
+}

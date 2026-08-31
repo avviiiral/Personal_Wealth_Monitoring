@@ -13,6 +13,7 @@ import {
 import { ManualPriceService } from '../../core/services/manual-price.service';
 import { InvestmentsApiService } from '../../core/services/investments-api.service';
 import { ToastService } from '../../core/services/toast.service';
+import { RbacService } from '../../core/services/rbac.service';
 
 interface SubClassSummary {
   sub_class: string;
@@ -46,6 +47,7 @@ export class PortfolioComponent implements OnInit, OnDestroy {
   private readonly investmentsApi = inject(InvestmentsApiService);
   private readonly toast = inject(ToastService);
   private readonly cdr = inject(ChangeDetectorRef);
+  readonly rbac = inject(RbacService);
 
   private refreshSubscription: Subscription | null = null;
 
@@ -530,6 +532,11 @@ export class PortfolioComponent implements OnInit, OnDestroy {
   onManualPriceEdit(event: MouseEvent, asset: PortfolioAssetNode): void {
     event.preventDefault();
     event.stopPropagation();
+
+    if (!this.rbac.canEditPrices()) {
+      this.toast.error('You do not have permission to edit prices.');
+      return;
+    }
 
     console.log('[Portfolio] Edit price clicked:', asset.id, asset.asset_name);
 

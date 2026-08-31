@@ -35,10 +35,63 @@
 
   <ng-container *ngIf="!loading && profile">
     <!-- ================================================== -->
-    <!-- PROFILE -->
+    <!-- TABS -->
     <!-- ================================================== -->
 
-    <section class="settings-card">
+    <nav class="settings-tabs">
+      <button
+        type="button"
+        class="tab-button"
+        [class.tab-active]="activeTab === 'account'"
+        (click)="setTab('account')"
+      >
+        Account
+      </button>
+
+      <button
+        type="button"
+        class="tab-button"
+        [class.tab-active]="activeTab === 'preferences'"
+        (click)="setTab('preferences')"
+      >
+        Preferences
+      </button>
+
+      <button
+        type="button"
+        class="tab-button"
+        [class.tab-active]="activeTab === 'security'"
+        (click)="setTab('security')"
+      >
+        Security
+      </button>
+
+      <button
+        type="button"
+        class="tab-button"
+        *ngIf="canManageUsers()"
+        [class.tab-active]="activeTab === 'users'"
+        (click)="setTab('users')"
+      >
+        User Management
+      </button>
+
+      <button
+        type="button"
+        class="tab-button"
+        *ngIf="canEditPrices()"
+        [class.tab-active]="activeTab === 'prices'"
+        (click)="setTab('prices')"
+      >
+        Manual Prices
+      </button>
+    </nav>
+
+    <!-- ================================================== -->
+    <!-- ACCOUNT -->
+    <!-- ================================================== -->
+
+    <section class="settings-card" *ngIf="activeTab === 'account'">
       <div class="card-header">
         <div>
           <h2>Profile</h2>
@@ -63,6 +116,40 @@
 
           <input type="email" [(ngModel)]="email" placeholder="Enter email address" />
         </div>
+
+        <div class="form-field">
+          <label> Role </label>
+
+          <input type="text" [value]="rbac.role() || '-'" disabled />
+        </div>
+
+        <div class="form-field">
+          <label> Account Status </label>
+
+          <input
+            type="text"
+            [value]="rbac.currentUser()?.is_active ? 'Active' : 'Inactive'"
+            disabled
+          />
+        </div>
+
+        <div class="form-field" *ngIf="rbac.currentUser()?.last_login as lastLogin">
+          <label> Last Login </label>
+
+          <input type="text" [value]="lastLogin" disabled />
+        </div>
+      </div>
+
+      <div class="success-message" *ngIf="profileMessage">
+        {{ profileMessage }}
+      </div>
+
+      <div class="card-actions">
+        <button type="button" class="primary-button" (click)="saveSettings()" [disabled]="saving">
+          <span *ngIf="!saving"> Save Changes </span>
+
+          <span *ngIf="saving"> Saving... </span>
+        </button>
       </div>
     </section>
 
@@ -70,7 +157,7 @@
     <!-- PREFERENCES -->
     <!-- ================================================== -->
 
-    <section class="settings-card">
+    <section class="settings-card" *ngIf="activeTab === 'preferences'">
       <div class="card-header">
         <div>
           <h2>Preferences</h2>
@@ -140,7 +227,7 @@
     <!-- SECURITY -->
     <!-- ================================================== -->
 
-    <section class="settings-card">
+    <section class="settings-card" *ngIf="activeTab === 'security'">
       <div class="card-header">
         <div>
           <h2>Security</h2>
@@ -194,10 +281,26 @@
     </section>
 
     <!-- ================================================== -->
+    <!-- USER MANAGEMENT (Admin / Super User only) -->
+    <!-- ================================================== -->
+
+    <section class="settings-card" *ngIf="activeTab === 'users' && canManageUsers()">
+      <app-user-management></app-user-management>
+    </section>
+
+    <!-- ================================================== -->
+    <!-- MANUAL PRICES (Admin / Super User only) -->
+    <!-- ================================================== -->
+
+    <section class="settings-card" *ngIf="activeTab === 'prices' && canEditPrices()">
+      <app-manual-prices></app-manual-prices>
+    </section>
+
+    <!-- ================================================== -->
     <!-- DANGER ZONE -->
     <!-- ================================================== -->
 
-    <section class="settings-card danger-card">
+    <section class="settings-card danger-card" *ngIf="activeTab === 'account'">
       <div class="card-header">
         <div>
           <h2>Session</h2>
