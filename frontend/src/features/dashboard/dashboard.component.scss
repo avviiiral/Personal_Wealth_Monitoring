@@ -697,6 +697,19 @@
 
   border-top: 1px solid var(--surface-line);
   border-bottom: 1px solid var(--surface-line);
+
+  /*
+   * The nested Asset Class table sits inside a colspan cell of
+   * the already-scrollable outer Investment Summary table. Without
+   * its own scoped overflow-x, this nested table forces the WHOLE
+   * outer table (including the Asset Category / Current Value /
+   * % columns) to widen and scroll together whenever the nested
+   * content is wide — meaning the category name could scroll out
+   * of view along with it. Scoping the scroll here keeps the outer
+   * table's key columns always visible; only this detail panel
+   * scrolls independently on narrow screens.
+   */
+  overflow-x: auto;
 }
 
 .asset-class-detail-title {
@@ -1142,4 +1155,3 @@
     gap: 4px;
   }
 }
-

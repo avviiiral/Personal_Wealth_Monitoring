@@ -879,3 +879,149 @@
     padding-left: 14px;
   }
 }
+
+/* --------------------------------------------------
+   TRUE RESPONSIVE TABLES — no scrollbar, ever
+
+   .reports-table / .asset-table / .transactions-table
+   all had a hard min-width (900px / 500px / 700px)
+   that forced a horizontal scrollbar on any screen
+   narrower than that, no matter how much padding or
+   font-size shrank. That min-width is overridden here
+   (not removed — it still applies above these
+   breakpoints, exactly as before) and paired with
+   hiding the least-essential column(s) at each step,
+   by position, so the table's actual content always
+   fits the available width instead of scrolling.
+
+   Column priority kept longest, for each table:
+   reports-table:       Sub Class, Current Value, Gain, arrow
+   asset-table:         Underlying, arrow
+   transactions-table:  Date, Type, Amount
+-------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .reports-table {
+    min-width: 0;
+  }
+
+  /* Transactions (7th column) and Quantity (2nd column) —
+     least essential for at-a-glance scanning. */
+  .reports-table th:nth-child(7),
+  .reports-table td:nth-child(7),
+  .reports-table th:nth-child(2),
+  .reports-table td:nth-child(2) {
+    display: none;
+  }
+
+  .reports-table th,
+  .reports-table td {
+    padding: 10px 10px;
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 650px) {
+  /* Invested Value (3rd column) — Gain already conveys the
+     result; the absolute invested figure is the next to go. */
+  .reports-table th:nth-child(3),
+  .reports-table td:nth-child(3) {
+    display: none;
+  }
+
+  .reports-table th,
+  .reports-table td {
+    padding: 8px;
+    font-size: 11.5px;
+  }
+}
+
+@media (max-width: 480px) {
+  /* XIRR (6th column) — last one dropped. Sub Class / Current
+     Value / Gain / arrow remain, which fits even a narrow phone. */
+  .reports-table th:nth-child(6),
+  .reports-table td:nth-child(6) {
+    display: none;
+  }
+
+  .reports-table th,
+  .reports-table td {
+    padding: 7px 6px;
+    font-size: 11px;
+
+    /*
+     * At this width, even 4 columns of real currency figures
+     * (₹6,59,03,014-style) can be tight on the narrowest
+     * phones. Rather than ever let the table force a scrollbar,
+     * long cell content wraps onto a second line here — the row
+     * grows taller instead of the table growing wider.
+     */
+    white-space: normal;
+    word-break: break-word;
+  }
+}
+
+@media (max-width: 900px) {
+  .asset-table {
+    min-width: 0;
+  }
+
+  /* ISIN (2nd column) — identifying detail, but Underlying's
+     name is already shown; ISIN is the least essential here. */
+  .asset-table th:nth-child(2),
+  .asset-table td:nth-child(2) {
+    display: none;
+  }
+}
+
+@media (max-width: 420px) {
+  /* Transactions count (3rd column) — last one dropped, leaving
+     Underlying + arrow, which always fits. */
+  .asset-table th:nth-child(3),
+  .asset-table td:nth-child(3) {
+    display: none;
+  }
+
+  .asset-table th,
+  .asset-table td {
+    white-space: normal;
+    word-break: break-word;
+  }
+}
+
+@media (max-width: 900px) {
+  .transactions-table {
+    min-width: 0;
+  }
+
+  /* ISIN (3rd column) and Price (5th column) — Date/Type/Amount
+     already tell the story; ISIN and per-unit Price are the
+     first to go on a narrow screen. */
+  .transactions-table th:nth-child(3),
+  .transactions-table td:nth-child(3),
+  .transactions-table th:nth-child(5),
+  .transactions-table td:nth-child(5) {
+    display: none;
+  }
+
+  .transactions-table th,
+  .transactions-table td {
+    padding: 8px;
+    font-size: 11.5px;
+  }
+}
+
+@media (max-width: 550px) {
+  /* Quantity (4th column) — last one dropped, leaving Date /
+     Type / Amount, which always fits. */
+  .transactions-table th:nth-child(4),
+  .transactions-table td:nth-child(4) {
+    display: none;
+  }
+
+  .transactions-table th,
+  .transactions-table td {
+    white-space: normal;
+    word-break: break-word;
+  }
+}
