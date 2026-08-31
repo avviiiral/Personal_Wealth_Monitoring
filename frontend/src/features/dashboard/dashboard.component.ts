@@ -47,6 +47,12 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild('allocationChart')
   allocationChartRef?: ElementRef<HTMLCanvasElement>;
 
+  @ViewChild('marketCapChart')
+  marketCapChartRef?: ElementRef<HTMLCanvasElement>;
+
+  @ViewChild('nonStockHoldingTypesChart')
+  nonStockHoldingTypesChartRef?: ElementRef<HTMLCanvasElement>;
+
   loading = true;
   error = '';
 
@@ -55,6 +61,12 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
   historical: any = null;
   investmentSummary: any = null;
   investmentSummaryError = '';
+
+  marketCapAllocation: any = null;
+  marketCapAllocationError = '';
+
+  nonStockHoldingTypes: any = null;
+  nonStockHoldingTypesError = '';
 
   /*
    * Allocation/performance by Advisor - fetched alongside the rest
@@ -75,6 +87,8 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
   private wealthChart?: Chart;
   private allocationChart?: Chart;
+  private marketCapChart?: Chart;
+  private nonStockHoldingTypesChart?: Chart;
 
   private viewReady = false;
 
@@ -267,6 +281,60 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       },
     });
 
+    // MARKET CAP ALLOCATION
+    this.marketCapAllocation = null;
+    this.marketCapAllocationError = '';
+
+    this.wealthApi.getMarketCapAllocation().subscribe({
+      next: (data) => {
+        console.log('MARKET CAP ALLOCATION RESPONSE:', data);
+
+        this.marketCapAllocation = data;
+
+        this.cdr.markForCheck();
+
+        setTimeout(() => {
+          this.renderMarketCapChart();
+          this.cdr.markForCheck();
+        });
+      },
+
+      error: (error) => {
+        console.error('MARKET CAP ALLOCATION API ERROR:', error);
+
+        this.marketCapAllocationError = 'Unable to load market cap allocation.';
+
+        this.cdr.markForCheck();
+      },
+    });
+
+    // NON-STOCK HOLDING TYPES
+    this.nonStockHoldingTypes = null;
+    this.nonStockHoldingTypesError = '';
+
+    this.wealthApi.getNonStockHoldingTypes().subscribe({
+      next: (data) => {
+        console.log('NON-STOCK HOLDING TYPES RESPONSE:', data);
+
+        this.nonStockHoldingTypes = data;
+
+        this.cdr.markForCheck();
+
+        setTimeout(() => {
+          this.renderNonStockHoldingTypesChart();
+          this.cdr.markForCheck();
+        });
+      },
+
+      error: (error) => {
+        console.error('NON-STOCK HOLDING TYPES API ERROR:', error);
+
+        this.nonStockHoldingTypesError = 'Unable to load holding type breakdown.';
+
+        this.cdr.markForCheck();
+      },
+    });
+
     // PORTFOLIO TREE
     /*
      * Reuse the existing Portfolio tree because every portfolio
@@ -328,6 +396,8 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
 
     this.renderWealthChart();
     this.renderAllocationChart();
+    this.renderMarketCapChart();
+    this.renderNonStockHoldingTypesChart();
   }
 
   private renderWealthChart(): void {
@@ -523,12 +593,193 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     this.allocationChart = new Chart(canvas, config);
   }
 
+  private renderMarketCapChart(): void {
+    const canvas = this.marketCapChartRef?.nativeElement;
+
+    if (!canvas) {
+      console.warn('Market cap chart canvas not available.');
+      return;
+    }
+
+    this.marketCapChart?.destroy();
+
+    const results = this.marketCapAllocation?.results ?? [];
+
+    if (!results.length) {
+      console.warn('No market cap allocation data available.');
+      return;
+    }
+
+    const labels = results.map((item: any) => item.cap_type);
+
+    const values = results.map((item: any) => Number(item.current_value));
+
+    const percentages = results.map((item: any) => Number(item.percentage));
+
+    const config: ChartConfiguration<'doughnut'> = {
+      type: 'doughnut',
+
+      data: {
+        labels,
+
+        datasets: [
+          {
+            data: values,
+
+            backgroundColor: [
+              '#085888',
+              '#fd7740',
+              '#cc9f53',
+              '#0f7a5c',
+              '#7c3aed',
+              '#dc2626',
+              '#0891b2',
+              '#65a30d',
+              '#c026d3',
+              '#475569',
+              '#e2e8f0',
+            ],
+
+            borderWidth: 2,
+            borderColor: '#ffffff',
+          },
+        ],
+      },
+
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+
+        cutout: '68%',
+
+        plugins: {
+          legend: {
+            position: 'bottom',
+
+            labels: {
+              usePointStyle: true,
+              padding: 16,
+            },
+          },
+
+          tooltip: {
+            callbacks: {
+              label: (context) => {
+                const index = context.dataIndex;
+                const percentage = percentages[index] ?? 0;
+
+                return `${context.label}: ${this.formatCurrency(
+                  Number(context.raw),
+                )} (${percentage.toFixed(2)}%)`;
+              },
+            },
+          },
+        },
+      },
+    };
+
+    this.marketCapChart = new Chart(canvas, config);
+  }
+
+  private renderNonStockHoldingTypesChart(): void {
+    const canvas = this.nonStockHoldingTypesChartRef?.nativeElement;
+
+    if (!canvas) {
+      console.warn('Non-stock holding types chart canvas not available.');
+      return;
+    }
+
+    this.nonStockHoldingTypesChart?.destroy();
+
+    const results = this.nonStockHoldingTypes?.results ?? [];
+
+    if (!results.length) {
+      console.warn('No non-stock holding type data available.');
+      return;
+    }
+
+    const labels = results.map((item: any) => item.holding_type);
+
+    const values = results.map((item: any) => Number(item.current_value));
+
+    const percentages = results.map((item: any) => Number(item.percentage));
+
+    const config: ChartConfiguration<'doughnut'> = {
+      type: 'doughnut',
+
+      data: {
+        labels,
+
+        datasets: [
+          {
+            data: values,
+
+            backgroundColor: [
+              '#085888',
+              '#fd7740',
+              '#cc9f53',
+              '#0f7a5c',
+              '#7c3aed',
+              '#dc2626',
+              '#0891b2',
+              '#65a30d',
+              '#c026d3',
+              '#475569',
+              '#e2e8f0',
+              '#94a3b8',
+            ],
+
+            borderWidth: 2,
+            borderColor: '#ffffff',
+          },
+        ],
+      },
+
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+
+        cutout: '68%',
+
+        plugins: {
+          legend: {
+            position: 'bottom',
+
+            labels: {
+              usePointStyle: true,
+              padding: 16,
+            },
+          },
+
+          tooltip: {
+            callbacks: {
+              label: (context) => {
+                const index = context.dataIndex;
+                const percentage = percentages[index] ?? 0;
+
+                return `${context.label}: ${this.formatCurrency(
+                  Number(context.raw),
+                )} (${percentage.toFixed(2)}%)`;
+              },
+            },
+          },
+        },
+      },
+    };
+
+    this.nonStockHoldingTypesChart = new Chart(canvas, config);
+  }
+
   private destroyCharts(): void {
     this.wealthChart?.destroy();
     this.allocationChart?.destroy();
+    this.marketCapChart?.destroy();
+    this.nonStockHoldingTypesChart?.destroy();
 
     this.wealthChart = undefined;
     this.allocationChart = undefined;
+    this.marketCapChart = undefined;
+    this.nonStockHoldingTypesChart = undefined;
   }
 
   ngOnDestroy(): void {
@@ -1244,9 +1495,7 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
       }
     }
 
-    return Array.from(bySubClass.values()).sort(
-      (a, b) => a.sub_class.localeCompare(b.sub_class)
-    );
+    return Array.from(bySubClass.values()).sort((a, b) => a.sub_class.localeCompare(b.sub_class));
   }
 
   /**
@@ -1264,15 +1513,10 @@ export class DashboardComponent implements OnInit, AfterViewInit, OnDestroy {
     try {
       this.reportPdf.generate({
         familyName: this.selectedFamily,
-        totalWealth:
-          this.summary?.total_current_value ?? this.summary?.total_wealth ?? 0,
-        totalInvested:
-          this.summary?.total_invested ?? this.summary?.invested_value ?? 0,
+        totalWealth: this.summary?.total_current_value ?? this.summary?.total_wealth ?? 0,
+        totalInvested: this.summary?.total_invested ?? this.summary?.invested_value ?? 0,
         totalPnl: this.summary?.total_pnl ?? this.summary?.pnl ?? 0,
-        xirrPercentage:
-          this.xirr?.xirr_percentage ??
-          this.summary?.xirr_percentage ??
-          null,
+        xirrPercentage: this.xirr?.xirr_percentage ?? this.summary?.xirr_percentage ?? null,
         investmentSummary: this.investmentSummary?.results ?? [],
         advisorAllocation: this.advisorAllocation,
         advisorPerformance: this.advisorPerformance,

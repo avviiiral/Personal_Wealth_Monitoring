@@ -11,9 +11,12 @@ from .views import (
     wealth_equity_analysis,
     wealth_fixed_income_analysis,
     wealth_investment_summary,
+    wealth_market_cap_allocation,
+    wealth_non_stock_holding_types,
     wealth_performance,
     wealth_performance_by_advisor,
     wealth_performance_by_subclass,
+    wealth_sector_allocation,
     wealth_summary,
     wealth_xirr,
     wealth_historical,
@@ -105,6 +108,24 @@ urlpatterns = [
         "wealth/fixed-income-analysis/",
         wealth_fixed_income_analysis,
         name="wealth-fixed-income-analysis",
+    ),
+
+    path(
+        "wealth/sector-allocation/",
+        wealth_sector_allocation,
+        name="wealth-sector-allocation",
+    ),
+
+    path(
+        "wealth/market-cap-allocation/",
+        wealth_market_cap_allocation,
+        name="wealth-market-cap-allocation",
+    ),
+
+    path(
+        "wealth/non-stock-holding-types/",
+        wealth_non_stock_holding_types,
+        name="wealth-non-stock-holding-types",
     ),
 
     path(

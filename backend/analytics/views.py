@@ -390,3 +390,58 @@ def wealth_fixed_income_analysis(request):
     )
 
     return Response(data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def wealth_sector_allocation(request):
+    """
+    Return current-value allocation by sector, across every
+    equity/other-investment holding.
+    """
+
+    data = (
+        InvestmentSummaryService
+        .calculate_sector_allocation(
+            request.user
+        )
+    )
+
+    return Response(data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def wealth_market_cap_allocation(request):
+    """
+    Return current-value allocation by cap_type (Large/Mid/Small
+    Cap), across every equity/other-investment holding.
+    """
+
+    data = (
+        InvestmentSummaryService
+        .calculate_market_cap_allocation(
+            request.user
+        )
+    )
+
+    return Response(data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def wealth_non_stock_holding_types(request):
+    """
+    Return current-value allocation by sub_class, restricted to
+    holdings with no cap_type on file — the complementary
+    breakdown to wealth/market-cap-allocation/.
+    """
+
+    data = (
+        InvestmentSummaryService
+        .calculate_non_stock_holding_types(
+            request.user
+        )
+    )
+
+    return Response(data)

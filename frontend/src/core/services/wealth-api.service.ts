@@ -120,6 +120,42 @@ export class WealthApiService {
     });
   }
 
+  /**
+   * Current-value allocation by sector, across every equity/other-
+   * investment holding — see
+   * InvestmentSummaryService.calculate_sector_allocation.
+   */
+  getSectorAllocation(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/sector-allocation/`, {
+      withCredentials: true,
+    });
+  }
+
+  /**
+   * Current-value allocation by cap_type (Large/Mid/Small Cap),
+   * across every equity/other-investment holding — see
+   * InvestmentSummaryService.calculate_market_cap_allocation.
+   */
+  getMarketCapAllocation(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/market-cap-allocation/`, {
+      withCredentials: true,
+    });
+  }
+
+  /**
+   * Current-value allocation by sub_class (Debt Mutual Fund,
+   * Liquid Mutual Fund, InvITs, REITs, Gold Bond, Private Equity,
+   * etc.), restricted to holdings with no cap_type on file — the
+   * complementary breakdown to getMarketCapAllocation()'s
+   * "Unclassified" slice. See
+   * InvestmentSummaryService.calculate_non_stock_holding_types.
+   */
+  getNonStockHoldingTypes(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/non-stock-holding-types/`, {
+      withCredentials: true,
+    });
+  }
+
   getPerformanceByAdvisor(): Observable<any> {
     return this.http.get<any>(`${this.baseUrl}/performance-by-advisor/`, {
       withCredentials: true,

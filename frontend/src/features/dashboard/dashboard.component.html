@@ -33,7 +33,14 @@
       </div>
 
       <button class="refresh-button" type="button" (click)="loadDashboard()">
-        <svg class="refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+        <svg
+          class="refresh-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          aria-hidden="true"
+        >
           <path d="M20 11A8 8 0 1 0 18.5 16" stroke-linecap="round" stroke-linejoin="round" />
           <path d="M20 5v6h-6" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
@@ -46,9 +53,24 @@
         [disabled]="loading || generatingReport"
         (click)="downloadPortfolioReview()"
       >
-        <svg class="button-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-          <path d="M12 15V4M12 15 8.5 11.5M12 15l3.5-3.5" stroke-linecap="round" stroke-linejoin="round" />
-          <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke-linecap="round" stroke-linejoin="round" />
+        <svg
+          class="button-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.8"
+          aria-hidden="true"
+        >
+          <path
+            d="M12 15V4M12 15 8.5 11.5M12 15l3.5-3.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
         {{ generatingReport ? 'Generating…' : 'Download Report' }}
       </button>
@@ -76,8 +98,16 @@
         <div class="kpi-card-top">
           <span class="kpi-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-              <path d="M3 7a2 2 0 0 1 2-2h13a1 1 0 0 1 1 1v2" stroke-linecap="round" stroke-linejoin="round" />
-              <path d="M3 7v11a2 2 0 0 0 2 2h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1H8a2 2 0 0 1 0-4h11" stroke-linecap="round" stroke-linejoin="round" />
+              <path
+                d="M3 7a2 2 0 0 1 2-2h13a1 1 0 0 1 1 1v2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M3 7v11a2 2 0 0 0 2 2h14a1 1 0 0 0 1-1v-8a1 1 0 0 0-1-1H8a2 2 0 0 1 0-4h11"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
               <circle cx="16.5" cy="14.5" r="1.4" />
             </svg>
           </span>
@@ -96,7 +126,11 @@
         <div class="kpi-card-top">
           <span class="kpi-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-              <path d="M12 21c-4-2.6-7-6-7-10a7 7 0 0 1 14 0c0 4-3 7.4-7 10Z" stroke-linecap="round" stroke-linejoin="round" />
+              <path
+                d="M12 21c-4-2.6-7-6-7-10a7 7 0 0 1 14 0c0 4-3 7.4-7 10Z"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
               <path d="M12 7v7M9 11.5 12 14l3-2.5" stroke-linecap="round" stroke-linejoin="round" />
             </svg>
           </span>
@@ -373,7 +407,11 @@
         <div class="card-header-title">
           <span class="card-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-              <path d="M4 19V9M10 19V5M16 19v-7M20 19H4" stroke-linecap="round" stroke-linejoin="round" />
+              <path
+                d="M4 19V9M10 19V5M16 19v-7M20 19H4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
             </svg>
           </span>
           <div>
@@ -498,6 +536,84 @@
         No XIRR data available for
         {{ selectedXirrAssetCategory }}.
       </div>
+    </div>
+
+    <!-- MARKET CAP ALLOCATION -->
+    <div class="dashboard-card">
+      <div class="card-header">
+        <div class="card-header-title">
+          <span class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M12 3v9l7.5 4.3" stroke-linecap="round" stroke-linejoin="round" />
+              <circle cx="12" cy="12" r="9" />
+            </svg>
+          </span>
+          <div>
+            <h2>Market Cap Allocation</h2>
+
+            <p>Holdings by market capitalisation</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="loading-card" *ngIf="!marketCapAllocationError && !marketCapAllocation">
+        <div class="loading-spinner"></div>
+
+        <span> Loading market cap allocation... </span>
+      </div>
+
+      <div class="empty-state" *ngIf="marketCapAllocationError">
+        {{ marketCapAllocationError }}
+      </div>
+
+      <ng-container *ngIf="!marketCapAllocationError && marketCapAllocation">
+        <div class="empty-state" *ngIf="marketCapAllocation.results?.length === 0">
+          No market cap data available.
+        </div>
+
+        <div class="allocation-chart-container" *ngIf="marketCapAllocation.results?.length > 0">
+          <canvas #marketCapChart></canvas>
+        </div>
+      </ng-container>
+    </div>
+
+    <!-- NON-STOCK HOLDING TYPES -->
+    <div class="dashboard-card">
+      <div class="card-header">
+        <div class="card-header-title">
+          <span class="card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M12 3v9l7.5 4.3" stroke-linecap="round" stroke-linejoin="round" />
+              <circle cx="12" cy="12" r="9" />
+            </svg>
+          </span>
+          <div>
+            <h2>Non-Stock Holding Types</h2>
+
+            <p>What's inside the funds, bonds &amp; alternatives</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="loading-card" *ngIf="!nonStockHoldingTypesError && !nonStockHoldingTypes">
+        <div class="loading-spinner"></div>
+
+        <span> Loading holding type breakdown... </span>
+      </div>
+
+      <div class="empty-state" *ngIf="nonStockHoldingTypesError">
+        {{ nonStockHoldingTypesError }}
+      </div>
+
+      <ng-container *ngIf="!nonStockHoldingTypesError && nonStockHoldingTypes">
+        <div class="empty-state" *ngIf="nonStockHoldingTypes.results?.length === 0">
+          No non-stock holdings found.
+        </div>
+
+        <div class="allocation-chart-container" *ngIf="nonStockHoldingTypes.results?.length > 0">
+          <canvas #nonStockHoldingTypesChart></canvas>
+        </div>
+      </ng-container>
     </div>
   </ng-container>
 </div>

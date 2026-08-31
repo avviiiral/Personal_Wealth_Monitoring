@@ -1304,6 +1304,7 @@ class InvestmentSummaryService:
             )
             .values_list(
                 "id",
+                "security_master__sector",
                 "security_master__cap_type",
                 "security_master__pe_ratio",
                 "security_master__pb_ratio",
@@ -1313,12 +1314,13 @@ class InvestmentSummaryService:
 
         return {
             asset_id: {
+                "sector": sector,
                 "cap_type": cap_type,
                 "pe_ratio": pe_ratio,
                 "pb_ratio": pb_ratio,
                 "roe": roe,
             }
-            for asset_id, cap_type, pe_ratio, pb_ratio, roe in rows
+            for asset_id, sector, cap_type, pe_ratio, pb_ratio, roe in rows
         }
 
     @classmethod
@@ -1697,4 +1699,299 @@ class InvestmentSummaryService:
             "average_maturity": weighted_average("average_maturity"),
             "average_maturity_holding_count": weighted_counts["average_maturity"],
             "credit_rating_distribution": rating_distribution,
+        }
+
+    # ==========================================================
+    # SECTOR ALLOCATION
+    #
+    # Sourced from SecurityMaster.sector (populated for direct
+    # equity/other-investment holdings via refresh_security_master
+    # / the AMFI-sourced batches — investments/migrations/0007_...).
+    # Covers every equity/other-investment Holding, same population
+    # as calculate_equity_analysis — mutual funds routed through the
+    # separate MutualFundHolding model are not included here, since
+    # a fund holds many sectors at once and SecurityMaster.sector
+    # models a single security's sector, not a fund's blend.
+    # Holdings with no sector on file are bucketed under
+    # "Unclassified" rather than dropped, same pattern as
+    # market_cap_allocation / calculate_composition_by_amc.
+    # ==========================================================
+
+    @classmethod
+    def calculate_sector_allocation(cls, user):
+        """
+        Return current-value allocation by sector, across every
+        equity/other-investment Holding.
+        """
+
+        equity_holdings = list(
+            UnifiedWealthAnalytics
+            .get_equity_holdings(user)
+        )
+
+        sm_by_asset_id = (
+            cls._security_master_by_asset_id(user)
+        )
+
+        totals = {}
+
+        for holding in equity_holdings:
+            current_value = (
+                holding.current_value
+                or cls.ZERO
+            )
+
+            if current_value <= 0:
+                continue
+
+            sm = sm_by_asset_id.get(
+                holding.asset_id,
+                {},
+            )
+
+            sector = (
+                sm.get("sector")
+                or ""
+            ).strip() or "Unclassified"
+
+            totals[sector] = (
+                totals.get(
+                    sector,
+                    cls.ZERO,
+                )
+                + current_value
+            )
+
+        grand_total = sum(
+            totals.values(),
+            cls.ZERO,
+        )
+
+        results = []
+
+        for sector, value in sorted(
+            totals.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        ):
+            percentage = (
+                (value / grand_total) * 100
+                if grand_total
+                else cls.ZERO
+            )
+
+            results.append({
+                "sector": sector,
+                "current_value": value,
+                "percentage": round(
+                    percentage,
+                    2,
+                ),
+            })
+
+        return {
+            "results": results,
+            "total_current_value": grand_total,
+        }
+
+    # ==========================================================
+    # MARKET CAP ALLOCATION (Dashboard donut)
+    #
+    # Same pattern as calculate_sector_allocation above, keyed on
+    # SecurityMaster.cap_type instead of sector — populated for
+    # 73 of this project's real stock holdings via the official
+    # AMFI stock categorisation batch (see the earlier session's
+    # load_security_master_data run), giving noticeably better
+    # coverage than sector (which depends on Yahoo Finance's
+    # per-stock resolution succeeding). This is a standalone,
+    # dashboard-facing duplicate of the market_cap_allocation
+    # block already computed inside calculate_equity_analysis —
+    # kept separate rather than reusing that method directly so
+    # the Dashboard's donut doesn't have to fetch (and wait on)
+    # the P/E/P/B/ROE weighted-average computation it doesn't need.
+    # ==========================================================
+
+    @classmethod
+    def calculate_market_cap_allocation(cls, user):
+        """
+        Return current-value allocation by cap_type (Large/Mid/
+        Small Cap), across every equity/other-investment Holding.
+        """
+
+        equity_holdings = list(
+            UnifiedWealthAnalytics
+            .get_equity_holdings(user)
+        )
+
+        sm_by_asset_id = (
+            cls._security_master_by_asset_id(user)
+        )
+
+        totals = {}
+
+        for holding in equity_holdings:
+            current_value = (
+                holding.current_value
+                or cls.ZERO
+            )
+
+            if current_value <= 0:
+                continue
+
+            sm = sm_by_asset_id.get(
+                holding.asset_id,
+                {},
+            )
+
+            cap_type = (
+                sm.get("cap_type")
+                or ""
+            ).strip() or "Unclassified"
+
+            totals[cap_type] = (
+                totals.get(
+                    cap_type,
+                    cls.ZERO,
+                )
+                + current_value
+            )
+
+        grand_total = sum(
+            totals.values(),
+            cls.ZERO,
+        )
+
+        results = []
+
+        for cap_type, value in sorted(
+            totals.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        ):
+            percentage = (
+                (value / grand_total) * 100
+                if grand_total
+                else cls.ZERO
+            )
+
+            results.append({
+                "cap_type": cap_type,
+                "current_value": value,
+                "percentage": round(
+                    percentage,
+                    2,
+                ),
+            })
+
+        return {
+            "results": results,
+            "total_current_value": grand_total,
+        }
+
+    # ==========================================================
+    # NON-STOCK HOLDING TYPES (Dashboard, second donut)
+    #
+    # Large/Mid/Small Cap only applies to individual listed stocks
+    # — mutual funds, ETFs, InvITs/REITs, bonds, and unlisted/
+    # private holdings are structurally "Unclassified" on that
+    # chart, correctly, since forcing a fund into a single cap
+    # bucket would misrepresent it (a fund holds a blend of caps
+    # internally). This gives that same set of holdings a REAL,
+    # accurate classification instead: their transaction sub_class
+    # (Debt Mutual Fund, Liquid Mutual Fund, InvITs, REITs, Gold
+    # Bonds, Private Equity, Unlisted holdings, etc.) — already
+    # correctly populated for every holding, no new data source
+    # needed, unlike sector/cap_type/ratios elsewhere in this file.
+    # ==========================================================
+
+    @classmethod
+    def calculate_non_stock_holding_types(cls, user):
+        """
+        Return current-value allocation by sub_class, restricted to
+        holdings that have NO cap_type on their SecurityMaster row
+        (i.e. exactly the "Unclassified" slice of
+        calculate_market_cap_allocation) — the complementary chart
+        to that one.
+        """
+
+        asset_class_by_asset_id = (
+            cls._equity_asset_class_by_asset_id(user)
+        )
+
+        sm_by_asset_id = (
+            cls._security_master_by_asset_id(user)
+        )
+
+        equity_holdings = list(
+            UnifiedWealthAnalytics
+            .get_equity_holdings(user)
+        )
+
+        totals = {}
+
+        for holding in equity_holdings:
+            current_value = (
+                holding.current_value
+                or cls.ZERO
+            )
+
+            if current_value <= 0:
+                continue
+
+            sm = sm_by_asset_id.get(
+                holding.asset_id,
+                {},
+            )
+
+            if sm.get("cap_type"):
+                # Has a real cap_type — belongs on the Market Cap
+                # chart, not this one.
+                continue
+
+            raw_class = asset_class_by_asset_id.get(
+                holding.asset_id
+            )
+
+            asset_class = cls._normalize_asset_class(
+                raw_class
+            )
+
+            totals[asset_class] = (
+                totals.get(
+                    asset_class,
+                    cls.ZERO,
+                )
+                + current_value
+            )
+
+        grand_total = sum(
+            totals.values(),
+            cls.ZERO,
+        )
+
+        results = []
+
+        for asset_class, value in sorted(
+            totals.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        ):
+            percentage = (
+                (value / grand_total) * 100
+                if grand_total
+                else cls.ZERO
+            )
+
+            results.append({
+                "holding_type": asset_class,
+                "current_value": value,
+                "percentage": round(
+                    percentage,
+                    2,
+                ),
+            })
+
+        return {
+            "results": results,
+            "total_current_value": grand_total,
         }
