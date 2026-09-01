@@ -700,3 +700,221 @@ class SecurityDirectApiTests(BaseRBACTestCase):
         response = client.get("/api/settings/users/999999/")
 
         self.assertEqual(response.status_code, 404)
+
+
+# ======================================================================
+# FAMILY GROUPS (shared data visibility)
+# ======================================================================
+
+from users.models import FamilyGroup
+from users.permissions import get_visible_owner_ids
+
+
+class FamilyGroupModelTests(TestCase):
+    def test_get_visible_owner_ids_ungrouped_user_sees_only_self(self):
+        user = make_user("solo_user", Role.VIEWER)
+
+        self.assertEqual(get_visible_owner_ids(user), [user.id])
+
+    def test_get_visible_owner_ids_returns_all_group_members(self):
+        group = FamilyGroup.objects.create(name="Test Family")
+
+        member_a = make_user("family_member_a", Role.VIEWER)
+        member_b = make_user("family_member_b", Role.ADMIN)
+        outsider = make_user("outsider", Role.VIEWER)
+
+        member_a.profile.family_group = group
+        member_a.profile.save()
+
+        member_b.profile.family_group = group
+        member_b.profile.save()
+
+        visible = set(get_visible_owner_ids(member_a))
+
+        self.assertEqual(visible, {member_a.id, member_b.id})
+        self.assertNotIn(outsider.id, visible)
+
+
+class FamilyGroupApiTests(TestCase):
+    def setUp(self):
+        self.superuser = make_user("group_admin_super", Role.SUPERUSER)
+        self.admin = make_user("group_admin_ops", Role.ADMIN)
+        self.viewer = make_user("group_admin_viewer", Role.VIEWER)
+
+    def client_as(self, user):
+        client = APIClient()
+        client.force_authenticate(user=user)
+        return client
+
+    def test_admin_can_create_group(self):
+        client = self.client_as(self.admin)
+
+        response = client.post(
+            "/api/settings/groups/",
+            {"name": "Sharma Family"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["name"], "Sharma Family")
+        self.assertEqual(response.data["members"], [])
+
+    def test_viewer_cannot_create_group(self):
+        client = self.client_as(self.viewer)
+
+        response = client.post(
+            "/api/settings/groups/",
+            {"name": "Sneaky Family"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_add_and_remove_member(self):
+        client = self.client_as(self.admin)
+
+        group = FamilyGroup.objects.create(name="Existing Family", created_by=self.admin)
+
+        response = client.post(
+            f"/api/settings/groups/{group.id}/members/",
+            {"user_id": self.viewer.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.viewer.refresh_from_db()
+        self.assertEqual(self.viewer.profile.family_group_id, group.id)
+
+        response = client.delete(
+            f"/api/settings/groups/{group.id}/members/{self.viewer.id}/",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.viewer.refresh_from_db()
+        self.assertIsNone(self.viewer.profile.family_group_id)
+
+    def test_admin_cannot_add_superuser_to_group(self):
+        client = self.client_as(self.admin)
+
+        group = FamilyGroup.objects.create(name="Existing Family", created_by=self.admin)
+
+        response = client.post(
+            f"/api/settings/groups/{group.id}/members/",
+            {"user_id": self.superuser.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_superuser_can_add_superuser_to_group(self):
+        client = self.client_as(self.superuser)
+
+        group = FamilyGroup.objects.create(name="Existing Family", created_by=self.superuser)
+
+        response = client.post(
+            f"/api/settings/groups/{group.id}/members/",
+            {"user_id": self.superuser.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_delete_group_clears_membership(self):
+        client = self.client_as(self.admin)
+
+        group = FamilyGroup.objects.create(name="Temp Family", created_by=self.admin)
+
+        self.viewer.profile.family_group = group
+        self.viewer.profile.save()
+
+        response = client.delete(f"/api/settings/groups/{group.id}/")
+
+        self.assertEqual(response.status_code, 200)
+        self.viewer.refresh_from_db()
+        self.assertIsNone(self.viewer.profile.family_group_id)
+
+    def test_create_user_with_family_group_id(self):
+        client = self.client_as(self.admin)
+
+        group = FamilyGroup.objects.create(name="New Member Family", created_by=self.admin)
+
+        response = client.post(
+            "/api/settings/users/",
+            {
+                "username": "grouped_new_user",
+                "email": "grouped_new_user@example.com",
+                "password": "SuperSecret123!",
+                "confirm_password": "SuperSecret123!",
+                "role": Role.VIEWER,
+                "family_group_id": group.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+
+        created = User.objects.get(username="grouped_new_user")
+        self.assertEqual(created.profile.family_group_id, group.id)
+
+
+class DeleteUserApiTests(TestCase):
+    def setUp(self):
+        self.superuser = make_user("delete_test_super", Role.SUPERUSER)
+        self.admin = make_user("delete_test_admin", Role.ADMIN)
+        self.viewer = make_user("delete_test_viewer", Role.VIEWER)
+
+    def client_as(self, user):
+        client = APIClient()
+        client.force_authenticate(user=user)
+        return client
+
+    def test_admin_can_delete_viewer(self):
+        client = self.client_as(self.admin)
+
+        response = client.delete(f"/api/settings/users/{self.viewer.id}/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(User.objects.filter(pk=self.viewer.id).exists())
+
+    def test_viewer_cannot_delete_anyone(self):
+        client = self.client_as(self.viewer)
+
+        response = client.delete(f"/api/settings/users/{self.admin.id}/")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(User.objects.filter(pk=self.admin.id).exists())
+
+    def test_cannot_delete_self(self):
+        client = self.client_as(self.admin)
+
+        response = client.delete(f"/api/settings/users/{self.admin.id}/")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(User.objects.filter(pk=self.admin.id).exists())
+
+    def test_admin_cannot_delete_superuser(self):
+        client = self.client_as(self.admin)
+
+        response = client.delete(f"/api/settings/users/{self.superuser.id}/")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(User.objects.filter(pk=self.superuser.id).exists())
+
+    def test_deleting_one_of_multiple_superusers_succeeds(self):
+        client = self.client_as(self.superuser)
+
+        second_super = make_user("delete_test_super2", Role.SUPERUSER)
+
+        response = client.delete(f"/api/settings/users/{second_super.id}/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(User.objects.filter(pk=second_super.id).exists())
+        # self.superuser remains untouched.
+        self.assertTrue(User.objects.filter(pk=self.superuser.id).exists())
+
+    def test_delete_nonexistent_user_returns_404(self):
+        client = self.client_as(self.admin)
+
+        response = client.delete("/api/settings/users/999999/")
+
+        self.assertEqual(response.status_code, 404)

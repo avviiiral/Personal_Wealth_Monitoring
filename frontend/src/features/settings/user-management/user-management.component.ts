@@ -7,6 +7,7 @@ import { ToastService } from '../../../core/services/toast.service';
 
 import {
   CreateUserPayload,
+  FamilyGroup,
   ManagedUser,
   UpdateUserPayload,
   UserManagementApiService,
@@ -38,6 +39,8 @@ export class UserManagementComponent implements OnInit {
 
   error = '';
 
+  groups: FamilyGroup[] = [];
+
   // --------------------------------------------------------
   // MODAL STATE
   // --------------------------------------------------------
@@ -59,7 +62,18 @@ export class UserManagementComponent implements OnInit {
     is_active: boolean;
     password: string;
     confirm_password: string;
+    family_group_id: number | null;
   } = this.emptyForm();
+
+  // --------------------------------------------------------
+  // DELETE STATE
+  // --------------------------------------------------------
+
+  deletingUser: ManagedUser | null = null;
+
+  deleteConfirmText = '';
+
+  deleting = false;
 
   // --------------------------------------------------------
   // RESET PASSWORD STATE
@@ -75,6 +89,7 @@ export class UserManagementComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadUsers();
+    this.loadGroups();
   }
 
   // ==========================================================
@@ -121,6 +136,21 @@ export class UserManagementComponent implements OnInit {
     });
   }
 
+  loadGroups(): void {
+    this.api.listGroups().subscribe({
+      next: (groups) => {
+        this.groups = groups;
+
+        this.cdr.detectChanges();
+      },
+
+      error: () => {
+        // Non-fatal: the Add/Edit User group dropdown simply shows
+        // no options if this fails; the user list itself still works.
+      },
+    });
+  }
+
   // ==========================================================
   // ADD USER
   // ==========================================================
@@ -145,6 +175,7 @@ export class UserManagementComponent implements OnInit {
       is_active: user.is_active,
       password: '',
       confirm_password: '',
+      family_group_id: user.family_group?.id ?? null,
     };
   }
 
@@ -199,6 +230,7 @@ export class UserManagementComponent implements OnInit {
       confirm_password: this.form.confirm_password,
       role: this.form.role,
       is_active: this.form.is_active,
+      family_group_id: this.form.family_group_id,
     };
 
     this.saving = true;
@@ -248,6 +280,7 @@ export class UserManagementComponent implements OnInit {
     if (this.rbac.canManageUsers()) {
       payload.role = this.form.role;
       payload.is_active = this.form.is_active;
+      payload.family_group_id = this.form.family_group_id;
     }
 
     this.saving = true;
@@ -352,6 +385,195 @@ export class UserManagementComponent implements OnInit {
   }
 
   // ==========================================================
+  // DELETE
+  // ==========================================================
+
+  openDeleteUser(user: ManagedUser): void {
+    this.deletingUser = user;
+    this.deleteConfirmText = '';
+  }
+
+  closeDeleteUser(): void {
+    this.deletingUser = null;
+    this.deleteConfirmText = '';
+    this.deleting = false;
+  }
+
+  canConfirmDelete(): boolean {
+    return !!this.deletingUser && this.deleteConfirmText === this.deletingUser.username;
+  }
+
+  confirmDeleteUser(): void {
+    if (!this.deletingUser || this.deleting || !this.canConfirmDelete()) {
+      return;
+    }
+
+    const user = this.deletingUser;
+
+    this.deleting = true;
+
+    this.api.deleteUser(user.id).subscribe({
+      next: () => {
+        this.deleting = false;
+
+        this.toast.success(`User "${user.username}" deleted.`);
+
+        this.closeDeleteUser();
+        this.loadUsers();
+      },
+
+      error: (err) => {
+        this.deleting = false;
+
+        this.toast.error(this.extractError(err) || 'Unable to delete user.');
+
+        this.cdr.detectChanges();
+      },
+    });
+  }
+
+  // ==========================================================
+  // FAMILY GROUPS PANEL
+  // ==========================================================
+
+  showGroupPanel = false;
+
+  newGroupName = '';
+
+  creatingGroup = false;
+
+  renamingGroupId: number | null = null;
+
+  renameGroupText = '';
+
+  addMemberSelection: Record<number, number | null> = {};
+
+  toggleGroupPanel(): void {
+    this.showGroupPanel = !this.showGroupPanel;
+  }
+
+  usersNotInGroup(group: FamilyGroup): ManagedUser[] {
+    const memberIds = new Set(group.members.map((m) => m.id));
+
+    return this.users.filter((u) => !memberIds.has(u.id));
+  }
+
+  createGroup(): void {
+    const name = this.newGroupName.trim();
+
+    if (!name || this.creatingGroup) {
+      return;
+    }
+
+    this.creatingGroup = true;
+
+    this.api.createGroup(name).subscribe({
+      next: () => {
+        this.creatingGroup = false;
+        this.newGroupName = '';
+
+        this.toast.success(`Group "${name}" created.`);
+
+        this.loadGroups();
+      },
+
+      error: (err) => {
+        this.creatingGroup = false;
+
+        this.toast.error(this.extractError(err) || 'Unable to create group.');
+
+        this.cdr.detectChanges();
+      },
+    });
+  }
+
+  startRenameGroup(group: FamilyGroup): void {
+    this.renamingGroupId = group.id;
+    this.renameGroupText = group.name;
+  }
+
+  cancelRenameGroup(): void {
+    this.renamingGroupId = null;
+    this.renameGroupText = '';
+  }
+
+  saveRenameGroup(group: FamilyGroup): void {
+    const name = this.renameGroupText.trim();
+
+    if (!name) {
+      return;
+    }
+
+    this.api.renameGroup(group.id, name).subscribe({
+      next: () => {
+        this.cancelRenameGroup();
+        this.loadGroups();
+      },
+
+      error: (err) => {
+        this.toast.error(this.extractError(err) || 'Unable to rename group.');
+      },
+    });
+  }
+
+  deleteGroup(group: FamilyGroup): void {
+    const confirmed = window.confirm(
+      `Delete group "${group.name}"? Members will no longer share data - their own accounts and data are untouched.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    this.api.deleteGroup(group.id).subscribe({
+      next: () => {
+        this.toast.success(`Group "${group.name}" deleted.`);
+
+        this.loadGroups();
+        this.loadUsers();
+      },
+
+      error: (err) => {
+        this.toast.error(this.extractError(err) || 'Unable to delete group.');
+      },
+    });
+  }
+
+  addMember(group: FamilyGroup): void {
+    const userId = this.addMemberSelection[group.id];
+
+    if (!userId) {
+      return;
+    }
+
+    this.api.addGroupMember(group.id, userId).subscribe({
+      next: () => {
+        this.addMemberSelection[group.id] = null;
+
+        this.loadGroups();
+        this.loadUsers();
+      },
+
+      error: (err) => {
+        this.toast.error(this.extractError(err) || 'Unable to add member.');
+      },
+    });
+  }
+
+  removeMember(group: FamilyGroup, userId: number): void {
+    this.api.removeGroupMember(group.id, userId).subscribe({
+      next: () => {
+        this.loadGroups();
+        this.loadUsers();
+      },
+
+      error: (err) => {
+        this.toast.error(this.extractError(err) || 'Unable to remove member.');
+      },
+    });
+  }
+
+  // ==========================================================
   // HELPERS
   // ==========================================================
 
@@ -365,6 +587,7 @@ export class UserManagementComponent implements OnInit {
       is_active: true,
       password: '',
       confirm_password: '',
+      family_group_id: null as number | null,
     };
   }
 

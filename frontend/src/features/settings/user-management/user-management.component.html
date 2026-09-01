@@ -6,7 +6,74 @@
       <p>Add, edit, and manage access for PWMS users.</p>
     </div>
 
-    <button type="button" class="primary-button" (click)="openAddUser()">+ Add User</button>
+    <div class="header-actions">
+      <button type="button" class="secondary-button" (click)="toggleGroupPanel()">
+        {{ showGroupPanel ? 'Hide' : 'Manage' }} Family Groups
+      </button>
+
+      <button type="button" class="primary-button" (click)="openAddUser()">+ Add User</button>
+    </div>
+  </div>
+
+  <!-- ================================================== -->
+  <!-- FAMILY GROUPS PANEL -->
+  <!-- ================================================== -->
+
+  <div class="groups-panel" *ngIf="showGroupPanel">
+    <div class="new-group-row">
+      <input
+        type="text"
+        placeholder="New group name (e.g. Sharma Family)"
+        [(ngModel)]="newGroupName"
+      />
+      <button
+        type="button"
+        class="secondary-button"
+        (click)="createGroup()"
+        [disabled]="creatingGroup || !newGroupName.trim()"
+      >
+        + Create Group
+      </button>
+    </div>
+
+    <div class="group-card" *ngFor="let group of groups">
+      <div class="group-card-header">
+        <ng-container *ngIf="renamingGroupId !== group.id">
+          <strong>{{ group.name }}</strong>
+          <button type="button" class="link-button" (click)="startRenameGroup(group)">Rename</button>
+          <button type="button" class="link-button danger-link" (click)="deleteGroup(group)">
+            Delete
+          </button>
+        </ng-container>
+
+        <ng-container *ngIf="renamingGroupId === group.id">
+          <input type="text" [(ngModel)]="renameGroupText" class="rename-input" />
+          <button type="button" class="link-button" (click)="saveRenameGroup(group)">Save</button>
+          <button type="button" class="link-button" (click)="cancelRenameGroup()">Cancel</button>
+        </ng-container>
+      </div>
+
+      <div class="member-chips">
+        <span class="member-chip" *ngFor="let member of group.members">
+          {{ member.username }} ({{ member.role }})
+          <button type="button" (click)="removeMember(group, member.id)">×</button>
+        </span>
+
+        <span class="no-members" *ngIf="group.members.length === 0">No members yet.</span>
+      </div>
+
+      <div class="add-member-row" *ngIf="usersNotInGroup(group).length > 0">
+        <select [(ngModel)]="addMemberSelection[group.id]">
+          <option [ngValue]="null">Add a member...</option>
+          <option *ngFor="let user of usersNotInGroup(group)" [ngValue]="user.id">
+            {{ user.username }} ({{ user.role }})
+          </option>
+        </select>
+        <button type="button" class="link-button" (click)="addMember(group)">Add</button>
+      </div>
+    </div>
+
+    <p class="no-members" *ngIf="groups.length === 0">No family groups yet.</p>
   </div>
 
   <div class="loading-row" *ngIf="loading">
@@ -27,6 +94,7 @@
           <th>Username</th>
           <th>Role</th>
           <th>Status</th>
+          <th>Family Group</th>
           <th>Last Login</th>
           <th>Created</th>
           <th>Actions</th>
@@ -48,6 +116,7 @@
               {{ user.status }}
             </span>
           </td>
+          <td>{{ user.family_group ? user.family_group.name : '-' }}</td>
           <td>{{ formatDate(user.last_login) }}</td>
           <td>{{ formatDate(user.date_joined) }}</td>
           <td class="actions-cell">
@@ -66,11 +135,20 @@
             >
               {{ user.is_active ? 'Deactivate' : 'Activate' }}
             </button>
+
+            <button
+              type="button"
+              class="link-button danger-link"
+              *ngIf="user.id !== currentUserId()"
+              (click)="openDeleteUser(user)"
+            >
+              Delete
+            </button>
           </td>
         </tr>
 
         <tr *ngIf="users.length === 0">
-          <td colspan="8" class="empty-row">No users found.</td>
+          <td colspan="9" class="empty-row">No users found.</td>
         </tr>
       </tbody>
     </table>
@@ -142,6 +220,19 @@
             <span class="field-error" *ngIf="formErrors['role']">{{ formErrors['role'] }}</span>
           </div>
 
+          <div class="form-field">
+            <label>Family Group</label>
+            <select [(ngModel)]="form.family_group_id">
+              <option [ngValue]="null">No group (private)</option>
+              <option *ngFor="let group of groups" [ngValue]="group.id">
+                {{ group.name }}
+              </option>
+            </select>
+            <span class="field-help">
+              Members of the same group can view each other's portfolio data.
+            </span>
+          </div>
+
           <div class="form-field checkbox-field">
             <label>
               <input type="checkbox" [(ngModel)]="form.is_active" />
@@ -198,6 +289,47 @@
         >
           <span *ngIf="!resettingPassword">Reset Password</span>
           <span *ngIf="resettingPassword">Resetting...</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================== -->
+  <!-- DELETE USER MODAL -->
+  <!-- ================================================== -->
+
+  <div class="modal-backdrop" *ngIf="deletingUser" (click)="closeDeleteUser()">
+    <div class="modal-panel modal-panel-small" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3>Delete User</h3>
+        <button type="button" class="modal-close" (click)="closeDeleteUser()">×</button>
+      </div>
+
+      <div class="modal-body">
+        <p class="delete-warning">
+          This will permanently delete <strong>{{ deletingUser!.username }}</strong> and all of
+          their portfolio data (holdings, transactions, SIPs). This cannot be undone.
+        </p>
+
+        <div class="form-field">
+          <label>
+            Type <strong>{{ deletingUser!.username }}</strong> to confirm
+          </label>
+          <input type="text" [(ngModel)]="deleteConfirmText" autocomplete="off" />
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="secondary-button" (click)="closeDeleteUser()">Cancel</button>
+
+        <button
+          type="button"
+          class="danger-button"
+          (click)="confirmDeleteUser()"
+          [disabled]="!canConfirmDelete() || deleting"
+        >
+          <span *ngIf="!deleting">Delete User</span>
+          <span *ngIf="deleting">Deleting...</span>
         </button>
       </div>
     </div>

@@ -6,7 +6,7 @@ from django.db import transaction
 
 from rest_framework import serializers
 
-from .models import Role, UserProfile
+from .models import Role, UserProfile, FamilyGroup
 from .permissions import get_role, is_admin, is_superuser_role
 
 User = get_user_model()
@@ -26,6 +26,7 @@ class UserListSerializer(serializers.ModelSerializer):
 
     role = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
+    family_group = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -40,6 +41,7 @@ class UserListSerializer(serializers.ModelSerializer):
             "is_active",
             "last_login",
             "date_joined",
+            "family_group",
         ]
         read_only_fields = fields
 
@@ -48,6 +50,14 @@ class UserListSerializer(serializers.ModelSerializer):
 
     def get_status(self, obj) -> str:
         return "Active" if obj.is_active else "Inactive"
+
+    def get_family_group(self, obj):
+        profile = getattr(obj, "profile", None)
+
+        if profile is None or profile.family_group_id is None:
+            return None
+
+        return {"id": profile.family_group_id, "name": profile.family_group.name}
 
 
 class CurrentUserSerializer(UserListSerializer):
@@ -90,6 +100,12 @@ class UserCreateSerializer(serializers.ModelSerializer):
     confirm_password = serializers.CharField(write_only=True, min_length=1)
     role = serializers.ChoiceField(choices=Role.choices, default=Role.VIEWER)
     is_active = serializers.BooleanField(default=True)
+    family_group_id = serializers.PrimaryKeyRelatedField(
+        source="family_group",
+        queryset=FamilyGroup.objects.all(),
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = User
@@ -103,6 +119,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
             "confirm_password",
             "role",
             "is_active",
+            "family_group_id",
         ]
 
     def validate_username(self, value):
@@ -164,6 +181,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         role = validated_data.pop("role", Role.VIEWER)
         password = validated_data.pop("password")
+        family_group = validated_data.pop("family_group", "unset")
 
         user = User(**validated_data)
         user.set_password(password)
@@ -189,7 +207,14 @@ class UserCreateSerializer(serializers.ModelSerializer):
         # in sync.
         profile = user.profile
         profile.role = role
-        profile.save(update_fields=["role", "updated_at"])
+
+        update_fields = ["role", "updated_at"]
+
+        if family_group != "unset":
+            profile.family_group = family_group
+            update_fields.append("family_group")
+
+        profile.save(update_fields=update_fields)
 
         return user
 
@@ -213,6 +238,12 @@ class UserUpdateSerializer(serializers.ModelSerializer):
     """
 
     role = serializers.ChoiceField(choices=Role.choices, required=False)
+    family_group_id = serializers.PrimaryKeyRelatedField(
+        source="family_group",
+        queryset=FamilyGroup.objects.all(),
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = User
@@ -224,6 +255,7 @@ class UserUpdateSerializer(serializers.ModelSerializer):
             "email",
             "role",
             "is_active",
+            "family_group_id",
         ]
         extra_kwargs = {
             "id": {"read_only": True},
@@ -279,7 +311,7 @@ class UserUpdateSerializer(serializers.ModelSerializer):
                     "You do not have permission to edit other users."
                 )
 
-            for locked_field in ("role", "is_active"):
+            for locked_field in ("role", "is_active", "family_group"):
                 if locked_field in attrs:
                     raise serializers.ValidationError(
                         {locked_field: "You do not have permission to change this field."}
@@ -320,11 +352,28 @@ class UserUpdateSerializer(serializers.ModelSerializer):
                     {"is_active": "Cannot deactivate the last active Super User."}
                 )
 
+        # A Super User account's shared-visibility group membership
+        # is itself a privileged setting - only a Super User may
+        # change it, same as role/is_active above.
+        if "family_group" in attrs:
+            if get_role(target_user) == Role.SUPERUSER and not is_superuser_role(
+                requesting_user
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "family_group_id": (
+                            "Only a Super User can change another Super User's "
+                            "group membership."
+                        )
+                    }
+                )
+
         return attrs
 
     @transaction.atomic
     def update(self, instance, validated_data):
         role = validated_data.pop("role", None)
+        family_group = validated_data.pop("family_group", "unset")
 
         for field, value in validated_data.items():
             setattr(instance, field, value)
@@ -347,6 +396,11 @@ class UserUpdateSerializer(serializers.ModelSerializer):
             profile = instance.profile
             profile.role = role
             profile.save(update_fields=["role", "updated_at"])
+
+        if family_group != "unset":
+            profile = instance.profile
+            profile.family_group = family_group
+            profile.save(update_fields=["family_group", "updated_at"])
 
         return instance
 
@@ -381,3 +435,87 @@ class AdminPasswordResetSerializer(serializers.Serializer):
             raise serializers.ValidationError({"new_password": exc.messages})
 
         return attrs
+
+
+# ==================================================================
+# FAMILY GROUPS
+# ==================================================================
+
+
+class FamilyGroupMemberSerializer(serializers.ModelSerializer):
+    """A member row within a FamilyGroup's member list."""
+
+    role = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ["id", "first_name", "last_name", "username", "email", "role"]
+        read_only_fields = fields
+
+    def get_role(self, obj) -> str:
+        return get_role(obj) or Role.VIEWER
+
+
+class FamilyGroupSerializer(serializers.ModelSerializer):
+    """
+    `GET /api/settings/groups/`
+
+    Returns each group with its member list, so the frontend can
+    render group -> members without a second round trip per group.
+    """
+
+    members = serializers.SerializerMethodField()
+
+    created_by_username = serializers.CharField(
+        source="created_by.username", read_only=True, default=None
+    )
+
+    class Meta:
+        model = FamilyGroup
+        fields = ["id", "name", "created_by_username", "created_at", "members"]
+        read_only_fields = fields
+
+    def get_members(self, obj):
+        members = User.objects.filter(profile__family_group=obj).order_by("username")
+
+        return FamilyGroupMemberSerializer(members, many=True).data
+
+
+class FamilyGroupCreateSerializer(serializers.ModelSerializer):
+    """`POST /api/settings/groups/` - Admin/Super User only."""
+
+    class Meta:
+        model = FamilyGroup
+        fields = ["id", "name"]
+
+    def validate_name(self, value):
+        value = value.strip()
+
+        if not value:
+            raise serializers.ValidationError("Group name is required.")
+
+        return value
+
+    def create(self, validated_data):
+        request = self.context["request"]
+
+        return FamilyGroup.objects.create(
+            created_by=request.user,
+            **validated_data,
+        )
+
+
+class FamilyGroupUpdateSerializer(serializers.ModelSerializer):
+    """`PATCH /api/settings/groups/<id>/` - rename only."""
+
+    class Meta:
+        model = FamilyGroup
+        fields = ["id", "name"]
+
+    def validate_name(self, value):
+        value = value.strip()
+
+        if not value:
+            raise serializers.ValidationError("Group name is required.")
+
+        return value

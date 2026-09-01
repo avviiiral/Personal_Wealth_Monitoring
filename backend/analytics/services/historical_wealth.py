@@ -31,6 +31,19 @@ class HistoricalWealthAnalytics:
 
     ZERO = Decimal("0")
 
+    @staticmethod
+    def _owner_ids(user):
+        """
+        Normalize `user` to a list of owner ids to filter by.
+
+        Accepts either a single User instance (existing,
+        single-owner behavior - unchanged) or an iterable of user
+        ids, for combining data across a shared-visibility group
+        (see users.permissions.get_visible_owner_ids).
+        """
+
+        return [user.pk] if hasattr(user, "pk") else list(user)
+
     # ==========================================================
     # EQUITY TRANSACTION HELPER
     # ==========================================================
@@ -665,7 +678,7 @@ class HistoricalWealthAnalytics:
         equity_asset_ids = (
             Transaction.objects
             .filter(
-                owner=user,
+                owner_id__in=HistoricalWealthAnalytics._owner_ids(user),
                 transaction_date__lte=target_date,
             )
             .values_list(
@@ -678,7 +691,7 @@ class HistoricalWealthAnalytics:
         assets = (
             Asset.objects
             .filter(
-                owner=user,
+                owner_id__in=HistoricalWealthAnalytics._owner_ids(user),
                 is_active=True,
                 id__in=equity_asset_ids,
             )
@@ -687,10 +700,16 @@ class HistoricalWealthAnalytics:
 
         for asset in assets:
 
+            # Use this asset's OWN real owner, never the `user`
+            # argument above - when `user` represents a
+            # shared-visibility group, different assets in this
+            # loop may belong to different actual owners, and the
+            # position lookup below must match the transactions
+            # that asset's real owner actually made.
             position = (
                 HistoricalWealthAnalytics
                 .calculate_equity_position_as_of(
-                    user,
+                    asset.owner,
                     asset,
                     target_date,
                 )
@@ -731,7 +750,7 @@ class HistoricalWealthAnalytics:
         mutual_fund_scheme_ids = (
             MutualFundTransaction.objects
             .filter(
-                owner=user,
+                owner_id__in=HistoricalWealthAnalytics._owner_ids(user),
                 transaction_date__lte=target_date,
             )
             .values_list(
@@ -744,7 +763,7 @@ class HistoricalWealthAnalytics:
         schemes = (
             MutualFundScheme.objects
             .filter(
-                owner=user,
+                owner_id__in=HistoricalWealthAnalytics._owner_ids(user),
                 is_active=True,
                 id__in=mutual_fund_scheme_ids,
             )
@@ -753,10 +772,12 @@ class HistoricalWealthAnalytics:
 
         for scheme in schemes:
 
+            # Same reasoning as the equity loop above: use this
+            # scheme's own real owner, not the outer `user`.
             position = (
                 HistoricalWealthAnalytics
                 .calculate_mutual_fund_position_as_of(
-                    user,
+                    scheme.owner,
                     scheme,
                     target_date,
                 )
@@ -890,7 +911,7 @@ class HistoricalWealthAnalytics:
         equity_transactions_qs = (
             Transaction.objects
             .filter(
-                owner=user,
+                owner_id__in=HistoricalWealthAnalytics._owner_ids(user),
                 transaction_date__lte=end_date,
             )
         )
@@ -933,7 +954,7 @@ class HistoricalWealthAnalytics:
         assets = list(
             Asset.objects
             .filter(
-                owner=user,
+                owner_id__in=HistoricalWealthAnalytics._owner_ids(user),
                 is_active=True,
                 id__in=equity_asset_ids,
             )
@@ -987,7 +1008,7 @@ class HistoricalWealthAnalytics:
         mutual_fund_transactions_qs = (
             MutualFundTransaction.objects
             .filter(
-                owner=user,
+                owner_id__in=HistoricalWealthAnalytics._owner_ids(user),
                 transaction_date__lte=end_date,
             )
         )
@@ -1030,7 +1051,7 @@ class HistoricalWealthAnalytics:
         schemes = list(
             MutualFundScheme.objects
             .filter(
-                owner=user,
+                owner_id__in=HistoricalWealthAnalytics._owner_ids(user),
                 is_active=True,
                 id__in=mutual_fund_scheme_ids,
             )

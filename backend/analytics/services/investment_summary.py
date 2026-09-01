@@ -56,6 +56,19 @@ class InvestmentSummaryService:
 
     ZERO = Decimal("0")
 
+    @staticmethod
+    def _owner_ids(user):
+        """
+        Normalize `user` to a list of owner ids to filter by.
+
+        Accepts either a single User instance (existing,
+        single-owner behavior - unchanged) or an iterable of user
+        ids, for combining data across a shared-visibility group
+        (see users.permissions.get_visible_owner_ids).
+        """
+
+        return [user.pk] if hasattr(user, "pk") else list(user)
+
     # Master Asset Category -> Asset Class mapping. This also defines
     # the display order of the Investment Summary table. Do not add,
     # remove, or rename entries here without updating the business
@@ -245,7 +258,7 @@ class InvestmentSummaryService:
 
         rows_qs = (
             Transaction.objects
-            .filter(owner=user)
+            .filter(owner_id__in=InvestmentSummaryService._owner_ids(user))
             .exclude(sub_class__isnull=True)
             .exclude(sub_class__exact="")
         )
@@ -312,7 +325,7 @@ class InvestmentSummaryService:
 
         rows_qs = (
             Transaction.objects
-            .filter(owner=user)
+            .filter(owner_id__in=InvestmentSummaryService._owner_ids(user))
             .exclude(sub_class__isnull=True)
             .exclude(sub_class__exact="")
         )
@@ -407,7 +420,7 @@ class InvestmentSummaryService:
         transactions = (
             Transaction.objects
             .filter(
-                owner=user,
+                owner_id__in=InvestmentSummaryService._owner_ids(user),
                 family_name=family_name,
             )
             .select_related("asset__holding")
@@ -484,7 +497,7 @@ class InvestmentSummaryService:
         transactions = (
             MutualFundTransaction.objects
             .filter(
-                owner=user,
+                owner_id__in=InvestmentSummaryService._owner_ids(user),
                 family_name=family_name,
             )
             .select_related("scheme__holding")
@@ -886,7 +899,7 @@ class InvestmentSummaryService:
 
         rows = (
             Transaction.objects
-            .filter(owner=user)
+            .filter(owner_id__in=InvestmentSummaryService._owner_ids(user))
             .exclude(advisors__isnull=True)
             .exclude(advisors__exact="")
             .order_by(
@@ -1142,7 +1155,7 @@ class InvestmentSummaryService:
         rows = (
             Asset.objects
             .filter(
-                owner=user,
+                owner_id__in=InvestmentSummaryService._owner_ids(user),
                 security_master__isnull=False,
             )
             .exclude(security_master__amc_name__isnull=True)
@@ -1299,7 +1312,7 @@ class InvestmentSummaryService:
         rows = (
             Asset.objects
             .filter(
-                owner=user,
+                owner_id__in=InvestmentSummaryService._owner_ids(user),
                 security_master__isnull=False,
             )
             .values_list(
@@ -1481,7 +1494,7 @@ class InvestmentSummaryService:
         rows = (
             Asset.objects
             .filter(
-                owner=user,
+                owner_id__in=InvestmentSummaryService._owner_ids(user),
                 security_master__isnull=False,
             )
             .values_list(

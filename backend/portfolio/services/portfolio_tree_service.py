@@ -45,10 +45,10 @@ class PortfolioTreeService:
         return float(value)
 
     @classmethod
-    def _get_transactions(cls, owner) -> QuerySet:
+    def _get_transactions(cls, owner_ids) -> QuerySet:
         return (
             Transaction.objects
-            .filter(owner=owner)
+            .filter(owner_id__in=owner_ids)
             .select_related(
                 "asset",
                 "asset__security_master",
@@ -144,7 +144,6 @@ class PortfolioTreeService:
     @classmethod
     def _build_asset(
         cls,
-        owner,
         transactions,
     ):
         first = transactions[0]
@@ -154,7 +153,15 @@ class PortfolioTreeService:
         # IMPORTANT:
         #
         # These transactions already belong to ONE exact portfolio
-        # strategy/sub-class/asset combination.
+        # strategy/sub-class/asset combination, and (since Asset is
+        # owned by exactly one user) to exactly one real owner -
+        # `first.owner`. When building a combined tree across a
+        # shared-visibility group, that may differ from whichever
+        # user is currently viewing the tree, so metrics MUST be
+        # computed against the transaction's actual owner, never a
+        # "current viewer" passed down from the caller - otherwise
+        # position/XIRR lookups would silently search the wrong
+        # owner's transactions and return zero/incorrect values.
         #
         # Therefore quantity and invested value MUST come from this
         # transaction set.
@@ -171,7 +178,7 @@ class PortfolioTreeService:
             metrics = (
                 PortfolioMetricsService
                 .calculate_asset_metrics(
-                    owner=owner,
+                    owner=first.owner,
                     family_name=cls._clean(
                         first.family_name
                     ),
@@ -482,8 +489,23 @@ class PortfolioTreeService:
 
     @classmethod
     def build(cls, owner):
+        """
+        Build the portfolio tree.
+
+        `owner` accepts either a single User instance (existing,
+        single-owner behavior - unchanged) or an iterable of user
+        ids, for building a combined tree across a shared-visibility
+        group (see users.permissions.get_visible_owner_ids). Each
+        leaf node's metrics are always computed against that node's
+        actual transaction owner (see `_build_asset`), never the
+        `owner` argument here, so combining owners never mixes up
+        whose transactions a position/XIRR calculation is based on.
+        """
+
+        owner_ids = [owner.pk] if hasattr(owner, "pk") else list(owner)
+
         transactions = list(
-            cls._get_transactions(owner)
+            cls._get_transactions(owner_ids)
         )
 
         tree = {}
@@ -545,7 +567,6 @@ class PortfolioTreeService:
         ), asset_transactions in grouped.items():
 
             asset_data = cls._build_asset(
-                owner=owner,
                 transactions=asset_transactions,
             )
             

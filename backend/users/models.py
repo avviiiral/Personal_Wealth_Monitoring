@@ -112,6 +112,20 @@ class UserProfile(models.Model):
         default=Role.VIEWER,
     )
 
+    family_group = models.ForeignKey(
+        "FamilyGroup",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="members",
+        help_text=(
+            "Optional shared-visibility group. Members of the same "
+            "group can view each other's portfolio data; membership "
+            "never affects edit permissions, which stay governed by "
+            "role and actual resource ownership."
+        ),
+    )
+
     created_at = models.DateTimeField(
         auto_now_add=True,
     )
@@ -160,3 +174,44 @@ class UserProfile(models.Model):
         ).count()
 
         return count <= 1
+
+
+# ==============================================================
+# FAMILY GROUPS (shared data visibility)
+# ==============================================================
+#
+# A FamilyGroup is an opt-in visibility boundary: every member of
+# a group can VIEW every other member's portfolio data (Dashboard,
+# Portfolio, Analytics, Mutual Funds/SIPs). It does NOT change who
+# can EDIT what - manual price overrides and any other write
+# action remain scoped to the actual resource owner and governed
+# by the existing Role permissions.
+#
+# A user belongs to at most one group at a time (keeps "whose
+# data am I looking at" unambiguous). There can be any number of
+# groups system-wide, each representing an independent family/
+# household whose members share visibility only within that group.
+
+
+class FamilyGroup(models.Model):
+    name = models.CharField(
+        max_length=100,
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="family_groups_created",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name

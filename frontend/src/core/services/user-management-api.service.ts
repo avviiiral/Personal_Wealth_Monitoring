@@ -16,6 +16,7 @@ export interface ManagedUser {
   is_active: boolean;
   last_login: string | null;
   date_joined: string;
+  family_group: { id: number; name: string } | null;
 }
 
 export interface CreateUserPayload {
@@ -27,6 +28,7 @@ export interface CreateUserPayload {
   confirm_password: string;
   role: PwmsRole;
   is_active?: boolean;
+  family_group_id?: number | null;
 }
 
 export interface UpdateUserPayload {
@@ -36,6 +38,24 @@ export interface UpdateUserPayload {
   email?: string;
   role?: PwmsRole;
   is_active?: boolean;
+  family_group_id?: number | null;
+}
+
+export interface FamilyGroupMember {
+  id: number;
+  first_name: string;
+  last_name: string;
+  username: string;
+  email: string;
+  role: PwmsRole;
+}
+
+export interface FamilyGroup {
+  id: number;
+  name: string;
+  created_by_username: string | null;
+  created_at: string;
+  members: FamilyGroupMember[];
 }
 
 export interface ApiErrorDetail {
@@ -149,6 +169,63 @@ export class UserManagementApiService {
         new_password: newPassword,
         confirm_password: confirmPassword,
       },
+      this.writeHeaders(),
+    );
+  }
+
+  // ======================================================
+  // DELETE
+  // ======================================================
+
+  deleteUser(id: number): Observable<{ message: string }> {
+    return this.http.delete<{ message: string }>(
+      `${this.baseUrl}/users/${id}/`,
+      this.writeHeaders(),
+    );
+  }
+
+  // ======================================================
+  // FAMILY GROUPS
+  // ======================================================
+
+  listGroups(): Observable<FamilyGroup[]> {
+    return this.http.get<FamilyGroup[]>(`${this.baseUrl}/groups/`, this.requestOptions);
+  }
+
+  createGroup(name: string): Observable<FamilyGroup> {
+    return this.http.post<FamilyGroup>(
+      `${this.baseUrl}/groups/`,
+      { name },
+      this.writeHeaders(),
+    );
+  }
+
+  renameGroup(id: number, name: string): Observable<FamilyGroup> {
+    return this.http.patch<FamilyGroup>(
+      `${this.baseUrl}/groups/${id}/`,
+      { name },
+      this.writeHeaders(),
+    );
+  }
+
+  deleteGroup(id: number): Observable<{ message: string }> {
+    return this.http.delete<{ message: string }>(
+      `${this.baseUrl}/groups/${id}/`,
+      this.writeHeaders(),
+    );
+  }
+
+  addGroupMember(groupId: number, userId: number): Observable<FamilyGroup> {
+    return this.http.post<FamilyGroup>(
+      `${this.baseUrl}/groups/${groupId}/members/`,
+      { user_id: userId },
+      this.writeHeaders(),
+    );
+  }
+
+  removeGroupMember(groupId: number, userId: number): Observable<FamilyGroup> {
+    return this.http.delete<FamilyGroup>(
+      `${this.baseUrl}/groups/${groupId}/members/${userId}/`,
       this.writeHeaders(),
     );
   }

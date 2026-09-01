@@ -56,6 +56,30 @@ def is_admin_or_above(user) -> bool:
     return get_role(user) in (Role.ADMIN, Role.SUPERUSER)
 
 
+def get_visible_owner_ids(user) -> list[int]:
+    """
+    IDs of the users whose portfolio data `user` may VIEW.
+
+    Always includes the user themselves. If they belong to a
+    FamilyGroup, every member of that group is included too -
+    membership is a pure visibility grant and never implies edit
+    rights, which stay governed by role and actual ownership.
+    """
+
+    from .models import UserProfile
+
+    profile = getattr(user, "profile", None)
+
+    if profile is None or profile.family_group_id is None:
+        return [user.id]
+
+    return list(
+        UserProfile.objects
+        .filter(family_group_id=profile.family_group_id)
+        .values_list("user_id", flat=True)
+    )
+
+
 class IsViewer(BasePermission):
     """User is authenticated and has (at least) the Viewer role."""
 

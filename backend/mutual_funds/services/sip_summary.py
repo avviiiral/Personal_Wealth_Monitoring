@@ -8,14 +8,23 @@ from mutual_funds.models import SIP, SIPInstallment
 class SIPSummaryService:
 
     @staticmethod
+    def _owner_ids(user):
+        """Normalize to a list of owner ids (single User or an
+        iterable of ids - see users.permissions.get_visible_owner_ids)."""
+
+        return [user.pk] if hasattr(user, "pk") else list(user)
+
+    @staticmethod
     def get_summary(user):
 
+        owner_ids = SIPSummaryService._owner_ids(user)
+
         sips = SIP.objects.filter(
-            owner=user
+            owner_id__in=owner_ids
         )
 
         installments = SIPInstallment.objects.filter(
-            sip__owner=user
+            sip__owner_id__in=owner_ids
         )
 
         executed = installments.filter(

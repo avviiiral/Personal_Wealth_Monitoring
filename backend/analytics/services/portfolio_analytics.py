@@ -19,10 +19,23 @@ class PortfolioAnalytics:
     ZERO = Decimal("0")
 
     @staticmethod
+    def _owner_ids(user):
+        """
+        Normalize `user` to a list of owner ids to filter by.
+
+        Accepts either a single User instance (existing,
+        single-owner behavior - unchanged) or an iterable of user
+        ids, for combining data across a shared-visibility group
+        (see users.permissions.get_visible_owner_ids).
+        """
+
+        return [user.pk] if hasattr(user, "pk") else list(user)
+
+    @staticmethod
     def calculate_xirr(user):
         transactions = (
             Transaction.objects
-            .filter(owner=user)
+            .filter(owner_id__in=PortfolioAnalytics._owner_ids(user))
             .order_by(
                 "transaction_date",
                 "created_at",
@@ -91,7 +104,7 @@ class PortfolioAnalytics:
         return (
             Holding.objects
             .filter(
-                owner=user,
+                owner_id__in=PortfolioAnalytics._owner_ids(user),
                 asset__is_active=True,
             )
             .select_related("asset")
@@ -124,7 +137,7 @@ class PortfolioAnalytics:
     def calculate_realized_pnl(user):
         transactions = (
             Transaction.objects
-            .filter(owner=user)
+            .filter(owner_id__in=PortfolioAnalytics._owner_ids(user))
             .select_related("asset")
             .order_by(
                 "asset_id",
@@ -426,7 +439,7 @@ class PortfolioAnalytics:
         assets = (
             Asset.objects
             .filter(
-                owner=user,
+                owner_id__in=PortfolioAnalytics._owner_ids(user),
                 is_active=True,
             )
         )

@@ -4,6 +4,10 @@ from .api_views import (
     activate_user,
     current_user_settings,
     deactivate_user,
+    group_add_member,
+    group_detail,
+    group_list,
+    group_remove_member,
     reset_user_password,
     user_detail,
     user_list,
@@ -57,6 +61,34 @@ urlpatterns = [
         "users/<int:user_id>/reset-password/",
         reset_user_password,
         name="settings-user-reset-password",
+    ),
+
+    # ------------------------------------------------------
+    # FAMILY GROUPS (shared data visibility)
+    # ------------------------------------------------------
+
+    path(
+        "groups/",
+        group_list,
+        name="settings-groups",
+    ),
+
+    path(
+        "groups/<int:group_id>/",
+        group_detail,
+        name="settings-group-detail",
+    ),
+
+    path(
+        "groups/<int:group_id>/members/",
+        group_add_member,
+        name="settings-group-add-member",
+    ),
+
+    path(
+        "groups/<int:group_id>/members/<int:user_id>/",
+        group_remove_member,
+        name="settings-group-remove-member",
     ),
 
     # ------------------------------------------------------

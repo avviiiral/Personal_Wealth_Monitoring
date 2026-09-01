@@ -36,6 +36,19 @@ class UnifiedWealthAnalytics:
 
     ZERO = Decimal("0")
 
+    @staticmethod
+    def _owner_ids(user):
+        """
+        Normalize `user` to a list of owner ids to filter by.
+
+        Accepts either a single User instance (existing,
+        single-owner behavior - unchanged) or an iterable of user
+        ids, for combining data across a shared-visibility group
+        (see users.permissions.get_visible_owner_ids).
+        """
+
+        return [user.pk] if hasattr(user, "pk") else list(user)
+
     # ==========================================================
     # EQUITY
     # ==========================================================
@@ -49,7 +62,7 @@ class UnifiedWealthAnalytics:
         return (
             Holding.objects
             .filter(
-                owner=user,
+                owner_id__in=UnifiedWealthAnalytics._owner_ids(user),
                 asset__is_active=True,
             )
             .select_related("asset")
@@ -112,7 +125,7 @@ class UnifiedWealthAnalytics:
 
         transactions_qs = (
             Transaction.objects
-            .filter(owner=user)
+            .filter(owner_id__in=UnifiedWealthAnalytics._owner_ids(user))
         )
 
         if family_name:
@@ -226,7 +239,7 @@ class UnifiedWealthAnalytics:
         return (
             MutualFundHolding.objects
             .filter(
-                owner=user,
+                owner_id__in=UnifiedWealthAnalytics._owner_ids(user),
                 scheme__is_active=True,
             )
             .select_related("scheme")
@@ -289,7 +302,7 @@ class UnifiedWealthAnalytics:
 
         transactions_qs = (
             MutualFundTransaction.objects
-            .filter(owner=user)
+            .filter(owner_id__in=UnifiedWealthAnalytics._owner_ids(user))
         )
 
         if family_name:
@@ -418,7 +431,7 @@ class UnifiedWealthAnalytics:
         equity_transactions = (
             Transaction.objects
             .filter(
-                owner=user,
+                owner_id__in=UnifiedWealthAnalytics._owner_ids(user),
                 family_name=family_name,
             )
             .order_by(
@@ -454,7 +467,7 @@ class UnifiedWealthAnalytics:
         mutual_fund_transactions = (
             MutualFundTransaction.objects
             .filter(
-                owner=user,
+                owner_id__in=UnifiedWealthAnalytics._owner_ids(user),
                 family_name=family_name,
             )
             .order_by(
@@ -778,7 +791,7 @@ class UnifiedWealthAnalytics:
 
         equity_transactions_qs = (
             Transaction.objects
-            .filter(owner=user)
+            .filter(owner_id__in=UnifiedWealthAnalytics._owner_ids(user))
         )
 
         if family_name:
@@ -837,7 +850,7 @@ class UnifiedWealthAnalytics:
 
         mutual_fund_transactions_qs = (
             MutualFundTransaction.objects
-            .filter(owner=user)
+            .filter(owner_id__in=UnifiedWealthAnalytics._owner_ids(user))
         )
 
         if family_name:

@@ -16,6 +16,8 @@ from .services.security_master import (
     SecurityMasterService,
 )
 
+from users.permissions import get_visible_owner_ids
+
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
@@ -107,7 +109,7 @@ def security_master_list(request):
 
     securities = (
         SecurityMaster.objects
-        .filter(owner=request.user)
+        .filter(owner_id__in=get_visible_owner_ids(request.user))
         .order_by("asset_name")
     )
 

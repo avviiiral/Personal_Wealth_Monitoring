@@ -8,6 +8,8 @@ from .services.investment_summary import InvestmentSummaryService
 from .services.portfolio_analytics import PortfolioAnalytics
 from .services.unified_wealth import UnifiedWealthAnalytics
 
+from users.permissions import get_visible_owner_ids
+
 
 # ==========================================================
 # EXISTING ANALYTICS ENDPOINTS
@@ -17,7 +19,7 @@ from .services.unified_wealth import UnifiedWealthAnalytics
 @permission_classes([IsAuthenticated])
 def analytics_summary(request):
     data = PortfolioAnalytics.calculate_summary(
-        request.user
+        get_visible_owner_ids(request.user)
     )
 
     return Response(data)
@@ -27,7 +29,7 @@ def analytics_summary(request):
 @permission_classes([IsAuthenticated])
 def analytics_allocation(request):
     data = PortfolioAnalytics.calculate_allocation(
-        request.user
+        get_visible_owner_ids(request.user)
     )
 
     return Response({
@@ -39,7 +41,7 @@ def analytics_allocation(request):
 @permission_classes([IsAuthenticated])
 def analytics_performance(request):
     data = PortfolioAnalytics.get_performance_ranking(
-        request.user
+        get_visible_owner_ids(request.user)
     )
 
     return Response({
@@ -83,11 +85,13 @@ def analytics_historical(request):
 
     current_date = start_date
 
+    owner_ids = get_visible_owner_ids(request.user)
+
     while current_date <= end_date:
         result = (
             PortfolioAnalytics
             .calculate_historical_value(
-                request.user,
+                owner_ids,
                 current_date,
             )
         )
@@ -133,7 +137,7 @@ def wealth_summary(request):
     family_name = request.GET.get("family") or None
 
     data = UnifiedWealthAnalytics.calculate_summary(
-        request.user,
+        get_visible_owner_ids(request.user),
         family_name=family_name,
     )
 
@@ -148,7 +152,7 @@ def wealth_allocation(request):
     """
 
     data = UnifiedWealthAnalytics.calculate_allocation(
-        request.user
+        get_visible_owner_ids(request.user)
     )
 
     return Response({
@@ -167,7 +171,7 @@ def wealth_performance(request):
     """
 
     data = UnifiedWealthAnalytics.calculate_performance(
-        request.user
+        get_visible_owner_ids(request.user)
     )
 
     return Response({
@@ -188,7 +192,7 @@ def wealth_xirr(request):
     family_name = request.GET.get("family") or None
 
     data = UnifiedWealthAnalytics.calculate_xirr(
-        request.user,
+        get_visible_owner_ids(request.user),
         family_name=family_name,
     )
 
@@ -212,7 +216,7 @@ def wealth_investment_summary(request):
     family_name = request.GET.get("family") or None
 
     data = InvestmentSummaryService.calculate(
-        request.user,
+        get_visible_owner_ids(request.user),
         family_name=family_name,
     )
 
@@ -231,7 +235,7 @@ def wealth_performance_by_subclass(request):
     data = (
         InvestmentSummaryService
         .calculate_performance_by_subclass(
-            request.user
+            get_visible_owner_ids(request.user)
         )
     )
 
@@ -250,7 +254,7 @@ def wealth_allocation_by_advisor(request):
     data = (
         InvestmentSummaryService
         .calculate_allocation_by_advisor(
-            request.user
+            get_visible_owner_ids(request.user)
         )
     )
 
@@ -268,7 +272,7 @@ def wealth_performance_by_advisor(request):
     data = (
         InvestmentSummaryService
         .calculate_performance_by_advisor(
-            request.user
+            get_visible_owner_ids(request.user)
         )
     )
 
@@ -322,7 +326,7 @@ def wealth_historical(request):
     results = (
         HistoricalWealthAnalytics
         .calculate_history(
-            request.user,
+            get_visible_owner_ids(request.user),
             start_date,
             end_date,
             family_name=family_name,
@@ -348,7 +352,7 @@ def wealth_composition_by_amc(request):
     data = (
         InvestmentSummaryService
         .calculate_composition_by_amc(
-            request.user
+            get_visible_owner_ids(request.user)
         )
     )
 
@@ -366,7 +370,7 @@ def wealth_equity_analysis(request):
     data = (
         InvestmentSummaryService
         .calculate_equity_analysis(
-            request.user
+            get_visible_owner_ids(request.user)
         )
     )
 
@@ -385,7 +389,7 @@ def wealth_fixed_income_analysis(request):
     data = (
         InvestmentSummaryService
         .calculate_fixed_income_analysis(
-            request.user
+            get_visible_owner_ids(request.user)
         )
     )
 
@@ -403,7 +407,7 @@ def wealth_sector_allocation(request):
     data = (
         InvestmentSummaryService
         .calculate_sector_allocation(
-            request.user
+            get_visible_owner_ids(request.user)
         )
     )
 
@@ -421,7 +425,7 @@ def wealth_market_cap_allocation(request):
     data = (
         InvestmentSummaryService
         .calculate_market_cap_allocation(
-            request.user
+            get_visible_owner_ids(request.user)
         )
     )
 
@@ -440,7 +444,7 @@ def wealth_non_stock_holding_types(request):
     data = (
         InvestmentSummaryService
         .calculate_non_stock_holding_types(
-            request.user
+            get_visible_owner_ids(request.user)
         )
     )
 
