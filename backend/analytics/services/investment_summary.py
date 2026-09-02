@@ -1827,8 +1827,23 @@ class InvestmentSummaryService:
     @classmethod
     def calculate_market_cap_allocation(cls, user):
         """
-        Return current-value allocation by cap_type (Large/Mid/
-        Small Cap), across every equity/other-investment Holding.
+        Return current-value allocation across every equity/other-
+        investment Holding: Large/Mid/Small Cap for holdings with a
+        real cap_type on their SecurityMaster row, and — in place of
+        a single lumped "Unclassified" bucket — that same value
+        broken down by its actual sub_class (Debt Mutual Fund,
+        Liquid Mutual Fund, InvITs, REITs, Gold Bond, Private
+        Equity, Unlisted, etc.).
+
+        Uses the exact same sub_class classification as
+        calculate_non_stock_holding_types (_normalize_asset_class
+        over each holding's most recent transaction sub_class), so
+        a holding always gets the identical label on both charts -
+        this just folds that breakdown directly into the Market Cap
+        chart instead of hiding it behind one "Unclassified" slice.
+        calculate_non_stock_holding_types is left as-is: it remains
+        useful as a focused, zoomed-in view of just that non-stock
+        portion.
         """
 
         equity_holdings = list(
@@ -1838,6 +1853,10 @@ class InvestmentSummaryService:
 
         sm_by_asset_id = (
             cls._security_master_by_asset_id(user)
+        )
+
+        asset_class_by_asset_id = (
+            cls._equity_asset_class_by_asset_id(user)
         )
 
         totals = {}
@@ -1859,11 +1878,22 @@ class InvestmentSummaryService:
             cap_type = (
                 sm.get("cap_type")
                 or ""
-            ).strip() or "Unclassified"
+            ).strip()
 
-            totals[cap_type] = (
+            if cap_type:
+                label = cap_type
+            else:
+                raw_class = asset_class_by_asset_id.get(
+                    holding.asset_id
+                )
+
+                label = cls._normalize_asset_class(
+                    raw_class
+                )
+
+            totals[label] = (
                 totals.get(
-                    cap_type,
+                    label,
                     cls.ZERO,
                 )
                 + current_value
