@@ -6,9 +6,16 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Role, UserProfile, FamilyGroup
-from .permissions import IsAdminOrSuperUser, get_role, is_admin_or_above, is_superuser_role
+from .models import FamilyGroup, Role, UserAuditLog, UserProfile
+from .permissions import (
+    IsAdminOrSuperUser,
+    IsSystemOwner,
+    get_manageable_users_queryset,
+    get_role,
+    is_admin_or_above,
+)
 from .serializers import (
+    ActiveFamilySerializer,
     AdminPasswordResetSerializer,
     CurrentUserSerializer,
     FamilyGroupCreateSerializer,
@@ -29,6 +36,30 @@ def _get_target_user(user_id):
         return None
 
 
+def _can_manage_user(requesting_user, target_user) -> bool:
+    """
+    Role-scope check: can `requesting_user` view/manage
+    `target_user` through the User Management screens? See
+    users.permissions.get_manageable_users_queryset for the exact
+    rules (always True for target_user == requesting_user; this
+    never depends on family membership - see that function's
+    docstring for why).
+    """
+
+    return get_manageable_users_queryset(requesting_user).filter(pk=target_user.pk).exists()
+
+
+def _log(actor, target_user, action, old_value="", new_value=""):
+    UserAuditLog.objects.create(
+        actor=actor if getattr(actor, "is_authenticated", False) else None,
+        target_user_id=target_user.pk,
+        target_username=target_user.username,
+        action=action,
+        old_value=str(old_value),
+        new_value=str(new_value),
+    )
+
+
 # ==================================================================
 # CURRENT USER
 # ==================================================================
@@ -41,12 +72,38 @@ def current_user_settings(request):
     GET /api/settings/me/
 
     Account/profile information for the authenticated user,
-    including their role and derived permission flags.
+    including their role, family memberships, currently active
+    family, and derived permission flags.
     """
 
     serializer = CurrentUserSerializer(request.user)
 
     return Response(serializer.data)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def set_active_family(request):
+    """
+    POST /api/settings/me/active-family/
+
+    Body: {"family_id": <id> | null}
+
+    Lets the authenticated user choose which of their OWN families
+    is currently selected for scoping Dashboard/Portfolio/
+    Analytics/Mutual Fund data. Available to every role - this is
+    a personal view preference, never a family membership change,
+    and is validated to be one of the user's own families.
+    """
+
+    serializer = ActiveFamilySerializer(data=request.data, context={"request": request})
+
+    if not serializer.is_valid():
+        return Response({"detail": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+    serializer.save()
+
+    return Response(CurrentUserSerializer(request.user).data)
 
 
 # ==================================================================
@@ -58,12 +115,27 @@ def current_user_settings(request):
 @permission_classes([IsAuthenticated, IsAdminOrSuperUser])
 def user_list(request):
     """
-    GET  /api/settings/users/   - list all users (Admin/Super User only)
-    POST /api/settings/users/   - create a new user (Admin/Super User only)
+    GET  /api/settings/users/   - list users this requester may
+                                    manage (System Owner sees
+                                    everyone; Super User/Admin see
+                                    only users within their manage-
+                                    able role range who share a
+                                    family with them or were
+                                    created by them, plus
+                                    themselves).
+    POST /api/settings/users/   - create a new user, role limited
+                                    to what the requester may
+                                    assign; family membership may
+                                    only be set by a System Owner.
     """
 
     if request.method == "GET":
-        users = User.objects.select_related("profile").order_by("username")
+        users = (
+            get_manageable_users_queryset(request.user)
+            .select_related("profile")
+            .prefetch_related("profile__family_groups")
+            .order_by("username")
+        )
 
         serializer = UserListSerializer(users, many=True)
 
@@ -100,8 +172,9 @@ def user_detail(request, user_id):
     PATCH  /api/settings/users/<id>/
     DELETE /api/settings/users/<id>/
 
-    Admin/Super User can view, edit, or delete any account
-    (subject to the privilege-escalation rules enforced in
+    A System Owner/Super User/Admin can view, edit, or delete any
+    account within their manageable role scope (subject
+    to the privilege-escalation rules enforced in
     UserUpdateSerializer, and the deletion safeguards below). Any
     other authenticated user may only view/edit their own account,
     and only non-privileged fields.
@@ -116,9 +189,9 @@ def user_detail(request, user_id):
         )
 
     is_self = request.user.pk == target_user.pk
-    elevated = is_admin_or_above(request.user)
+    can_manage = _can_manage_user(request.user, target_user)
 
-    if not is_self and not elevated:
+    if not is_self and not can_manage:
         return Response(
             {"detail": "You do not have permission to access this user."},
             status=status.HTTP_403_FORBIDDEN,
@@ -154,11 +227,11 @@ def _delete_user(request, target_user):
     """
     Permanently delete `target_user`.
 
-    Admin/Super User only (checked by the caller's role check).
-    An Admin can never delete a Super User account - same rule as
-    everywhere else a Super User is protected from Admin action.
+    Requires System Owner/Super User/Admin privileges AND that the
+    target is within the requester's manageable role scope
+    (already checked by the caller before reaching here).
     Nobody can delete themselves, and the system's last active
-    Super User can never be deleted, mirroring the deactivate
+    System Owner can never be deleted, mirroring the deactivate
     safeguards.
 
     Deleting a user cascades to everything that FK's to them with
@@ -171,7 +244,7 @@ def _delete_user(request, target_user):
 
     if not is_admin_or_above(request.user):
         return Response(
-            {"detail": "This action requires Admin or Super User privileges."},
+            {"detail": "This action requires elevated privileges."},
             status=status.HTTP_403_FORBIDDEN,
         )
 
@@ -183,21 +256,17 @@ def _delete_user(request, target_user):
 
     target_role = get_role(target_user)
 
-    if target_role == Role.SUPERUSER and not is_superuser_role(request.user):
+    if target_role == Role.SYSTEM_OWNER and UserProfile.is_last_active_system_owner(target_user):
         return Response(
-            {"detail": "Only a Super User can delete a Super User account."},
-            status=status.HTTP_403_FORBIDDEN,
-        )
-
-    if target_role == Role.SUPERUSER and UserProfile.is_last_active_superuser(target_user):
-        return Response(
-            {"detail": "Cannot delete the last active Super User."},
+            {"detail": "Cannot delete the last active System Owner."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     username = target_user.username
 
     with transaction.atomic():
+        _log(request.user, target_user, UserAuditLog.Action.DELETED, old_value=target_role)
+
         target_user.delete()
 
     return Response({"message": f'User "{username}" deleted successfully.'})
@@ -221,8 +290,19 @@ def activate_user(request, user_id):
             status=status.HTTP_404_NOT_FOUND,
         )
 
+    if not _can_manage_user(request.user, target_user):
+        return Response(
+            {"detail": "You do not have permission to manage this user."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
+    already_active = target_user.is_active
+
     target_user.is_active = True
     target_user.save(update_fields=["is_active"])
+
+    if not already_active:
+        _log(request.user, target_user, UserAuditLog.Action.ACTIVATED)
 
     return Response(UserListSerializer(target_user).data)
 
@@ -240,20 +320,28 @@ def deactivate_user(request, user_id):
             status=status.HTTP_404_NOT_FOUND,
         )
 
+    if not _can_manage_user(request.user, target_user):
+        return Response(
+            {"detail": "You do not have permission to manage this user."},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+
     if target_user.pk == request.user.pk:
         return Response(
             {"detail": "You cannot deactivate your own account."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    if UserProfile.is_last_active_superuser(target_user):
+    if UserProfile.is_last_active_system_owner(target_user):
         return Response(
-            {"detail": "Cannot deactivate the last active Super User."},
+            {"detail": "Cannot deactivate the last active System Owner."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
     target_user.is_active = False
     target_user.save(update_fields=["is_active"])
+
+    _log(request.user, target_user, UserAuditLog.Action.DEACTIVATED)
 
     return Response(UserListSerializer(target_user).data)
 
@@ -269,10 +357,8 @@ def reset_user_password(request, user_id):
     """
     POST /api/settings/users/<id>/reset-password/
 
-    Lets an Admin/Super User set a new password for another
-    account. An Admin cannot use this to reset a Super User's
-    password unless they are that Super User themselves (Admins
-    cannot manage Super User accounts at all).
+    Lets a System Owner/Super User/Admin set a new password for
+    another account, within their manageable role scope.
     """
 
     target_user = _get_target_user(user_id)
@@ -283,17 +369,9 @@ def reset_user_password(request, user_id):
             status=status.HTTP_404_NOT_FOUND,
         )
 
-    target_role = get_role(target_user)
-
-    if target_role == Role.SUPERUSER and not is_admin_or_above(request.user):
+    if not _can_manage_user(request.user, target_user):
         return Response(
             {"detail": "You do not have permission to reset this user's password."},
-            status=status.HTTP_403_FORBIDDEN,
-        )
-
-    if target_role == Role.SUPERUSER and get_role(request.user) != Role.SUPERUSER:
-        return Response(
-            {"detail": "Only a Super User can reset another Super User's password."},
             status=status.HTTP_403_FORBIDDEN,
         )
 
@@ -316,7 +394,7 @@ def reset_user_password(request, user_id):
 
 
 # ==================================================================
-# FAMILY GROUPS
+# FAMILIES  (System Owner only - see users.permissions matrix)
 # ==================================================================
 
 
@@ -328,11 +406,14 @@ def _get_group(group_id):
 
 
 @api_view(["GET", "POST"])
-@permission_classes([IsAuthenticated, IsAdminOrSuperUser])
+@permission_classes([IsAuthenticated, IsSystemOwner])
 def group_list(request):
     """
-    GET  /api/settings/groups/  - list all family groups with members
-    POST /api/settings/groups/  - create a new family group
+    GET  /api/settings/groups/  - list every family with members
+                                    (System Owner only - "View all
+                                    families").
+    POST /api/settings/groups/  - create a new family (System
+                                    Owner only - "Add family").
     """
 
     if request.method == "GET":
@@ -351,24 +432,28 @@ def group_list(request):
 
 
 @api_view(["PATCH", "DELETE"])
-@permission_classes([IsAuthenticated, IsAdminOrSuperUser])
+@permission_classes([IsAuthenticated, IsSystemOwner])
 def group_detail(request, group_id):
     """
-    PATCH  /api/settings/groups/<id>/  - rename a group
-    DELETE /api/settings/groups/<id>/  - delete a group (members simply
-                                          lose the shared-visibility grant;
-                                          their own accounts/data are untouched)
+    PATCH  /api/settings/groups/<id>/  - rename a family (System
+                                          Owner only).
+    DELETE /api/settings/groups/<id>/  - delete a family (members
+                                          simply lose the shared-
+                                          visibility grant; their
+                                          own accounts/data are
+                                          untouched). System Owner
+                                          only.
     """
 
     group = _get_group(group_id)
 
     if group is None:
-        return Response({"detail": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": "Family not found."}, status=status.HTTP_404_NOT_FOUND)
 
     if request.method == "DELETE":
         group.delete()
 
-        return Response({"message": "Group deleted successfully."})
+        return Response({"message": "Family deleted successfully."})
 
     serializer = FamilyGroupUpdateSerializer(group, data=request.data, partial=True)
 
@@ -381,23 +466,23 @@ def group_detail(request, group_id):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated, IsAdminOrSuperUser])
+@permission_classes([IsAuthenticated, IsSystemOwner])
 def group_add_member(request, group_id):
     """
     POST /api/settings/groups/<id>/members/
 
     Body: {"user_id": <id>}
 
-    Adds a user to this group (moving them out of any other group
-    they were previously in - membership is single-group). An
-    Admin cannot add/move a Super User account into a group; only
-    a Super User can.
+    Adds a user to this family, IN ADDITION to any other families
+    they already belong to (multi-family assignment is fully
+    supported - membership no longer moves a user out of any
+    other family). System Owner only.
     """
 
     group = _get_group(group_id)
 
     if group is None:
-        return Response({"detail": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": "Family not found."}, status=status.HTTP_404_NOT_FOUND)
 
     user_id = request.data.get("user_id")
 
@@ -406,49 +491,49 @@ def group_add_member(request, group_id):
     if target_user is None:
         return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    if get_role(target_user) == Role.SUPERUSER and not is_superuser_role(request.user):
-        return Response(
-            {"detail": "Only a Super User can change another Super User's group membership."},
-            status=status.HTTP_403_FORBIDDEN,
-        )
-
     profile = target_user.profile
-    profile.family_group = group
-    profile.save(update_fields=["family_group", "updated_at"])
+    profile.family_groups.add(group)
+
+    _log(request.user, target_user, UserAuditLog.Action.FAMILY_ADDED, new_value=group.name)
 
     return Response(FamilyGroupSerializer(group).data)
 
 
 @api_view(["DELETE"])
-@permission_classes([IsAuthenticated, IsAdminOrSuperUser])
+@permission_classes([IsAuthenticated, IsSystemOwner])
 def group_remove_member(request, group_id, user_id):
-    """DELETE /api/settings/groups/<id>/members/<user_id>/"""
+    """DELETE /api/settings/groups/<id>/members/<user_id>/
+
+    System Owner only. Removes just this one family membership -
+    any other families the user belongs to are untouched.
+    """
 
     group = _get_group(group_id)
 
     if group is None:
-        return Response({"detail": "Group not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"detail": "Family not found."}, status=status.HTTP_404_NOT_FOUND)
 
     target_user = _get_target_user(user_id)
 
     if target_user is None:
         return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
-    if get_role(target_user) == Role.SUPERUSER and not is_superuser_role(request.user):
-        return Response(
-            {"detail": "Only a Super User can change another Super User's group membership."},
-            status=status.HTTP_403_FORBIDDEN,
-        )
-
     profile = target_user.profile
 
-    if profile.family_group_id != group.pk:
+    if not profile.family_groups.filter(pk=group.pk).exists():
         return Response(
-            {"detail": "This user is not a member of this group."},
+            {"detail": "This user is not a member of this family."},
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    profile.family_group = None
-    profile.save(update_fields=["family_group", "updated_at"])
+    profile.family_groups.remove(group)
+
+    # If the family removed was the user's active one, clear it so
+    # the next read recomputes a valid default.
+    if profile.active_family_group_id == group.pk:
+        profile.active_family_group = None
+        profile.save(update_fields=["active_family_group", "updated_at"])
+
+    _log(request.user, target_user, UserAuditLog.Action.FAMILY_REMOVED, old_value=group.name)
 
     return Response(FamilyGroupSerializer(group).data)

@@ -328,6 +328,25 @@
   color: #b42318;
 }
 
+.menu-section-label {
+  padding: 6px 10px 2px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9aa2af;
+}
+
+.family-menu-item {
+  height: 36px;
+  font-weight: 500;
+}
+
+.family-menu-item-active {
+  color: #111827;
+  font-weight: 700;
+}
+
 .logout-item:hover {
   background: #fff1f0;
   color: #b42318;

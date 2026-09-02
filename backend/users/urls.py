@@ -9,6 +9,7 @@ from .api_views import (
     group_list,
     group_remove_member,
     reset_user_password,
+    set_active_family,
     user_detail,
     user_list,
 )
@@ -27,6 +28,12 @@ urlpatterns = [
         "me/",
         current_user_settings,
         name="settings-me",
+    ),
+
+    path(
+        "me/active-family/",
+        set_active_family,
+        name="settings-me-active-family",
     ),
 
     # ------------------------------------------------------

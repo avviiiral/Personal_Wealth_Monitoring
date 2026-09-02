@@ -12,8 +12,11 @@ def ensure_user_profile(sender, instance, created, **kwargs):
 
     - On creation: a profile is created. Users created with
       Django's `is_superuser=True` (e.g. via `createsuperuser`)
-      automatically get the SUPERUSER role so the CLI-created
-      superuser is never locked out of admin-only PWMS features.
+      automatically get the SYSTEM_OWNER role - the PWMS role that
+      maps 1:1 with Django's own superuser flag - so a CLI-created
+      superuser is never locked out of System Owner-only PWMS
+      features, and PWMS can never end up with Django admin access
+      that disagrees with application-level authority.
     - On later saves: if `is_superuser` was toggled directly
       (e.g. from Django admin or the ORM), the role is kept in
       sync so the two concepts never disagree.
@@ -23,7 +26,7 @@ def ensure_user_profile(sender, instance, created, **kwargs):
         UserProfile.objects.get_or_create(
             user=instance,
             defaults={
-                "role": Role.SUPERUSER if instance.is_superuser else Role.VIEWER,
+                "role": Role.SYSTEM_OWNER if instance.is_superuser else Role.VIEWER,
             },
         )
         return
@@ -34,11 +37,11 @@ def ensure_user_profile(sender, instance, created, **kwargs):
         UserProfile.objects.get_or_create(
             user=instance,
             defaults={
-                "role": Role.SUPERUSER if instance.is_superuser else Role.VIEWER,
+                "role": Role.SYSTEM_OWNER if instance.is_superuser else Role.VIEWER,
             },
         )
         return
 
-    if instance.is_superuser and profile.role != Role.SUPERUSER:
-        profile.role = Role.SUPERUSER
+    if instance.is_superuser and profile.role != Role.SYSTEM_OWNER:
+        profile.role = Role.SYSTEM_OWNER
         profile.save(update_fields=["role", "updated_at"])

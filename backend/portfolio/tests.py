@@ -364,11 +364,9 @@ class PortfolioTreeMultiOwnerTests(TestCase):
 
         group = FamilyGroup.objects.create(name="Multi Owner Test Family")
 
-        self.owner_a.profile.family_group = group
-        self.owner_a.profile.save()
+        self.owner_a.profile.family_groups.add(group)
 
-        self.owner_b.profile.family_group = group
-        self.owner_b.profile.save()
+        self.owner_b.profile.family_groups.add(group)
 
         self.asset_a = Asset.objects.create(
             owner=self.owner_a,
@@ -565,11 +563,9 @@ class PortfolioSummaryMultiOwnerTests(TestCase):
 
         group = FamilyGroup.objects.create(name="Summary Test Family")
 
-        self.owner_a.profile.family_group = group
-        self.owner_a.profile.save()
+        self.owner_a.profile.family_groups.add(group)
 
-        self.owner_b.profile.family_group = group
-        self.owner_b.profile.save()
+        self.owner_b.profile.family_groups.add(group)
 
         from investments.models import Holding
 

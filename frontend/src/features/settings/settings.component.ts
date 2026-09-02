@@ -17,14 +17,21 @@ import {
 } from '../../core/services/settings-api.service';
 
 import { UserManagementComponent } from './user-management/user-management.component';
+import { FamilyManagementComponent } from './family-management/family-management.component';
 import { ManualPricesComponent } from './manual-prices/manual-prices.component';
 
-type SettingsTab = 'account' | 'preferences' | 'security' | 'users' | 'prices';
+type SettingsTab = 'account' | 'preferences' | 'security' | 'users' | 'families' | 'prices';
 
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [CommonModule, FormsModule, UserManagementComponent, ManualPricesComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    UserManagementComponent,
+    FamilyManagementComponent,
+    ManualPricesComponent,
+  ],
   templateUrl: './settings.component.html',
   styleUrl: './settings.component.scss',
 })
@@ -98,8 +105,32 @@ export class SettingsComponent implements OnInit {
     return this.rbac.canManageUsers();
   }
 
+  canManageFamilies(): boolean {
+    return this.rbac.canManageFamilies();
+  }
+
   canEditPrices(): boolean {
     return this.rbac.canEditPrices();
+  }
+
+  familyNamesText(): string {
+    return this.rbac
+      .families()
+      .map((f) => f.name)
+      .join(', ');
+  }
+
+  onActiveFamilyChange(familyId: number): void {
+    this.rbac.setActiveFamily(familyId).subscribe({
+      next: () => {
+        this.profileMessage = 'Now viewing data for the selected family.';
+        this.cdr.detectChanges();
+      },
+      error: (error) => {
+        this.error = error?.error?.detail || 'Unable to switch family.';
+        this.cdr.detectChanges();
+      },
+    });
   }
 
   // ======================================================

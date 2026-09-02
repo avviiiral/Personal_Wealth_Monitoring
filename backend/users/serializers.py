@@ -6,10 +6,71 @@ from django.db import transaction
 
 from rest_framework import serializers
 
-from .models import Role, UserProfile, FamilyGroup
-from .permissions import get_role, is_admin, is_superuser_role
+from .models import FamilyGroup, Role, UserAuditLog, UserProfile, role_rank
+from .permissions import (
+    assignable_roles_for_create,
+    can_change_role,
+    can_manage_target_role,
+    get_active_family_group_id,
+    get_family_group_ids,
+    get_role,
+    is_admin_or_above,
+    is_super_user_or_above,
+    is_system_owner,
+)
 
 User = get_user_model()
+
+
+def _log(actor, target_user, action, old_value="", new_value=""):
+    UserAuditLog.objects.create(
+        actor=actor if getattr(actor, "is_authenticated", False) else None,
+        target_user_id=target_user.pk,
+        target_username=target_user.username,
+        action=action,
+        old_value=str(old_value),
+        new_value=str(new_value),
+    )
+
+
+# ==================================================================
+# SHARED FIELD HELPERS
+# ==================================================================
+
+
+class FamilySummarySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FamilyGroup
+        fields = ["id", "name"]
+        read_only_fields = fields
+
+
+def _families_payload(obj):
+    profile = getattr(obj, "profile", None)
+
+    if profile is None:
+        return []
+
+    return FamilySummarySerializer(profile.family_groups.all(), many=True).data
+
+
+def _active_family_payload(obj):
+    profile = getattr(obj, "profile", None)
+
+    if profile is None:
+        return None
+
+    active_id = get_active_family_group_id(obj)
+
+    if active_id is None:
+        return None
+
+    family = next(
+        (f for f in profile.family_groups.all() if f.id == active_id),
+        None,
+    )
+
+    return FamilySummarySerializer(family).data if family else None
 
 
 # ==================================================================
@@ -26,7 +87,9 @@ class UserListSerializer(serializers.ModelSerializer):
 
     role = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
-    family_group = serializers.SerializerMethodField()
+    families = serializers.SerializerMethodField()
+    active_family = serializers.SerializerMethodField()
+    created_by = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -41,7 +104,9 @@ class UserListSerializer(serializers.ModelSerializer):
             "is_active",
             "last_login",
             "date_joined",
-            "family_group",
+            "families",
+            "active_family",
+            "created_by",
         ]
         read_only_fields = fields
 
@@ -51,19 +116,26 @@ class UserListSerializer(serializers.ModelSerializer):
     def get_status(self, obj) -> str:
         return "Active" if obj.is_active else "Inactive"
 
-    def get_family_group(self, obj):
+    def get_families(self, obj):
+        return _families_payload(obj)
+
+    def get_active_family(self, obj):
+        return _active_family_payload(obj)
+
+    def get_created_by(self, obj):
         profile = getattr(obj, "profile", None)
 
-        if profile is None or profile.family_group_id is None:
+        if profile is None or profile.created_by_id is None:
             return None
 
-        return {"id": profile.family_group_id, "name": profile.family_group.name}
+        return profile.created_by.username
 
 
 class CurrentUserSerializer(UserListSerializer):
-    """`GET /api/settings/me/` - adds permission flags the frontend
-    can use for display purposes only (never for authorization -
-    the backend still enforces every action independently)."""
+    """`GET /api/settings/me/` (and `/api/auth/me/`) - adds
+    permission flags the frontend uses for display/navigation
+    purposes only (never for authorization - the backend still
+    enforces every action independently)."""
 
     permissions = serializers.SerializerMethodField()
 
@@ -73,10 +145,30 @@ class CurrentUserSerializer(UserListSerializer):
     def get_permissions(self, obj) -> dict:
         role = get_role(obj) or Role.VIEWER
 
+        assignable = sorted(assignable_roles_for_create(obj), key=role_rank)
+
         return {
-            "can_manage_users": role in (Role.ADMIN, Role.SUPERUSER),
-            "can_edit_prices": role in (Role.ADMIN, Role.SUPERUSER),
-            "can_assign_superuser": role == Role.SUPERUSER,
+            # Prices
+            "can_edit_prices": is_admin_or_above(obj),
+            # User management (general + role-specific)
+            "can_manage_users": role in (Role.ADMIN, Role.SUPER_USER, Role.SYSTEM_OWNER),
+            "can_create_viewer": Role.VIEWER in assignable,
+            "can_create_admin": Role.ADMIN in assignable,
+            "can_create_super_user": Role.SUPER_USER in assignable,
+            "can_create_system_owner": Role.SYSTEM_OWNER in assignable,
+            "can_manage_viewer": can_manage_target_role(obj, Role.VIEWER),
+            "can_manage_admin": can_manage_target_role(obj, Role.ADMIN),
+            "can_manage_super_user": can_manage_target_role(obj, Role.SUPER_USER),
+            "can_manage_system_owner": can_manage_target_role(obj, Role.SYSTEM_OWNER),
+            "can_change_roles": role in (Role.SUPER_USER, Role.SYSTEM_OWNER),
+            "assignable_roles": assignable,
+            # Families
+            "can_manage_families": is_system_owner(obj),
+            "can_view_all_families": is_system_owner(obj),
+            "can_assign_multiple_families": is_system_owner(obj),
+            # Kept for any lingering 3-role-era callers; semantically
+            # now means "can this user grant the Super User role".
+            "can_assign_superuser": Role.SUPER_USER in assignable,
         }
 
 
@@ -90,21 +182,25 @@ class UserCreateSerializer(serializers.ModelSerializer):
     `POST /api/settings/users/`
 
     Server-side validated user creation. The requesting user's
-    role (from the view, via context) determines which roles may
-    be assigned - an Admin can never create a Super User, and a
-    Viewer can never reach this serializer at all (blocked by the
-    view's permission_classes).
+    role (from context) determines which roles may be assigned -
+    an Admin can never create a Super User, and a Viewer can never
+    reach this serializer at all (blocked by the view's
+    permission_classes).
+
+    Family assignment (`family_ids`) may only ever be supplied by
+    a System Owner - every other role creates accounts with no
+    family membership; a System Owner assigns family afterwards.
     """
 
     password = serializers.CharField(write_only=True, min_length=1)
     confirm_password = serializers.CharField(write_only=True, min_length=1)
     role = serializers.ChoiceField(choices=Role.choices, default=Role.VIEWER)
     is_active = serializers.BooleanField(default=True)
-    family_group_id = serializers.PrimaryKeyRelatedField(
-        source="family_group",
+    family_ids = serializers.PrimaryKeyRelatedField(
+        source="family_groups",
         queryset=FamilyGroup.objects.all(),
         required=False,
-        allow_null=True,
+        many=True,
     )
 
     class Meta:
@@ -119,7 +215,7 @@ class UserCreateSerializer(serializers.ModelSerializer):
             "confirm_password",
             "role",
             "is_active",
-            "family_group_id",
+            "family_ids",
         ]
 
     def validate_username(self, value):
@@ -152,9 +248,19 @@ class UserCreateSerializer(serializers.ModelSerializer):
     def validate_role(self, value):
         requesting_user = self.context["request"].user
 
-        if value == Role.SUPERUSER and not is_superuser_role(requesting_user):
+        if value not in assignable_roles_for_create(requesting_user):
             raise serializers.ValidationError(
-                "Only a Super User can create another Super User."
+                f"You do not have permission to create a {value} account."
+            )
+
+        return value
+
+    def validate_family_ids(self, value):
+        requesting_user = self.context["request"].user
+
+        if value and not is_system_owner(requesting_user):
+            raise serializers.ValidationError(
+                "Only a System Owner can assign family membership."
             )
 
         return value
@@ -179,17 +285,20 @@ class UserCreateSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def create(self, validated_data):
+        request = self.context["request"]
+        requesting_user = request.user
+
         role = validated_data.pop("role", Role.VIEWER)
         password = validated_data.pop("password")
-        family_group = validated_data.pop("family_group", "unset")
+        family_groups = validated_data.pop("family_groups", [])
 
         user = User(**validated_data)
         user.set_password(password)
 
         # Keep Django's own is_superuser flag consistent with the
         # PWMS role so Django admin access matches PWMS RBAC.
-        user.is_superuser = role == Role.SUPERUSER
-        user.is_staff = role in (Role.ADMIN, Role.SUPERUSER)
+        user.is_superuser = role == Role.SYSTEM_OWNER
+        user.is_staff = role != Role.VIEWER
 
         user.save()
 
@@ -207,14 +316,22 @@ class UserCreateSerializer(serializers.ModelSerializer):
         # in sync.
         profile = user.profile
         profile.role = role
+        profile.created_by = requesting_user
 
-        update_fields = ["role", "updated_at"]
+        profile.save(update_fields=["role", "created_by", "updated_at"])
 
-        if family_group != "unset":
-            profile.family_group = family_group
-            update_fields.append("family_group")
+        if family_groups:
+            for family in family_groups:
+                profile.family_groups.add(family)
+                _log(
+                    requesting_user, user, UserAuditLog.Action.FAMILY_ADDED,
+                    new_value=family.name,
+                )
 
-        profile.save(update_fields=update_fields)
+        _log(
+            requesting_user, user, UserAuditLog.Action.USER_CREATED,
+            new_value=role,
+        )
 
         return user
 
@@ -229,7 +346,7 @@ class UserUpdateSerializer(serializers.ModelSerializer):
     `PUT` / `PATCH /api/settings/users/<id>/`
 
     Handles both:
-      - an Admin/Super User editing another account, and
+      - a System Owner/Super User/Admin editing another account, and
       - a user editing their own profile (self-service).
 
     Privilege-escalation rules are enforced in `validate()`, which
@@ -238,11 +355,11 @@ class UserUpdateSerializer(serializers.ModelSerializer):
     """
 
     role = serializers.ChoiceField(choices=Role.choices, required=False)
-    family_group_id = serializers.PrimaryKeyRelatedField(
-        source="family_group",
+    family_ids = serializers.PrimaryKeyRelatedField(
+        source="family_groups",
         queryset=FamilyGroup.objects.all(),
         required=False,
-        allow_null=True,
+        many=True,
     )
 
     class Meta:
@@ -255,7 +372,7 @@ class UserUpdateSerializer(serializers.ModelSerializer):
             "email",
             "role",
             "is_active",
-            "family_group_id",
+            "family_ids",
         ]
         extra_kwargs = {
             "id": {"read_only": True},
@@ -297,12 +414,13 @@ class UserUpdateSerializer(serializers.ModelSerializer):
         target_user = self.instance
         is_self_edit = requesting_user.pk == target_user.pk
 
-        elevated = is_admin(requesting_user) or is_superuser_role(requesting_user)
+        elevated = is_admin_or_above(requesting_user)
 
         # ----------------------------------------------------
         # A user with no management privileges may only ever
         # edit their own basic profile fields, and can never
-        # touch role/is_active on themselves or anyone else.
+        # touch role/is_active/family on themselves or anyone
+        # else.
         # ----------------------------------------------------
 
         if not elevated:
@@ -311,7 +429,7 @@ class UserUpdateSerializer(serializers.ModelSerializer):
                     "You do not have permission to edit other users."
                 )
 
-            for locked_field in ("role", "is_active", "family_group"):
+            for locked_field in ("role", "is_active", "family_groups"):
                 if locked_field in attrs:
                     raise serializers.ValidationError(
                         {locked_field: "You do not have permission to change this field."}
@@ -320,69 +438,111 @@ class UserUpdateSerializer(serializers.ModelSerializer):
             return attrs
 
         # ----------------------------------------------------
-        # Admin / Super User editing someone (possibly themselves).
+        # Admin / Super User / System Owner editing someone
+        # (possibly themselves).
+        # ----------------------------------------------------
+
+        current_role = get_role(target_user)
+
+        # A manager may only ever touch accounts their role is
+        # permitted to manage - System Owner and Super User
+        # accounts are entirely off-limits to Admin, and System
+        # Owner accounts are off-limits to Super User, REGARDLESS
+        # of which field is being changed (name, email, active
+        # status, role, ...). Self-edit is always allowed for
+        # basic fields (handled above via is_self_edit not
+        # applying here since elevated users reach this branch
+        # even when editing themselves - but a self-edit of one's
+        # OWN account is never blocked by "can't manage this
+        # role").
+        if not is_self_edit and not can_manage_target_role(requesting_user, current_role):
+            raise serializers.ValidationError(
+                "You do not have permission to manage this account."
+            )
+
+        # ----------------------------------------------------
+        # ROLE
         # ----------------------------------------------------
 
         new_role = attrs.get("role")
 
         if new_role is not None:
-            current_role = get_role(target_user)
-
-            if new_role == Role.SUPERUSER and not is_superuser_role(requesting_user):
+            if is_self_edit:
                 raise serializers.ValidationError(
-                    {"role": "Only a Super User can grant Super User privileges."}
+                    {"role": "You cannot change your own role."}
                 )
 
-            if current_role == Role.SUPERUSER and new_role != Role.SUPERUSER:
-                if not is_superuser_role(requesting_user):
-                    raise serializers.ValidationError(
-                        {"role": "Only a Super User can change another Super User's role."}
-                    )
+            if not can_change_role(requesting_user, current_role, new_role):
+                raise serializers.ValidationError(
+                    {"role": "You do not have permission to assign this role."}
+                )
 
-                if UserProfile.is_last_active_superuser(target_user):
-                    raise serializers.ValidationError(
-                        {"role": "Cannot remove the last active Super User."}
-                    )
+            if (
+                current_role == Role.SYSTEM_OWNER
+                and new_role != Role.SYSTEM_OWNER
+                and UserProfile.is_last_active_system_owner(target_user)
+            ):
+                raise serializers.ValidationError(
+                    {"role": "Cannot remove the last active System Owner."}
+                )
+
+        # ----------------------------------------------------
+        # ACTIVE STATUS
+        # ----------------------------------------------------
 
         new_active = attrs.get("is_active")
 
-        if new_active is False and get_role(target_user) == Role.SUPERUSER:
-            if UserProfile.is_last_active_superuser(target_user):
+        if new_active is False:
+            if is_self_edit:
                 raise serializers.ValidationError(
-                    {"is_active": "Cannot deactivate the last active Super User."}
+                    {"is_active": "You cannot deactivate your own account."}
                 )
 
-        # A Super User account's shared-visibility group membership
-        # is itself a privileged setting - only a Super User may
-        # change it, same as role/is_active above.
-        if "family_group" in attrs:
-            if get_role(target_user) == Role.SUPERUSER and not is_superuser_role(
-                requesting_user
+            if current_role == Role.SYSTEM_OWNER and UserProfile.is_last_active_system_owner(
+                target_user
             ):
                 raise serializers.ValidationError(
-                    {
-                        "family_group_id": (
-                            "Only a Super User can change another Super User's "
-                            "group membership."
-                        )
-                    }
+                    {"is_active": "Cannot deactivate the last active System Owner."}
                 )
+
+        # ----------------------------------------------------
+        # FAMILY MEMBERSHIP - System Owner only, full stop.
+        # ----------------------------------------------------
+
+        if "family_groups" in attrs and not is_system_owner(requesting_user):
+            raise serializers.ValidationError(
+                {"family_ids": "Only a System Owner can change family membership."}
+            )
 
         return attrs
 
     @transaction.atomic
     def update(self, instance, validated_data):
+        request = self.context["request"]
+        requesting_user = request.user
+
         role = validated_data.pop("role", None)
-        family_group = validated_data.pop("family_group", "unset")
+        family_groups = validated_data.pop("family_groups", None)
+        old_active = instance.is_active
 
         for field, value in validated_data.items():
             setattr(instance, field, value)
 
         instance.save()
 
+        if "is_active" in validated_data and validated_data["is_active"] != old_active:
+            _log(
+                requesting_user, instance,
+                UserAuditLog.Action.ACTIVATED
+                if instance.is_active
+                else UserAuditLog.Action.DEACTIVATED,
+            )
+
         if role is not None:
-            instance.is_superuser = role == Role.SUPERUSER
-            instance.is_staff = role in (Role.ADMIN, Role.SUPERUSER)
+            old_role = get_role(instance)
+
+            instance.is_superuser = role == Role.SYSTEM_OWNER
+            instance.is_staff = role != Role.VIEWER
             instance.save(update_fields=["is_superuser", "is_staff"])
 
             # `instance` was fetched with select_related("profile"),
@@ -397,12 +557,86 @@ class UserUpdateSerializer(serializers.ModelSerializer):
             profile.role = role
             profile.save(update_fields=["role", "updated_at"])
 
-        if family_group != "unset":
+            if old_role != role:
+                _log(
+                    requesting_user, instance, UserAuditLog.Action.ROLE_CHANGED,
+                    old_value=old_role, new_value=role,
+                )
+
+        if family_groups is not None:
             profile = instance.profile
-            profile.family_group = family_group
-            profile.save(update_fields=["family_group", "updated_at"])
+
+            current_ids = set(profile.family_groups.values_list("id", flat=True))
+            new_ids = {f.id for f in family_groups}
+
+            added = [f for f in family_groups if f.id not in current_ids]
+            removed_ids = current_ids - new_ids
+
+            profile.family_groups.set(family_groups)
+
+            for family in added:
+                _log(
+                    requesting_user, instance, UserAuditLog.Action.FAMILY_ADDED,
+                    new_value=family.name,
+                )
+
+            if removed_ids:
+                removed_names = FamilyGroup.objects.filter(
+                    id__in=removed_ids
+                ).values_list("name", flat=True)
+
+                for name in removed_names:
+                    _log(
+                        requesting_user, instance, UserAuditLog.Action.FAMILY_REMOVED,
+                        old_value=name,
+                    )
+
+            # If the active family was removed, clear it so the
+            # next read recomputes a valid default.
+            if profile.active_family_group_id not in new_ids:
+                profile.active_family_group = None
+                profile.save(update_fields=["active_family_group", "updated_at"])
 
         return instance
+
+
+# ==================================================================
+# ACTIVE FAMILY (self-service view selector - not a membership change)
+# ==================================================================
+
+
+class ActiveFamilySerializer(serializers.Serializer):
+    """
+    `POST /api/settings/me/active-family/`
+
+    Lets any authenticated user choose which of their OWN families
+    is currently "selected" for scoping the data they see. This is
+    a personal view preference, never a membership change - it is
+    available to every role and validated to be one of the user's
+    own families.
+    """
+
+    family_id = serializers.PrimaryKeyRelatedField(
+        queryset=FamilyGroup.objects.all(),
+        allow_null=True,
+    )
+
+    def validate_family_id(self, value):
+        request = self.context["request"]
+
+        if value is not None and value.id not in get_family_group_ids(request.user):
+            raise serializers.ValidationError("You are not a member of this family.")
+
+        return value
+
+    def save(self):
+        request = self.context["request"]
+        profile = request.user.profile
+
+        profile.active_family_group = self.validated_data["family_id"]
+        profile.save(update_fields=["active_family_group", "updated_at"])
+
+        return profile
 
 
 # ==================================================================
@@ -414,10 +648,11 @@ class AdminPasswordResetSerializer(serializers.Serializer):
     """
     `POST /api/settings/users/<id>/reset-password/`
 
-    A dedicated, secure endpoint for an Admin/Super User to set a
-    new password for another account - separate from the existing
-    self-service `change-password` flow, which requires knowing
-    the current password and is unaffected by this.
+    A dedicated, secure endpoint for a System Owner/Super
+    User/Admin to set a new password for another account - separate
+    from the existing self-service `change-password` flow, which
+    requires knowing the current password and is unaffected by
+    this.
     """
 
     new_password = serializers.CharField(write_only=True)
@@ -462,6 +697,8 @@ class FamilyGroupSerializer(serializers.ModelSerializer):
 
     Returns each group with its member list, so the frontend can
     render group -> members without a second round trip per group.
+    System Owner only (enforced at the view level - family data is
+    otherwise scoped to a user's own memberships via `/settings/me/`).
     """
 
     members = serializers.SerializerMethodField()
@@ -476,13 +713,13 @@ class FamilyGroupSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_members(self, obj):
-        members = User.objects.filter(profile__family_group=obj).order_by("username")
+        members = User.objects.filter(profile__family_groups=obj).order_by("username")
 
         return FamilyGroupMemberSerializer(members, many=True).data
 
 
 class FamilyGroupCreateSerializer(serializers.ModelSerializer):
-    """`POST /api/settings/groups/` - Admin/Super User only."""
+    """`POST /api/settings/groups/` - System Owner only."""
 
     class Meta:
         model = FamilyGroup
@@ -492,7 +729,7 @@ class FamilyGroupCreateSerializer(serializers.ModelSerializer):
         value = value.strip()
 
         if not value:
-            raise serializers.ValidationError("Group name is required.")
+            raise serializers.ValidationError("Family name is required.")
 
         return value
 
@@ -506,7 +743,7 @@ class FamilyGroupCreateSerializer(serializers.ModelSerializer):
 
 
 class FamilyGroupUpdateSerializer(serializers.ModelSerializer):
-    """`PATCH /api/settings/groups/<id>/` - rename only."""
+    """`PATCH /api/settings/groups/<id>/` - rename only. System Owner only."""
 
     class Meta:
         model = FamilyGroup
@@ -516,6 +753,6 @@ class FamilyGroupUpdateSerializer(serializers.ModelSerializer):
         value = value.strip()
 
         if not value:
-            raise serializers.ValidationError("Group name is required.")
+            raise serializers.ValidationError("Family name is required.")
 
         return value
