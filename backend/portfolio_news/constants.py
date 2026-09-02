@@ -44,6 +44,23 @@ class TimeHorizon(models.TextChoices):
     UNSPECIFIED = "unspecified", "Unspecified"
 
 
+class Materiality(models.TextChoices):
+    """
+    How significant the reported event is in its own right,
+    independent of portfolio weight - distinct from ImpactLevel,
+    which factors in confidence/relevance for scoring purposes.
+    Materiality is the AI's raw judgment of "how big a deal is
+    this, if true", used for display and as an input signal
+    rather than the final ranking number.
+    """
+
+    TRIVIAL = "trivial", "Trivial"
+    LOW = "low", "Low"
+    MODERATE = "moderate", "Moderate"
+    HIGH = "high", "High"
+    CRITICAL = "critical", "Critical"
+
+
 class ImpactLevel(models.TextChoices):
     VERY_LOW = "very_low", "Very Low"
     LOW = "low", "Low"
@@ -76,6 +93,41 @@ class ImpactLevel(models.TextChoices):
             return cls.LOW
 
         return cls.VERY_LOW
+
+
+class SourceQualityTier(models.TextChoices):
+    """
+    Credibility tier of a publisher, used both to weight alert
+    scoring and to decide which source is shown as the primary
+    reference when the same event is reported by several
+    outlets.
+
+        TIER_1: primary/official sources - exchange filings,
+                regulators (SEBI/RBI), company announcements,
+                and top-tier wire/financial press (Reuters,
+                Bloomberg, Economic Times, Moneycontrol, etc).
+        TIER_2: reputable general financial/business press not
+                already in TIER_1.
+        TIER_3: everything else (aggregators, unknown/small
+                publishers, Google News entries with no
+                resolvable publisher).
+    """
+
+    TIER_1 = "tier_1", "Primary / Top-Tier"
+    TIER_2 = "tier_2", "Reputable"
+    TIER_3 = "tier_3", "Unclassified"
+
+    @classmethod
+    def weight(cls, tier: str) -> float:
+        """Multiplier used by alert scoring (0-1)."""
+
+        mapping = {
+            cls.TIER_1: 1.0,
+            cls.TIER_2: 0.75,
+            cls.TIER_3: 0.5,
+        }
+
+        return mapping.get(tier, 0.5)
 
 
 class NotificationTier(models.TextChoices):

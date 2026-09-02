@@ -76,6 +76,15 @@ describe('PortfolioComponent', () => {
                         sector: 'Technology',
                         cap_type: 'Large Cap',
 
+                        amc_name: 'ICICI Prudential',
+                        pe_ratio: 22.5,
+                        pb_ratio: 3.1,
+                        roe: 18.2,
+                        credit_rating: 'AAA',
+                        ytm: 7.2,
+                        modified_duration: 2.3,
+                        average_maturity: 4.4,
+
                         price_source: 'MANUAL',
                       },
                     ],
@@ -410,6 +419,62 @@ describe('PortfolioComponent', () => {
     const asset = component.subClassSummaries[0].assets[0];
 
     expect(component.hasPriceDate(asset)).toBe(false);
+  });
+
+  // ==========================================================
+  // QUANT DETAILS
+  // ==========================================================
+
+  it('should report quant details present when SecurityMaster fields are populated', () => {
+    const asset = component.subClassSummaries[0].assets[0];
+
+    expect(component.hasQuantDetails(asset)).toBe(true);
+  });
+
+  it('should report quant details absent when no SecurityMaster fields are populated', () => {
+    const asset = component.subClassSummaries[0].assets[0];
+
+    const bareAsset = {
+      ...asset,
+      sector: null,
+      cap_type: null,
+      amc_name: null,
+      credit_rating: null,
+      pe_ratio: null,
+      pb_ratio: null,
+      roe: null,
+      ytm: null,
+      modified_duration: null,
+      average_maturity: null,
+    };
+
+    expect(component.hasQuantDetails(bareAsset)).toBe(false);
+  });
+
+  it('should toggle quant details expansion independently per asset id', () => {
+    const asset = component.subClassSummaries[0].assets[0];
+
+    expect(component.isQuantDetailsExpanded(asset)).toBe(false);
+
+    component.toggleQuantDetails(asset);
+
+    expect(component.isQuantDetailsExpanded(asset)).toBe(true);
+
+    component.toggleQuantDetails(asset);
+
+    expect(component.isQuantDetailsExpanded(asset)).toBe(false);
+  });
+
+  it('should collapse quant details when filters are cleared', () => {
+    const asset = component.subClassSummaries[0].assets[0];
+
+    component.toggleQuantDetails(asset);
+
+    expect(component.isQuantDetailsExpanded(asset)).toBe(true);
+
+    component.clearFamily();
+
+    expect(component.isQuantDetailsExpanded(asset)).toBe(false);
   });
 
   // ==========================================================

@@ -44,6 +44,8 @@ def create_alert_from_analysis(
         impact_score=analysis.impact_score,
         portfolio_weight_percent=holding.portfolio_weight,
         confidence=analysis.confidence,
+        source_quality=getattr(article, "source_quality", None),
+        published_at=article.published_at,
     )
 
     notification_tier = determine_notification_tier(
@@ -76,6 +78,10 @@ def create_alert_from_analysis(
             "portfolio_implication": analysis.portfolio_implication,
             "reason": analysis.reason,
             "notification_sent": notification_sent,
+            "materiality": analysis.materiality,
+            "key_facts": analysis.key_facts,
+            "interpretation": analysis.interpretation,
+            "uncertainty_notes": analysis.uncertainty_notes,
         },
     )
 

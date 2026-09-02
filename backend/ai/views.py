@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 
 import requests
@@ -16,6 +17,13 @@ from rest_framework.response import Response
 from .services.portfolio_context import (
     PortfolioContextBuilder,
 )
+from .services.portfolio_news_context import (
+    PortfolioNewsChatContextBuilder,
+)
+from .services.usage_tracking import record_gemini_usage
+
+
+logger = logging.getLogger(__name__)
 
 
 GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
@@ -120,6 +128,26 @@ def portfolio_chat(request):
             status=500,
         )
 
+    try:
+        portfolio_context["news"] = (
+            PortfolioNewsChatContextBuilder.build(
+                request.user
+            )
+        )
+    except Exception:
+        # Portfolio news is supplementary context, not the
+        # core chatbot function - a failure here (e.g. a
+        # transient DB issue) should degrade to "no news
+        # context available" rather than take down portfolio
+        # chat entirely.
+        portfolio_context["news"] = {
+            "note": (
+                "Portfolio news data could not be loaded for "
+                "this request."
+            ),
+            "alerts": [],
+        }
+
     system_instructions = """
 You are the Personal Wealth Monitoring System (PWMS) portfolio
 assistant.
@@ -189,7 +217,30 @@ IMPORTANT RULES:
     portfolio, you may answer general questions, but do not pretend
     that general information is part of their PWMS data.
 
-The user's current PWMS portfolio context follows.
+16. The supplied context also includes a "news" section:
+    a bounded summary of the user's stored portfolio news alerts
+    (see the "note" field in that section for exactly how much
+    history it covers). This is NOT live/real-time news access -
+    it only reflects news the PWMS monitoring pipeline has
+    already found and analyzed. When asked about news, alerts,
+    what happened to a holding, or portfolio risks, answer only
+    from this supplied news data; never invent a news event, and
+    if nothing in the supplied alerts matches the question, say
+    so plainly rather than guessing.
+
+17. Each news alert already distinguishes stated facts
+    (key_facts) from AI interpretation (portfolio_implication,
+    summary) and from acknowledged unknowns (uncertainty_notes).
+    Preserve that distinction in your answer - do not present
+    interpretation or uncertainty as confirmed fact.
+
+18. notification_tier (critical/high/moderate/low) and
+    materiality reflect how significant an alert is; alert_score
+    additionally weights that by this holding's portfolio share.
+    None of these are predictions of future stock returns.
+
+The user's current PWMS portfolio context (including the news
+summary described in rule 16) follows.
 """
 
     user_content = (
@@ -243,6 +294,37 @@ The user's current PWMS portfolio context follows.
         response.raise_for_status()
 
         data = response.json()
+
+        usage = data.get("usageMetadata", {})
+
+        logger.info(
+            "Gemini usage | endpoint=portfolio_chat | user_id=%s | "
+            "input=%s | output=%s | total=%s | cached=%s",
+            request.user.id,
+            usage.get("promptTokenCount", 0),
+            usage.get("candidatesTokenCount", 0),
+            usage.get("totalTokenCount", 0),
+            usage.get("cachedContentTokenCount", 0),
+        )
+
+        try:
+            record_gemini_usage(
+                user=request.user,
+                endpoint="portfolio_chat",
+                model_name=model,
+                usage_metadata=usage,
+            )
+        except Exception:
+            # Defense in depth: record_gemini_usage already
+            # catches its own internal failures, but this call
+            # site must not depend on that - the Gemini answer
+            # below was already successfully obtained and must
+            # still be returned even if usage tracking somehow
+            # raises anyway.
+            logger.exception(
+                "record_gemini_usage raised unexpectedly for "
+                "portfolio_chat; continuing without it."
+            )
 
         answer = extract_response_text(data)
 

@@ -1,60 +1,41 @@
 # PWMS Setup Guide — Step by Step
 
-This guide is written for someone who is setting up the Personal Wealth Monitoring System on a new Windows computer after cloning the repository.
+This guide takes you from a brand-new computer with nothing installed to a
+running PWMS instance (backend + frontend) that you can log into, on the
+`updates` branch.
 
-The instructions are based on the current `feature/news-agent` branch.
-
-You do **not** need to understand Django or Angular before starting. Follow the steps in order.
-
----
-
-# 1. What you are going to install
-
-The project has two parts:
-
-```text
-Backend  = Django + Python
-Frontend = Angular + Node.js
-```
-
-The backend stores the application's data and exposes APIs.
-
-The frontend is the website you see in the browser.
-
-The portfolio news agent runs inside the backend.
+You do not need prior Django or Angular experience — just follow the steps
+in order. Commands are shown for **Windows (PowerShell)** since that's how
+this project is normally run, with a macOS/Linux equivalent given wherever
+it differs meaningfully.
 
 ---
 
-# 2. What you need before cloning
-
-Install these programs:
-
-1. Git
-2. Python
-3. Node.js
-4. A web browser such as Chrome or Edge
-
-The repository pins Python packages in:
+## 1. What you're installing
 
 ```text
-backend/requirements.txt
+Backend  = Django (Python) — stores data, exposes the API, runs on :8000
+Frontend = Angular (Node.js) — the website you use, runs on :4200
 ```
 
-The frontend declares Angular/npm dependencies in:
-
-```text
-frontend/package.json
-```
-
-The repository does not declare a strict Node.js `engines` version, so use a current Node.js LTS release.
+Both must be running at the same time for the app to work: the frontend
+in your browser talks to the backend over HTTP.
 
 ---
 
-# 3. Check whether the programs are installed
+## 2. Prerequisites
 
-Open **PowerShell**.
+Install these first:
 
-Run:
+1. **Git** — https://git-scm.com/downloads
+2. **Python 3.12** (or a recent 3.11+) — https://www.python.org/downloads/
+   - On Windows, tick **"Add python.exe to PATH"** during install.
+3. **Node.js** — a current LTS release (Node 20 or newer; this project was
+   built and tested against Node 22). https://nodejs.org/
+4. A modern browser (Chrome or Edge recommended, for browser-notification
+   support later).
+
+### Verify everything is installed
 
 ```powershell
 git --version
@@ -63,1555 +44,589 @@ node --version
 npm --version
 ```
 
-You should get version numbers for each command.
-
-If one command says it is not recognized, install that program first and reopen PowerShell.
+Each command should print a version number. If any says "not recognized",
+that program isn't installed correctly yet — install it and reopen your
+terminal before continuing.
 
 ---
 
-# 4. Clone the project
+## 3. Clone the repository
 
-Choose the folder where you want the project.
-
-Example:
+Pick a folder for the project, e.g.:
 
 ```powershell
 cd D:\
-```
-
-Then clone:
-
-```powershell
 git clone https://github.com/avviiiral/Personal_Wealth_Monitoring.git
-```
-
-Enter the project:
-
-```powershell
 cd Personal_Wealth_Monitoring
 ```
 
-Switch to the news-agent branch:
+Make sure you're on the `updates` branch (this guide assumes it):
 
 ```powershell
-git checkout feature/news-agent
-```
-
-Confirm the branch:
-
-```powershell
-git branch
-```
-
-You should see:
-
-```text
-* feature/news-agent
+git checkout updates
+git pull
+git branch --show-current
 ```
 
 ---
 
-# 5. Backend setup
+## 4. Backend setup
 
-Go into the backend:
+All commands in this section run from the `backend` folder.
 
 ```powershell
 cd backend
 ```
 
-## 5.1 Create the Python virtual environment
-
-Run:
+### 4.1 Create and activate a virtual environment
 
 ```powershell
 python -m venv venv
-```
-
-This creates an isolated Python environment in:
-
-```text
-backend\venv\
-```
-
----
-
-# 6. Activate the virtual environment
-
-On Windows PowerShell:
-
-```powershell
 .\venv\Scripts\Activate.ps1
 ```
 
-After activation, PowerShell normally shows something similar to:
+macOS/Linux equivalent:
 
-```text
-(venv) PS C:\...
+```bash
+python3 -m venv venv
+source venv/bin/activate
 ```
 
-That means the correct Python environment is active.
+Your terminal prompt should now start with `(venv)`. Every command below in
+this section assumes the virtual environment is active — if you close and
+reopen your terminal, re-run the `Activate.ps1` line first.
 
----
+> **PowerShell blocks the activation script?** Run this once, then retry:
+>
+> ```powershell
+> Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+> ```
 
-# 7. If PowerShell blocks the activation command
-
-You may see an execution-policy error.
-
-Run this once:
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-Then activate again:
-
-```powershell
-.\venv\Scripts\Activate.ps1
-```
-
-Check the Python that is being used:
-
-```powershell
-python --version
-python -m pip --version
-```
-
----
-
-# 8. Upgrade pip
-
-Run:
+### 4.2 Install Python dependencies
 
 ```powershell
 python -m pip install --upgrade pip
-```
-
-Using `python -m pip` helps ensure that pip belongs to the Python environment you just activated.
-
----
-
-# 9. Install all backend dependencies
-
-Run:
-
-```powershell
 python -m pip install -r requirements.txt
 ```
 
-This installs the versions pinned by the project, including Django, Django REST Framework, feedparser, BeautifulSoup, pandas, NumPy, yfinance and the rest of the backend dependencies.
+Use the full `requirements.txt` as-is (don't add `--no-deps`) — some
+packages (like `feedparser`, used by the Portfolio News agent) need their
+own transitive dependencies installed to work correctly.
 
-This command may take a while.
+### 4.3 Create your environment file
 
----
-
-# 10. Create the backend environment file
-
-The project loads:
-
-```text
-backend\.env
-```
-
-This file is intentionally not committed to Git.
-
-Create it.
-
-The easiest way is:
-
-```powershell
-notepad .env
-```
-
-Paste:
+Create a new file at `backend/.env` (same folder as `manage.py`) with:
 
 ```env
-GEMINI_API_KEY=YOUR_GEMINI_API_KEY
+GEMINI_API_KEY=YOUR_KEY_HERE
 GEMINI_MODEL=gemini-3.6-flash
 NEWS_MONITOR_LOOKBACK_DAYS=3
 NEWS_MONITOR_AI_CALL_DELAY_SECONDS=4
 ```
 
-Replace:
+- Get a Gemini API key from **Google AI Studio**
+  (https://aistudio.google.com/) if you don't have one.
+- The Gemini key is only needed for the **AI Chat** and **Portfolio News**
+  features. Everything else — portfolio tracking, holdings, analytics,
+  reports, user management — works without it. You can skip this file
+  entirely for now and add it later; the app will simply show an error only
+  when you try to use AI Chat or run the news monitor.
+- **Do not commit this file.** It's already in `.gitignore`.
 
-```text
-YOUR_GEMINI_API_KEY
-```
+### 4.4 Set up the database
 
-with the actual key.
-
-Save the file and close Notepad.
-
----
-
-# 11. What the environment variables mean
-
-## `GEMINI_API_KEY`
-
-Required for Gemini-powered portfolio chat and news analysis.
-
-Example:
-
-```env
-GEMINI_API_KEY=abc123...
-```
-
-## `GEMINI_MODEL`
-
-Optional.
-
-Current code default:
-
-```env
-GEMINI_MODEL=gemini-3.6-flash
-```
-
-You can leave this line in the file.
-
-## `NEWS_MONITOR_LOOKBACK_DAYS`
-
-Optional.
-
-Default:
-
-```text
-3
-```
-
-Example:
-
-```env
-NEWS_MONITOR_LOOKBACK_DAYS=1
-```
-
-This tells the news monitor to search the recent one-day window instead.
-
-## `NEWS_MONITOR_AI_CALL_DELAY_SECONDS`
-
-Optional.
-
-Default:
-
-```text
-4
-```
-
-Example:
-
-```env
-NEWS_MONITOR_AI_CALL_DELAY_SECONDS=5
-```
-
-This inserts a 5-second pause before AI calls.
-
----
-
-# 12. Never upload `.env`
-
-Do not run:
-
-```powershell
-git add .env
-```
-
-The backend `.gitignore` already excludes `.env`.
-
-Never send your Gemini key to another person in chat or commit it to GitHub.
-
----
-
-# 13. Create the database
-
-The project uses SQLite for local development.
-
-Run:
+The project uses SQLite by default — no separate database server to
+install. Just run the migrations to create the schema:
 
 ```powershell
 python manage.py migrate
 ```
 
-This creates:
+You should see a list of `Applying ... OK` lines, ending with the most
+recent `users` migration (Family Groups). This step is safe to re-run any
+time; it never deletes existing data.
 
-```text
-backend\db.sqlite3
-```
-
-and applies all Django migrations.
-
-The news-agent migrations included in this branch are already in the repository.
-
-You do **not** need to manually create them.
-
----
-
-# 14. Check Django
-
-Run:
+### 4.5 Verify the backend is healthy
 
 ```powershell
 python manage.py check
 ```
 
-A successful result looks similar to:
+Expect: `System check identified no issues (0 silenced).`
 
-```text
-System check identified no issues
-```
+### 4.6 Create your first user (Super User)
 
-If Django reports an error, do not continue to the frontend until the backend error is fixed.
-
----
-
-# 15. Create a login account
-
-Create a Django superuser:
+Because PWMS enforces roles on every request, you need at least one
+account before you can log in and do anything. The very first account
+should be a **Super User** (the highest-privilege role) so you can then
+create everyone else from inside the app:
 
 ```powershell
 python manage.py createsuperuser
 ```
 
-Django will ask you for:
+Follow the prompts (username, email, password). This account is
+automatically given the `SUPERUSER` role — you don't need any extra step.
 
-```text
-Username
-Email
-Password
-Password confirmation
-```
+> Forgot to create one, or need a second Super User later? Either run
+> `createsuperuser` again, or once you're logged in as an existing Super
+> User, use **Settings → User Management → Add User** and set the role to
+> `SUPERUSER`.
 
-Remember the username and password.
-
-You will use those credentials to log into the PWMS website.
-
----
-
-# 16. Start the backend
-
-Still inside:
-
-```text
-backend
-```
-
-run:
+### 4.7 Start the backend server
 
 ```powershell
 python manage.py runserver
 ```
 
-You should see a message indicating that Django is running.
+Leave this terminal window open — it needs to keep running. You should see:
 
-Leave this PowerShell window open.
+```text
+Starting development server at http://127.0.0.1:8000/
+```
 
-Do not close it while using the website.
-
----
-
-# 17. Test the backend in a browser
-
-Open:
+Confirm it's actually responding by opening this URL in a browser:
 
 ```text
 http://127.0.0.1:8000/api/health/
 ```
 
-You should receive JSON showing that PWMS is running.
-
-If the health endpoint works, the backend is running correctly.
+You should see a small JSON response with `"status": "success"`.
 
 ---
 
-# 18. Open a second PowerShell window
+## 5. Frontend setup
 
-Keep the backend terminal running.
-
-Open a second PowerShell window for the frontend.
-
-Go to the project:
-
-```powershell
-cd D:\YOUR_PATH\Personal_Wealth_Monitoring
-```
-
-Then:
+Open a **second, separate terminal window** (leave the backend running in
+the first one). From the repository root:
 
 ```powershell
 cd frontend
-```
-
-Use your actual project path.
-
----
-
-# 19. Install frontend packages
-
-Run:
-
-```powershell
 npm install
 ```
 
-The project uses the dependencies in `frontend/package.json` and `package-lock.json`.
+This downloads all Angular dependencies — it can take a few minutes the
+first time.
 
-This can take a few minutes.
-
----
-
-# 20. Start the frontend
-
-Run:
+Then start the Angular dev server:
 
 ```powershell
 npm start
 ```
 
-Angular will start the development website.
-
-Open:
+You should see Angular compile successfully and print something like:
 
 ```text
-http://localhost:4200/
+Local:   http://localhost:4200/
 ```
 
----
-
-# 21. Log in to PWMS
-
-Open:
-
-```text
-http://localhost:4200/login
-```
-
-Use the superuser username/password created earlier.
-
-After successful login, the application should take you to the dashboard.
+Open that URL in your browser.
 
 ---
 
-# 22. Confirm that the normal portfolio application works
+## 6. First login
 
-Before testing the news agent, check:
+1. Go to `http://localhost:4200/login`.
+2. Log in with the Super User account you created in step 4.6.
+3. You should land on the Dashboard. It will be empty until you add
+   portfolio data (see step 8).
+4. Open **Settings → Account** and confirm your Role shows `SUPERUSER`.
 
-```text
-Dashboard
-Portfolio
-Reports
-Analytics
-Settings
-```
+### Creating more users
 
-This tells you that the full application is communicating with the backend.
+From **Settings → User Management** (visible because you're a Super User):
 
----
+1. Click **+ Add User**.
+2. Fill in name/username/email/password, pick a role (Viewer or Admin —
+   only a Super User can grant the Super User role), optionally assign a
+   **Family Group** so this person can see your portfolio data (or theirs,
+   once they have some).
+3. Click **Create User**.
 
-# 23. Add portfolio holdings before testing the news agent
-
-The news monitor does not use a separate list of company names.
-
-It automatically reads the current holdings from the application's portfolio/analytics layer.
-
-That means the user needs actual holdings in the database.
-
-The agent monitors:
-
-- Equity holdings
-- Mutual-fund holdings
-
-Positions with zero quantity/units are ignored.
+To let two accounts see each other's combined Dashboard/Portfolio/
+Analytics/Mutual Funds data (e.g. two family members), put them in the
+same **Family Group**: either set it when creating/editing a user, or use
+**Manage Family Groups** to create a group and add existing users to it.
+This never changes who can _edit_ anything — only what's visible.
 
 ---
 
-# 24. First manual news-agent test
+## 7. Optional: automatic price updates
 
-Do not schedule anything yet.
+You don't need to do anything for this — a background thread inside the
+Django process automatically refreshes Stock/ETF prices (Yahoo Finance) and
+mutual fund NAVs (AMFI) every 15 minutes, for as long as
+`python manage.py runserver` is running. You'll see periodic
+`[MARKET UPDATE] ...` lines print in the backend terminal.
 
-First make sure the monitor works manually.
-
-Open the backend terminal.
-
-If necessary, activate the virtual environment again:
+If you want an immediate one-off refresh instead of waiting:
 
 ```powershell
-cd D:\YOUR_PATH\Personal_Wealth_Monitoring\backend
+python manage.py update_market_prices
+```
+
+---
+
+## 8. Getting your portfolio data in
+
+You have two options:
+
+**Option A — Enter data manually** through the Portfolio page in the app
+(Add Transaction, etc.) once you're logged in.
+
+**Option B — Import from Excel**, if you have an existing transaction
+workbook:
+
+```powershell
+cd backend
 .\venv\Scripts\Activate.ps1
+python manage.py import_transactions --username your_username --file path\to\your\transactions.xlsx
 ```
 
-Then run:
+Omit `--file` to use the project's default workbook location
+(`backend/data/transactions.xlsx`), or use `--all-users` instead of
+`--username` to import for every user at once. The import is safe to
+re-run — it deduplicates rows automatically, so re-running with an updated
+workbook only inserts genuinely new rows. See the command's own help for
+every option:
 
 ```powershell
+python manage.py import_transactions --help
+```
+
+After importing, rebuild holdings so the Dashboard/Portfolio reflect the
+new transactions immediately (this normally happens automatically, but is
+safe to force):
+
+```powershell
+python manage.py rebuild_holdings --user-id <id>
+```
+
+(Use the ID of the user you imported for — you can find it in
+**Settings → User Management**.)
+
+---
+
+## 9. Optional: enabling the Portfolio News agent
+
+This is entirely optional and separate from everything above. Skip this
+section unless you specifically want AI-driven portfolio news alerts.
+
+### 9.1 Prerequisite
+
+You need a Gemini API key in `backend/.env` (see step 4.3) and at least one
+user with real, non-zero holdings — the agent only monitors what a user
+actually owns.
+
+### 9.2 Run it once, manually, to test it
+
+With the backend virtual environment active:
+
+```powershell
+cd backend
+.\venv\Scripts\Activate.ps1
 python manage.py monitor_portfolio_news
 ```
 
-The command prints statistics.
-
-Example categories include:
-
-```text
-Users processed
-Holdings processed
-Search queries run
-Articles retrieved
-Articles matched
-New articles stored
-Duplicates skipped
-Articles sent to AI
-AI failures
-Alerts created
-Notifications sent
-```
-
----
-
-# 25. How to understand a zero-alert result
-
-A zero value does not automatically mean the program is broken.
-
-For example:
-
-```text
-Articles retrieved: 0
-```
-
-means Google News did not return candidates.
-
-Or:
-
-```text
-Articles retrieved: 20
-Articles matched: 0
-```
-
-means articles were found but the deterministic holding matcher did not find a company/fund identifier in them.
-
-Or:
-
-```text
-Articles matched: 5
-Articles sent to AI: 5
-AI failures: 5
-```
-
-usually points to a Gemini configuration/network/response problem.
-
-Use the statistics to find which stage stopped producing results.
-
----
-
-# 26. Open the Portfolio News page
-
-After running the monitor:
+Watch the printed statistics (`Holdings processed`, `Articles retrieved`,
+`Alerts created`, etc.). Then open:
 
 ```text
 http://localhost:4200/portfolio-news
 ```
 
-You can also reach it from the left sidebar:
+If `Alerts created` was `0`, that's often normal on a fresh portfolio (no
+recent matching news yet) — see the Troubleshooting section below.
 
-```text
-Portfolio -> Portfolio News
-```
+### 9.3 Schedule it to run automatically (Windows)
 
----
+The repo includes `backend/run_news_monitor.bat` and
+`backend/COMMANDS_NEWS.TXT` as a starting point, but the `.bat` file
+contains a placeholder path that **will not match your computer** — edit it
+first.
 
-# 27. How the notification bell works
+1. Open `backend/run_news_monitor.bat` in a text editor and replace every
+   path with the actual path on your machine, e.g.:
 
-The Angular header checks the backend notification endpoint every 60 seconds.
+   ```bat
+   @echo off
+   "D:\Personal_Wealth_Monitoring\backend\venv\Scripts\python.exe" "D:\Personal_Wealth_Monitoring\backend\manage.py" monitor_portfolio_news >> "D:\Personal_Wealth_Monitoring\backend\news_monitor.log" 2>&1
+   ```
 
-It looks only for:
+2. Test it manually by double-clicking it or running it from PowerShell:
 
-```text
-Critical
-High
-```
+   ```powershell
+   D:\Personal_Wealth_Monitoring\backend\run_news_monitor.bat
+   ```
 
-alerts.
+   Then check `backend\news_monitor.log` for output.
 
-The first check establishes a baseline.
+3. Open **Task Scheduler** (search for it in the Start menu) →
+   **Create Task…**:
+   - **General tab**: give it a name like `PWMS News Monitor`. Choose
+     "Run whether user is logged on or not" if you want it to work even
+     when you're logged out.
+   - **Triggers tab** → **New…** → Begin the task **On a schedule** →
+     Daily, recur every 1 day → Repeat task every **45 minutes** for a
+     duration of **1 day** (a practical development interval).
+   - **Actions tab** → **New…** → Action: **Start a program** → Program/
+     script: the full path to `run_news_monitor.bat`.
+   - Save. You may be prompted for your Windows password if you chose
+     "run whether logged on or not".
 
-Therefore old alerts that already existed when the page opened are not shown as a new browser popup.
+4. Confirm it's working by checking `backend\news_monitor.log` after the
+   next scheduled run, or right-click the task → **Run** to trigger it
+   immediately.
 
-A later new Critical/High alert can trigger a browser notification.
-
----
-
-# 28. Allow browser notifications
-
-When the application asks for notification permission:
-
-Choose:
-
-```text
-Allow
-```
-
-If you selected Block:
-
-1. Open your browser's site settings.
-2. Find Notifications.
-3. Change them to Allow.
-4. Reload PWMS.
-5. Open the notification bell.
-
-The browser notification is only an extra convenience. The alert still exists inside:
-
-```text
-/portfolio-news
-```
+`backend/COMMANDS_NEWS.TXT` has the equivalent raw `schtasks` command-line
+syntax if you prefer scripting the task creation instead of using the GUI.
 
 ---
 
-# 29. Test the API directly
+## 10. Running the test suites (optional, recommended if you plan to modify code)
 
-After logging in through the Angular application, the browser has the session cookie.
-
-Useful endpoints are:
-
-```text
-http://localhost:8000/api/health/
-http://localhost:8000/api/ai/news/
-http://localhost:8000/api/ai/notifications/
-```
-
-Do not expect the protected news endpoints to work in a fresh unauthenticated browser session.
-
----
-
-# 30. Run the news monitor again
-
-You can safely run the monitor repeatedly:
-
-```powershell
-python manage.py monitor_portfolio_news
-```
-
-The code is designed to be idempotent.
-
-It does not intentionally create duplicate alerts for the same:
-
-```text
-user + article + holding
-```
-
----
-
-# 31. Run the news-agent tests
-
-Stop the manual monitor only if it is currently running.
-
-Then:
-
-```powershell
-cd backend
-.\venv\Scripts\Activate.ps1
-python manage.py test portfolio_news -v 2
-```
-
-This tests the news subsystem.
-
----
-
-# 32. Run all backend tests
-
-Run:
+Backend (from `backend/`, virtual environment active):
 
 ```powershell
 python manage.py test
 ```
 
-This tests the complete Django project.
+To run just the RBAC/Family Groups tests:
+
+```powershell
+python manage.py test users portfolio -v 2
+```
+
+Frontend (from `frontend/`):
+
+```powershell
+npm test
+npm run build
+```
 
 ---
 
-# 33. Basic health-check sequence
+## 11. Everyday startup (after the first-time setup above)
 
-Whenever the backend starts behaving strangely, run these commands in order:
+Once steps 1–7 are done once, starting the app again is just:
+
+**Terminal 1:**
 
 ```powershell
-cd backend
+cd Personal_Wealth_Monitoring\backend
 .\venv\Scripts\Activate.ps1
-python manage.py check
-python manage.py migrate
-python manage.py test portfolio_news -v 2
-```
-
-Then:
-
-```powershell
 python manage.py runserver
 ```
 
+**Terminal 2:**
+
+```powershell
+cd Personal_Wealth_Monitoring\frontend
+npm start
+```
+
+Then open `http://localhost:4200`.
+
 ---
 
-# 34. Problem: `python` command is not found
+## Troubleshooting
 
-Run:
+### `python` or `pip` is not recognized
 
 ```powershell
 python --version
+pip --version
 ```
 
-If it is not recognized:
-
-1. Install Python.
-2. Restart PowerShell.
-3. Run the version command again.
-
----
-
-# 35. Problem: wrong Python environment
-
-Run:
-
-```powershell
-where.exe python
-python -m pip --version
-```
-
-The active Python should point to the project's:
-
-```text
-backend\venv\
-```
-
-If it does not:
+If Python is installed but the wrong interpreter runs, make sure the
+virtual environment is active:
 
 ```powershell
 cd backend
 .\venv\Scripts\Activate.ps1
-```
-
-Then check again.
-
----
-
-# 36. Problem: `pip` installs packages into the wrong place
-
-Use:
-
-```powershell
-python -m pip install -r requirements.txt
-```
-
-instead of relying on a system-wide `pip`.
-
-Check:
-
-```powershell
+python --version
 python -m pip --version
 ```
 
----
+Prefer `python -m pip` over a bare `pip` when diagnosing interpreter
+mismatches.
 
-# 37. Problem: activation says script execution is disabled
-
-Run:
+### PowerShell refuses to activate the virtual environment
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-```
-
-Then:
-
-```powershell
 .\venv\Scripts\Activate.ps1
 ```
 
----
-
-# 38. Problem: `django` module is missing
-
-Run:
+### Django says a module/app is missing
 
 ```powershell
 cd backend
 .\venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-```
-
-Then:
-
-```powershell
 python manage.py check
 ```
 
----
-
-# 39. Problem: `feedparser` is missing
-
-The news provider requires it.
-
-Run:
-
-```powershell
-cd backend
-.\venv\Scripts\Activate.ps1
-python -m pip install feedparser==6.0.11
-```
-
-Then verify:
-
-```powershell
-python manage.py check
-```
-
-Normally a fresh setup should already install this from `requirements.txt`.
-
----
-
-# 40. Problem: database tables do not exist
-
-Run:
+### Django says migrations are pending
 
 ```powershell
 cd backend
 python manage.py migrate
 ```
 
-Then:
+### "System check identified no issues" but the browser can't connect
+
+Make sure the backend is actually running (`python manage.py runserver`)
+and test `http://127.0.0.1:8000/api/health/` directly in a browser before
+troubleshooting the frontend.
+
+### Frontend can't reach the backend
+
+The Angular services use a hard-coded `http://localhost:8000` base URL.
+That's correct when both browser and backend are on the _same_ computer.
+If you're opening the frontend from a different device, `localhost` on
+that device means itself, not your Django machine — you'd need to change
+the frontend's API base URL and Django's CORS/CSRF settings together
+(`CORS_ALLOWED_ORIGINS` / `CSRF_TRUSTED_ORIGINS` in
+`backend/config/settings.py`). This isn't needed for normal single-machine
+development.
+
+### I can't log in / there's no user yet
+
+Run `python manage.py createsuperuser` (see step 4.6). If you already have
+a user but forgot the password, an existing Super User can reset it from
+**Settings → User Management → Reset Password**, or you can reset it
+directly:
 
 ```powershell
+python manage.py changepassword <username>
+```
+
+### A Viewer/Admin account can't see something I expect
+
+Check three things, in order:
+
+1. **Role** — Viewer accounts can't edit prices or manage users by design;
+   that's expected, not a bug.
+2. **Ownership** — portfolio data belongs to whoever entered it. A brand
+   new account has no data of its own until you add some or share access.
+3. **Family Group** — if you expect two accounts to see combined data,
+   confirm both are in the _same_ Family Group under
+   **Settings → User Management → Manage Family Groups**.
+
+### An Admin can't do something involving a Super User account
+
+This is by design — an Admin can never edit, deactivate, delete, reset the
+password of, or change the Family Group of a Super User account. Only
+another Super User can do that.
+
+### "Cannot deactivate/delete the last active Super User"
+
+The system deliberately refuses to leave itself with zero Super Users.
+Create or promote a second Super User first if you need to remove one.
+
+### The Portfolio/Dashboard numbers look wrong after sharing a Family Group
+
+Manual price edits and any write action are still scoped to the actual
+owner — sharing visibility never changes who can edit what. If a combined
+total looks off, check each member's own data individually first
+(temporarily removing them from the group, or checking
+`Settings → Manual Prices`, is the fastest way to isolate it).
+
+### The news page is empty
+
+```powershell
+cd backend
 python manage.py check
-```
-
----
-
-# 41. Problem: Django says migration changes are not applied
-
-Run:
-
-```powershell
-python manage.py showmigrations
-```
-
-Then:
-
-```powershell
 python manage.py migrate
+python manage.py monitor_portfolio_news
 ```
 
----
+Read the printed counts. Common reasons for zero alerts: the user has no
+active (non-zero-quantity) holdings, no recent matching news exists, the
+Gemini key is missing/invalid, or every candidate article was already
+processed in a previous run.
 
-# 42. Problem: frontend `npm` is not recognized
+### The monitor says Gemini is skipped
 
-Run:
+Make sure `backend/.env` has `GEMINI_API_KEY=...` (or `GOOGLE_API_KEY=...`),
+then restart `runserver` and re-run
+`python manage.py monitor_portfolio_news`.
 
-```powershell
-node --version
-npm --version
+### No browser popup even though an alert shows in the Portfolio News page
+
+You need: a supported browser, browser notification permission granted
+(check your browser's site settings for the PWMS URL), the alert to be
+newly created (Critical/High tier) — not one that already existed at your
+last visit — and the Angular app open and polling (every 60 seconds).
+
+### Windows Task Scheduler runs but nothing happens
+
+Test the `.bat` file manually first (double-click it, or run it from
+PowerShell), then check `backend\news_monitor.log`. The most common cause
+is a leftover placeholder path inside the `.bat` file that doesn't match
+your computer — re-check step 9.3.1.
+
+### Too many Gemini rate-limit errors during a news monitor run
+
+Increase the delay between calls in `backend/.env`:
+
+```env
+NEWS_MONITOR_AI_CALL_DELAY_SECONDS=6
 ```
 
-If both fail, install Node.js and reopen PowerShell.
+Then re-run the monitor.
 
----
+### I accidentally deleted `db.sqlite3`
 
-# 43. Problem: `ng` command is not recognized
-
-You do not need a globally installed Angular CLI.
-
-The repository contains the CLI in its dependencies.
-
-Use:
-
-```powershell
-npm start
-```
-
-or:
-
-```powershell
-npx ng serve
-```
-
----
-
-# 44. Problem: frontend dependency installation fails
-
-Try:
-
-```powershell
-cd frontend
-Remove-Item -Recurse -Force node_modules
-npm cache verify
-npm install
-```
-
-Then:
-
-```powershell
-npm start
-```
-
-If PowerShell reports that `node_modules` does not exist, that is harmless.
-
----
-
-# 45. Problem: frontend loads but shows backend connection errors
-
-Confirm Django is running:
+This is your local development database — if it had real data, restore it
+from a backup. If you intentionally want a fresh empty database:
 
 ```powershell
 cd backend
-python manage.py runserver
-```
-
-Then test:
-
-```text
-http://127.0.0.1:8000/api/health/
-```
-
-If health works but Angular still cannot connect, remember that the frontend currently contains localhost API URLs.
-
-The current development setup expects:
-
-```text
-Browser
-   |
-   +--> localhost:4200  Angular
-   |
-   +--> localhost:8000  Django API
-```
-
----
-
-# 46. Problem: frontend is running on another computer
-
-This is a common misunderstanding.
-
-In a browser:
-
-```text
-localhost
-```
-
-means:
-
-```text
-the computer running the browser
-```
-
-It does **not** mean the server where Django is running.
-
-The current Angular code uses:
-
-```text
-http://localhost:8000
-```
-
-Therefore a remote user will try to contact their own computer.
-
-For LAN/Internet deployment, you must change the API base URLs and update Django's CORS/CSRF and host configuration together.
-
----
-
-# 47. Problem: `ERR_CONNECTION_REFUSED` on port 8000
-
-Check whether Django is listening.
-
-Run:
-
-```powershell
-netstat -ano | findstr :8000
-```
-
-Then make sure Django is started:
-
-```powershell
-python manage.py runserver
-```
-
-For local development, use the address printed by Django.
-
----
-
-# 48. Problem: `CORS` error
-
-The current backend allows:
-
-```text
-http://localhost:4200
-```
-
-in `backend/config/settings.py`.
-
-If the frontend is opened from a different origin, the CORS configuration must include that exact frontend origin.
-
-The CSRF trusted origin must also match the frontend origin for session-protected POST requests.
-
-After changing settings, restart Django.
-
----
-
-# 49. Problem: `403 CSRF Failed`
-
-The Angular application is configured to use Django's CSRF cookie/header:
-
-```text
-cookie: csrftoken
-header: X-CSRFToken
-```
-
-For a fresh setup, first make sure the backend is working and the frontend is opened from the configured origin.
-
-Then log in again.
-
-For debugging:
-
-```powershell
-python manage.py check
-```
-
-and inspect the browser's Network tab for the failing request.
-
----
-
-# 50. Problem: login says invalid username/password
-
-Create or reset the account:
-
-```powershell
-cd backend
+python manage.py migrate
 python manage.py createsuperuser
 ```
 
-Then go to:
+Then re-enter or re-import your data.
 
-```text
-http://localhost:4200/login
-```
+### A `mutual_funds` SIP test fails when I run the test suite
 
----
-
-# 51. Problem: news monitor says no Gemini key is configured
-
-Check:
-
-```text
-backend\.env
-```
-
-You need:
-
-```env
-GEMINI_API_KEY=YOUR_KEY
-```
-
-or:
-
-```env
-GOOGLE_API_KEY=YOUR_KEY
-```
-
-Then fully restart Django.
-
-Do not only refresh the browser. Environment variables are loaded by the backend process.
+A few SIP-scheduling tests compare against today's real date and can drift
+as time passes since they were written — this is a known, pre-existing
+test-fixture limitation, not something this guide can fix for you. It does
+not affect the running application, only that specific test file.
 
 ---
 
-# 52. Problem: news monitor finds articles but creates no alerts
-
-Check the monitor statistics.
-
-### Case A
-
-```text
-Articles retrieved: 0
-```
-
-Likely provider/search/network issue.
-
-### Case B
-
-```text
-Articles retrieved: many
-Articles matched: 0
-```
-
-The deterministic holding matcher did not find a matching name, alias, ticker, or ISIN.
-
-### Case C
-
-```text
-Articles matched: many
-Articles sent to AI: 0
-```
-
-Those articles were probably already processed for that user/holding.
-
-### Case D
-
-```text
-Articles sent to AI: many
-AI failures: many
-```
-
-Check the Gemini key, model name, network connection and backend logs.
-
----
-
-# 53. Problem: Google News request fails
-
-The default news provider uses:
-
-```text
-https://news.google.com/rss/search
-```
-
-Check:
-
-- Internet access
-- DNS/network restrictions
-- proxy/firewall rules
-- whether Google News is reachable from the machine
-
-A provider failure is intentionally non-fatal. The monitor continues with the rest of the holdings.
-
----
-
-# 54. Problem: browser popup does not appear
-
-Check all of these:
-
-```text
-Is Angular running?
-Is the browser notification permission allowed?
-Is the alert Critical/High?
-Was the alert created after the notification baseline?
-Is the page still open?
-```
-
-Remember:
-
-The current implementation polls every 60 seconds.
-
-The app must be open for the client-side polling mechanism to detect new alerts.
-
----
-
-# 55. Problem: the popup appears only after about one minute
-
-That is expected.
-
-The header polls every:
-
-```text
-60 seconds
-```
-
-It is not an instant server push system.
-
----
-
-# 56. Problem: Task Scheduler runs an old project path
-
-The repository contains a batch file with an example/developer-specific path.
-
-Open:
-
-```text
-backend\run_news_monitor.bat
-```
-
-Replace every old absolute path with the actual path of the project on the current computer.
-
-Example:
-
-```bat
-@echo off
-"C:\Projects\Personal_Wealth_Monitoring\backend\venv\Scripts\python.exe" "C:\Projects\Personal_Wealth_Monitoring\backend\manage.py" monitor_portfolio_news >> "C:\Projects\Personal_Wealth_Monitoring\backend\news_monitor.log" 2>&1
-```
-
-Test it:
+## Quick reference: full first-time setup, start to finish
 
 ```powershell
-C:\Projects\Personal_Wealth_Monitoring\backend\run_news_monitor.bat
-```
+git clone https://github.com/avviiiral/Personal_Wealth_Monitoring.git
+cd Personal_Wealth_Monitoring
+git checkout updates
 
-Then inspect:
-
-```text
-C:\Projects\Personal_Wealth_Monitoring\backend\news_monitor.log
-```
-
----
-
-# 57. Create a Windows Task Scheduler job
-
-First make sure the batch file works manually.
-
-Then open PowerShell **as Administrator** if your Windows account/task policy requires it.
-
-Example task name:
-
-```text
-PWMS Portfolio News Monitor
-```
-
-Example command:
-
-```powershell
-schtasks /create /tn "PWMS Portfolio News Monitor" /tr "\"C:\Projects\Personal_Wealth_Monitoring\backend\run_news_monitor.bat\"" /sc minute /mo 45 /st 00:00 /ru "YOUR_WINDOWS_USERNAME" /rp *
-```
-
-Important:
-
-Replace:
-
-```text
-C:\Projects\Personal_Wealth_Monitoring
-```
-
-with your actual project path.
-
-Replace:
-
-```text
-YOUR_WINDOWS_USERNAME
-```
-
-with the Windows account that should run the task.
-
-The `*` after `/rp` causes Windows to prompt for the account password.
-
-Do not paste a real password into a document or command shown to another person.
-
----
-
-# 58. Confirm the scheduled task exists
-
-Run:
-
-```powershell
-schtasks /query /tn "PWMS Portfolio News Monitor" /v /fo LIST
-```
-
-Check:
-
-- Status
-- Next Run Time
-- Task To Run
-- Run As User
-
----
-
-# 59. Run the scheduled task immediately for testing
-
-Run:
-
-```powershell
-schtasks /run /tn "PWMS Portfolio News Monitor"
-```
-
-Wait for the task to execute, then inspect:
-
-```text
-backend\news_monitor.log
-```
-
-The task should leave behind the same output you get when running:
-
-```powershell
-python manage.py monitor_portfolio_news
-```
-
----
-
-# 60. Delete the scheduled task
-
-When you need to remove it:
-
-```powershell
-schtasks /delete /tn "PWMS Portfolio News Monitor" /f
-```
-
----
-
-# 61. Recommended first-time setup checklist
-
-- [ ] Install Git
-- [ ] Install Python
-- [ ] Install Node.js
-- [ ] Clone the repository
-- [ ] Checkout `feature/news-agent`
-- [ ] Create `backend\venv`
-- [ ] Activate `venv`
-- [ ] Install `requirements.txt`
-- [ ] Create `backend\.env`
-- [ ] Add the Gemini API key
-- [ ] Run migrations
-- [ ] Run `python manage.py check`
-- [ ] Create a superuser
-- [ ] Start Django
-- [ ] Confirm `/api/health/`
-- [ ] Install frontend packages
-- [ ] Start Angular
-- [ ] Log in
-- [ ] Confirm the portfolio loads
-- [ ] Run `monitor_portfolio_news`
-- [ ] Open Portfolio News
-- [ ] Allow browser notifications
-- [ ] Test the notification flow
-- [ ] Only then configure Task Scheduler
-
----
-
-# 62. Recommended daily troubleshooting sequence
-
-When something stops working:
-
-```powershell
-cd D:\YOUR_PATH\Personal_Wealth_Monitoring\backend
-.\venv\Scripts\Activate.ps1
-
-python manage.py check
-python manage.py migrate
-python manage.py test portfolio_news -v 2
-```
-
-Then:
-
-```powershell
-python manage.py monitor_portfolio_news
-```
-
-Then start Django:
-
-```powershell
-python manage.py runserver
-```
-
-In another terminal:
-
-```powershell
-cd D:\YOUR_PATH\Personal_Wealth_Monitoring\frontend
-npm start
-```
-
----
-
-# 63. Production warning
-
-This branch is configured primarily for development.
-
-Important settings currently include:
-
-```text
-DEBUG=True
-ALLOWED_HOSTS=[]
-localhost CORS/CSRF settings
-hard-coded Django SECRET_KEY
-hard-coded Angular localhost API URLs
-```
-
-Do not expose this exact configuration directly to the public internet.
-
-A proper production deployment needs:
-
-- environment-based Django secrets
-- `DEBUG=False`
-- `ALLOWED_HOSTS`
-- production CORS/CSRF origins
-- HTTPS
-- secure cookies
-- production database and backups
-- a proper WSGI/ASGI deployment
-- a reverse proxy
-- a deployment-safe Angular API configuration
-- reviewed authentication and authorization settings
-- a background push architecture if notifications must work while the browser is closed
-
----
-
-# 64. What the current news notification system can and cannot do
-
-## It can
-
-- monitor actual portfolio holdings
-- search recent news
-- remove duplicates
-- analyze matched articles with Gemini
-- calculate impact/relevance/sentiment
-- rank alerts by portfolio weight
-- show alerts inside PWMS
-- show browser notifications for newly detected Critical/High alerts while the Angular app is running
-
-## It cannot currently
-
-- send a true server-side push notification while the website is closed
-- run a real daily moderate-impact digest
-- operate correctly with an unchanged localhost-only frontend configuration on another computer/network
-
----
-
-# 65. Useful commands in one place
-
-## Backend
-
-```powershell
 cd backend
+python -m venv venv
 .\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 
-python manage.py check
+# create backend\.env here (see step 4.3) — optional unless you want AI Chat / News
+
 python manage.py migrate
+python manage.py check
 python manage.py createsuperuser
 python manage.py runserver
-python manage.py monitor_portfolio_news
-python manage.py test portfolio_news -v 2
-python manage.py test
 ```
 
-## Frontend
+In a second terminal:
 
 ```powershell
-cd frontend
-
+cd Personal_Wealth_Monitoring\frontend
 npm install
 npm start
-npm run build
-npm test
 ```
 
-## Windows scheduled monitor
-
-```powershell
-schtasks /query /tn "PWMS Portfolio News Monitor" /v /fo LIST
-schtasks /run /tn "PWMS Portfolio News Monitor"
-schtasks /delete /tn "PWMS Portfolio News Monitor" /f
-```
-
----
-
-# 66. Final test: prove the setup works
-
-A new computer setup is considered successful when all of these work:
-
-### Backend
-
-```powershell
-python manage.py check
-```
-
-### Database
-
-```powershell
-python manage.py migrate
-```
-
-### Backend HTTP
-
-Open:
-
-```text
-http://127.0.0.1:8000/api/health/
-```
-
-### Frontend
-
-Open:
-
-```text
-http://localhost:4200/login
-```
-
-### Login
-
-Use the created superuser account.
-
-### News monitor
-
-Run:
-
-```powershell
-python manage.py monitor_portfolio_news
-```
-
-### News page
-
-Open:
-
-```text
-http://localhost:4200/portfolio-news
-```
-
-### News notification
-
-Leave Angular running, allow browser notifications, and let the 60-second polling cycle detect any newly-created Critical/High alert.
-
----
-
-# 67. Files to inspect when troubleshooting
-
-## Backend
-
-```text
-backend/config/settings.py
-backend/config/urls.py
-backend/api/urls.py
-backend/api/views.py
-backend/ai/urls.py
-backend/ai/views.py
-
-backend/portfolio_news/models.py
-backend/portfolio_news/views.py
-backend/portfolio_news/urls.py
-backend/portfolio_news/serializers.py
-backend/portfolio_news/constants.py
-backend/portfolio_news/services/pipeline.py
-backend/portfolio_news/services/holdings_registry.py
-backend/portfolio_news/services/query_builder.py
-backend/portfolio_news/services/holding_matcher.py
-backend/portfolio_news/services/google_news_provider.py
-backend/portfolio_news/services/deduplication.py
-backend/portfolio_news/services/gemini_analyzer.py
-backend/portfolio_news/services/alert_scoring.py
-backend/portfolio_news/services/notification_creation.py
-backend/portfolio_news/management/commands/monitor_portfolio_news.py
-```
-
-## Frontend
-
-```text
-frontend/src/core/services/auth.service.ts
-frontend/src/core/services/news-api.service.ts
-frontend/src/core/services/browser-notification.service.ts
-frontend/src/app/layout/header/header.component.ts
-frontend/src/app/app.routes.ts
-frontend/src/app/app.config.ts
-frontend/src/features/portfolio-news/
-```
-
----
-
-# 68. Simple explanation for a non-technical user
-
-Think of the system like this:
-
-```text
-Your portfolio
-      |
-      v
-"What companies/funds do I own?"
-      |
-      v
-Search the latest news
-      |
-      v
-"Is this actually about something I own?"
-      |
-      v
-"How important could it be for my portfolio?"
-      |
-      v
-AI explains the article
-      |
-      v
-PWMS shows it in Portfolio News
-      |
-      v
-Critical/High -> notification bell/browser popup
-```
-
-You do not need to manually type your stocks into the news agent.
-
-The agent uses the holdings already stored in PWMS.
-
+Open `http://localhost:4200/login` and sign in with the account you just
+created.

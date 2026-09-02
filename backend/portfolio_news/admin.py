@@ -2,8 +2,22 @@ from django.contrib import admin
 
 from .models import (
     NewsArticle,
+    NewsArticleSource,
     PortfolioNewsAlert,
 )
+
+
+class NewsArticleSourceInline(admin.TabularInline):
+    model = NewsArticleSource
+    extra = 0
+    fields = (
+        "publisher_name",
+        "url",
+        "quality_tier",
+        "published_at",
+        "first_seen_at",
+    )
+    readonly_fields = ("first_seen_at",)
 
 
 @admin.register(NewsArticle)
@@ -13,6 +27,8 @@ class NewsArticleAdmin(admin.ModelAdmin):
         "id",
         "title",
         "source",
+        "source_quality",
+        "source_count",
         "published_at",
         "created_at",
     )
@@ -25,9 +41,12 @@ class NewsArticleAdmin(admin.ModelAdmin):
 
     list_filter = (
         "source",
+        "source_quality",
     )
 
     ordering = ("-published_at",)
+
+    inlines = [NewsArticleSourceInline]
 
 
 @admin.register(PortfolioNewsAlert)

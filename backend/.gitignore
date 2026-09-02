@@ -25,6 +25,10 @@ db.sqlite3-journal
 staticfiles/
 media/
 
+# Daily refresh scheduler marker (see
+# market_data/services/daily_refresh_scheduler.py)
+data/.last_scheduled_refresh_date
+
 # Django local settings
 local_settings.py
 

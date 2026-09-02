@@ -591,6 +591,10 @@
   min-height: 430px;
 }
 
+.breakdown-grid {
+  grid-template-columns: 1fr 1fr;
+}
+
 .advisor-allocation-card {
   margin-bottom: 32px;
 }

@@ -86,6 +86,76 @@ export class WealthApiService {
     });
   }
 
+  /**
+   * Current-value allocation by AMC (Top AMC exposures, AMC
+   * concentration) — see analytics.services.investment_summary.
+   * InvestmentSummaryService.calculate_composition_by_amc.
+   */
+  getCompositionByAmc(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/composition-by-amc/`, {
+      withCredentials: true,
+    });
+  }
+
+  /**
+   * Value-weighted P/E, P/B, ROE and market-cap allocation across
+   * every equity/other-investment holding with SecurityMaster quant
+   * data — see InvestmentSummaryService.calculate_equity_analysis.
+   */
+  getEquityAnalysis(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/equity-analysis/`, {
+      withCredentials: true,
+    });
+  }
+
+  /**
+   * Value-weighted YTM / Modified Duration / Average Maturity and
+   * credit-rating distribution across Fixed-Income-classified
+   * holdings — see
+   * InvestmentSummaryService.calculate_fixed_income_analysis.
+   */
+  getFixedIncomeAnalysis(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/fixed-income-analysis/`, {
+      withCredentials: true,
+    });
+  }
+
+  /**
+   * Current-value allocation by sector, across every equity/other-
+   * investment holding — see
+   * InvestmentSummaryService.calculate_sector_allocation.
+   */
+  getSectorAllocation(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/sector-allocation/`, {
+      withCredentials: true,
+    });
+  }
+
+  /**
+   * Current-value allocation by cap_type (Large/Mid/Small Cap),
+   * across every equity/other-investment holding — see
+   * InvestmentSummaryService.calculate_market_cap_allocation.
+   */
+  getMarketCapAllocation(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/market-cap-allocation/`, {
+      withCredentials: true,
+    });
+  }
+
+  /**
+   * Current-value allocation by sub_class (Debt Mutual Fund,
+   * Liquid Mutual Fund, InvITs, REITs, Gold Bond, Private Equity,
+   * etc.), restricted to holdings with no cap_type on file — the
+   * complementary breakdown to getMarketCapAllocation()'s
+   * "Unclassified" slice. See
+   * InvestmentSummaryService.calculate_non_stock_holding_types.
+   */
+  getNonStockHoldingTypes(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/non-stock-holding-types/`, {
+      withCredentials: true,
+    });
+  }
+
   getPerformanceByAdvisor(): Observable<any> {
     return this.http.get<any>(`${this.baseUrl}/performance-by-advisor/`, {
       withCredentials: true,

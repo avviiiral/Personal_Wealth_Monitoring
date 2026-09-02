@@ -27,9 +27,11 @@ from portfolio.services.portfolio_position_engine import (
     PortfolioPositionEngine,
 )
 
+from users.permissions import IsAdminOrSuperUser
+
 
 @api_view(["PUT", "PATCH", "DELETE"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, IsAdminOrSuperUser])
 def manual_asset_price(
     request,
     asset_id,
@@ -258,6 +260,7 @@ def manual_asset_price(
                     "close_price": price,
                     "adjusted_close": price,
                     "volume": None,
+                    "updated_by": request.user,
                 },
             )
         )

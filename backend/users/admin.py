@@ -29,3 +29,50 @@ class UserPreferenceAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
+
+from .models import UserProfile
+
+
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+
+    list_display = (
+        "user",
+        "role",
+        "updated_at",
+    )
+
+    list_filter = (
+        "role",
+    )
+
+    search_fields = (
+        "user__username",
+        "user__email",
+    )
+
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+    )
+
+
+from .models import FamilyGroup
+
+
+@admin.register(FamilyGroup)
+class FamilyGroupAdmin(admin.ModelAdmin):
+
+    list_display = (
+        "name",
+        "created_by",
+        "created_at",
+    )
+
+    search_fields = (
+        "name",
+    )
+
+    readonly_fields = (
+        "created_at",
+    )

@@ -48,6 +48,8 @@ from .services.sip_installments import (
     SIPInstallmentService,
 )
 
+from users.permissions import get_visible_owner_ids
+
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 # ==========================================================
@@ -69,7 +71,7 @@ def mutual_fund_schemes(request):
         schemes = (
             MutualFundScheme.objects
             .filter(
-                owner=request.user,
+                owner_id__in=get_visible_owner_ids(request.user),
                 is_active=True,
             )
         )
@@ -192,7 +194,7 @@ def mutual_fund_summary(request):
     holdings = (
         MutualFundHolding.objects
         .filter(
-            owner=request.user,
+            owner_id__in=get_visible_owner_ids(request.user),
             scheme__is_active=True,
         )
     )
@@ -247,7 +249,7 @@ def mutual_fund_holdings(request):
     holdings = (
         MutualFundHolding.objects
         .filter(
-            owner=request.user,
+            owner_id__in=get_visible_owner_ids(request.user),
             scheme__is_active=True,
         )
         .select_related("scheme")
@@ -276,7 +278,7 @@ def mutual_fund_transactions(request):
     transactions = (
         MutualFundTransaction.objects
         .filter(
-            owner=request.user,
+            owner_id__in=get_visible_owner_ids(request.user),
         )
         .select_related("scheme")
         .order_by(
@@ -307,7 +309,7 @@ def sip_list(request):
     sips = (
         SIP.objects
         .filter(
-            owner=request.user,
+            owner_id__in=get_visible_owner_ids(request.user),
         )
         .select_related("scheme")
         .order_by(
@@ -354,7 +356,7 @@ def sip_due(request):
     installments = (
         SIPInstallment.objects
         .filter(
-            sip__owner=request.user,
+            sip__owner_id__in=get_visible_owner_ids(request.user),
             sip__is_active=True,
             status=SIPInstallmentStatus.DUE,
         )
@@ -429,7 +431,7 @@ def sip_summary(request):
     summary = (
         SIPSummaryService
         .get_summary(
-            request.user
+            get_visible_owner_ids(request.user)
         )
     )
 

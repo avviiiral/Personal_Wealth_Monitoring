@@ -1,0 +1,126 @@
+<div class="scheme-page nx-report-theme">
+  <header class="page-header">
+    <h1>Scheme Analytics</h1>
+  </header>
+
+  <div class="loading-card" *ngIf="loading">Loading scheme data…</div>
+
+  <div class="error-card" *ngIf="error">{{ error }}</div>
+
+  <ng-container *ngIf="!loading && !error">
+    <div class="toolbar">
+      <input
+        type="text"
+        class="search-input"
+        placeholder="Search scheme, family, advisor, AMC, ISIN…"
+        [(ngModel)]="searchTerm"
+        (ngModelChange)="onSearchChange()"
+      />
+
+      <span class="result-count">
+        {{ filteredRows.length }} scheme{{ filteredRows.length === 1 ? '' : 's' }}
+      </span>
+    </div>
+
+    <div class="empty-state" *ngIf="filteredRows.length === 0">
+      No schemes match "{{ searchTerm }}".
+    </div>
+
+    <div class="table-scroll" *ngIf="filteredRows.length > 0">
+      <table class="scheme-table">
+        <thead>
+          <tr>
+            <th (click)="setSort('asset_name')" class="sortable">
+              Scheme {{ sortIndicator('asset_name') }}
+            </th>
+
+            <th (click)="setSort('asset_class')" class="sortable">
+              Category {{ sortIndicator('asset_class') }}
+            </th>
+
+            <th (click)="setSort('family_name')" class="sortable">
+              Family {{ sortIndicator('family_name') }}
+            </th>
+
+            <th (click)="setSort('advisors')" class="sortable">
+              Advisor {{ sortIndicator('advisors') }}
+            </th>
+
+            <th (click)="setSort('amc_name')" class="sortable">
+              AMC {{ sortIndicator('amc_name') }}
+            </th>
+
+            <th (click)="setSort('invested_value')" class="sortable numeric">
+              Holding Cost {{ sortIndicator('invested_value') }}
+            </th>
+
+            <th (click)="setSort('current_value')" class="sortable numeric">
+              Market Value {{ sortIndicator('current_value') }}
+            </th>
+
+            <th (click)="setSort('pnl')" class="sortable numeric">
+              Gain/Loss {{ sortIndicator('pnl') }}
+            </th>
+
+            <th (click)="setSort('pnl_percentage')" class="sortable numeric">
+              Abs. Return {{ sortIndicator('pnl_percentage') }}
+            </th>
+
+            <th (click)="setSort('xirr')" class="sortable numeric">
+              XIRR {{ sortIndicator('xirr') }}
+            </th>
+          </tr>
+        </thead>
+
+        <tbody>
+          <tr *ngFor="let row of pagedRows; trackBy: trackByAssetId">
+            <td class="scheme-name">
+              {{ row.underlying.trim() || row.asset_name }}
+              <span class="sub-class-tag">{{ row.sub_class }}</span>
+            </td>
+
+            <td>{{ row.asset_class }}</td>
+
+            <td>{{ row.family_name || '-' }}</td>
+
+            <td>{{ row.advisors || '-' }}</td>
+
+            <td>{{ row.amc_name || '-' }}</td>
+
+            <td class="numeric">{{ formatCurrency(row.invested_value) }}</td>
+
+            <td class="numeric">{{ formatCurrency(row.current_value) }}</td>
+
+            <td class="numeric" [ngClass]="getPnlClass(row.pnl)">
+              {{ formatCurrency(row.pnl) }}
+            </td>
+
+            <td class="numeric" [ngClass]="getPnlClass(row.pnl_percentage)">
+              {{ formatPercentage(row.pnl_percentage) }}
+            </td>
+
+            <td class="numeric" [ngClass]="getPnlClass(row.xirr)">
+              {{ formatPercentage(row.xirr) }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="pagination" *ngIf="filteredRows.length > 0">
+      <span class="pagination-summary">
+        {{ pageStart }}–{{ pageEnd }} of {{ filteredRows.length }}
+      </span>
+
+      <div class="pagination-controls">
+        <button type="button" [disabled]="page <= 1" (click)="goToPage(page - 1)">Prev</button>
+
+        <span class="pagination-page">Page {{ page }} of {{ totalPages }}</span>
+
+        <button type="button" [disabled]="page >= totalPages" (click)="goToPage(page + 1)">
+          Next
+        </button>
+      </div>
+    </div>
+  </ng-container>
+</div>

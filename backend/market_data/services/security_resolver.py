@@ -46,6 +46,16 @@ class SecurityResolver:
         "INE044A01036": "SUNPHARMA.NS",
         "INE467B01029": "TCS.NS",
         "INE155A01022": "TATAMOTORS.NS",
+
+        # Added while chasing down 4 stocks that failed to resolve
+        # via the Security Master Excel / generic name fallback —
+        # NSE symbols confirmed against AMFI's own official stock
+        # categorisation list (amfiindia.com, 6 months ended 30 Jun
+        # 2026), not guessed.
+        "INE0V6F01027": "HYUNDAI.NS",    # Hyundai Motor India
+        "INE1CDF01017": "VAML.NS",        # Vedanta Aluminium Metal
+        "INE128X01021": "ACI.NS",         # Archean Chemical Industries
+        "INE089A01031": "DRREDDY.NS",     # Dr. Reddy's Laboratories
     }
 
     # ==========================================================

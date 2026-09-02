@@ -3,6 +3,7 @@ import re
 from typing import List
 
 from .holdings_registry import MonitoredHolding
+from .query_builder import QueryBuilder
 
 
 MIN_TERM_LENGTH_FOR_MATCH = 3
@@ -40,6 +41,7 @@ class HoldingMatcher:
         title: str,
         description: str,
         holding: MonitoredHolding,
+        matched_query: str = "",
     ) -> bool:
 
         searchable = f"{title} {description}".lower()
@@ -66,6 +68,30 @@ class HoldingMatcher:
         ):
             return True
 
+        # Sector/macro fallback: a genuine macro or sector story
+        # (e.g. "RBI raises repo rate") will never mention a
+        # specific company by name, so the checks above are
+        # expected to miss it. That's only acceptable when the
+        # query that surfaced this article was itself generated
+        # specifically for this holding's sector (see
+        # QueryBuilder.is_sector_or_macro_query) - i.e. the
+        # relationship was established deliberately at query time,
+        # not guessed after the fact. Even then, the article text
+        # must still mention the sector or the specific macro topic
+        # searched for, so an off-topic result from that query
+        # doesn't get waved through untested.
+        if matched_query and holding.sector:
+            if QueryBuilder.is_sector_or_macro_query(
+                matched_query, holding
+            ):
+                sector = holding.sector.strip()
+
+                if sector and sector.lower() in searchable:
+                    return True
+
+                if matched_query.lower() in searchable:
+                    return True
+
         return False
 
     @classmethod
@@ -74,6 +100,7 @@ class HoldingMatcher:
         title: str,
         description: str,
         holdings: List[MonitoredHolding],
+        matched_query: str = "",
     ) -> List[MonitoredHolding]:
         """
         Returns the subset of `holdings` this article is
@@ -85,5 +112,7 @@ class HoldingMatcher:
         return [
             holding
             for holding in holdings
-            if cls.is_relevant(title, description, holding)
+            if cls.is_relevant(
+                title, description, holding, matched_query
+            )
         ]

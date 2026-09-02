@@ -2,10 +2,15 @@
   <div class="reports-header">
     <div>
       <h1>Reports</h1>
+      <p>Transaction history, drilled down to every underlying trade.</p>
     </div>
 
     <div class="reports-header-actions">
       <button type="button" class="refresh-button" [disabled]="loading" (click)="refresh()">
+        <svg class="button-icon refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <path d="M20 11A8 8 0 1 0 18.5 16" stroke-linecap="round" stroke-linejoin="round" />
+          <path d="M20 5v6h-6" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
         Refresh
       </button>
 
@@ -181,9 +186,16 @@
     </div>
   </div>
 
-  <div *ngIf="loading" class="loading-state">Loading reports...</div>
+  <div *ngIf="loading" class="loading-state">
+    <span class="loading-spinner"></span>
+    Loading reports...
+  </div>
 
   <div *ngIf="!loading && error" class="error-state">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v5M12 16h.01" stroke-linecap="round" />
+    </svg>
     {{ error }}
   </div>
 
@@ -355,6 +367,10 @@
                             class="underlying-action-button underlying-action-download"
                             (click)="downloadAssetNameTransactions($event, assetGroup)"
                           >
+                            <svg class="button-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                              <path d="M12 15V4M12 15 8.5 11.5M12 15l3.5-3.5" stroke-linecap="round" stroke-linejoin="round" />
+                              <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
                             Download
                           </button>
                         </div>
@@ -519,7 +535,13 @@
           </ng-container>
 
           <tr *ngIf="subClassGroups.length === 0">
-            <td colspan="8" class="empty-table">No transaction data available.</td>
+            <td colspan="8" class="empty-table">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                <rect x="3.5" y="4" width="17" height="16" rx="2" />
+                <path d="M7.5 9h9M7.5 13h6" stroke-linecap="round" />
+              </svg>
+              No transaction data available.
+            </td>
           </tr>
         </tbody>
       </table>

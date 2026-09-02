@@ -3,6 +3,8 @@ import { HttpClient } from '@angular/common/http';
 
 import { Observable, BehaviorSubject, tap, catchError, of } from 'rxjs';
 
+import { RbacService } from './rbac.service';
+
 export interface AuthUser {
   id: number;
   username: string;
@@ -19,6 +21,8 @@ export interface LoginResponse {
 })
 export class AuthService {
   private readonly http = inject(HttpClient);
+
+  private readonly rbacService = inject(RbacService);
 
   private readonly baseUrl = 'http://localhost:8000/api/auth';
 
@@ -121,6 +125,8 @@ export class AuthService {
           this.userSubject.next(null);
 
           this.authenticationChecked = true;
+
+          this.rbacService.clear();
         }),
       );
   }

@@ -57,7 +57,9 @@
     <section class="snapshot-section">
       <div class="section-heading">
         <div>
-          <span class="section-eyebrow"><i class="eyebrow-dot eyebrow-dot--ink"></i>PERFORMANCE</span>
+          <span class="section-eyebrow"
+            ><i class="eyebrow-dot eyebrow-dot--ink"></i>PERFORMANCE</span
+          >
 
           <h2>Portfolio Snapshot</h2>
         </div>
@@ -212,7 +214,9 @@
     <section class="analytics-card wealth-growth-card">
       <div class="card-header">
         <div>
-          <span class="section-eyebrow"><i class="eyebrow-dot eyebrow-dot--ink"></i>WEALTH TREND</span>
+          <span class="section-eyebrow"
+            ><i class="eyebrow-dot eyebrow-dot--ink"></i>WEALTH TREND</span
+          >
 
           <h2>Wealth Growth</h2>
 
@@ -237,7 +241,9 @@
       <section class="analytics-card allocation-card">
         <div class="card-header">
           <div>
-            <span class="section-eyebrow"><i class="eyebrow-dot eyebrow-dot--brass"></i>ALLOCATION</span>
+            <span class="section-eyebrow"
+              ><i class="eyebrow-dot eyebrow-dot--brass"></i>ALLOCATION</span
+            >
 
             <h2>Where Your Wealth Is</h2>
 
@@ -274,7 +280,9 @@
       <section class="analytics-card profile-card">
         <div class="card-header">
           <div>
-            <span class="section-eyebrow"><i class="eyebrow-dot eyebrow-dot--brass"></i>PORTFOLIO PROFILE</span>
+            <span class="section-eyebrow"
+              ><i class="eyebrow-dot eyebrow-dot--brass"></i>PORTFOLIO PROFILE</span
+            >
 
             <h2>Portfolio Structure</h2>
 
@@ -346,13 +354,154 @@
     </div>
 
     <!-- ================================================== -->
+    <!-- MARKET CAP & HOLDING TYPE BREAKDOWN -->
+    <!-- ================================================== -->
+
+    <div class="analysis-grid breakdown-grid">
+      <!-- MARKET CAP ALLOCATION -->
+
+      <section class="analytics-card">
+        <div class="card-header">
+          <div>
+            <span class="section-eyebrow"
+              ><i class="eyebrow-dot eyebrow-dot--brass"></i>MARKET CAP</span
+            >
+
+            <h2>Allocation</h2>
+
+            <p>Holdings by market capitalisation.</p>
+          </div>
+        </div>
+
+        <div class="loading-card" *ngIf="!marketCapAllocationError && !marketCapAllocation">
+          <div class="loading-spinner"></div>
+
+          <span> Loading market cap allocation... </span>
+        </div>
+
+        <div class="empty-state" *ngIf="marketCapAllocationError">
+          {{ marketCapAllocationError }}
+        </div>
+
+        <ng-container *ngIf="!marketCapAllocationError && marketCapAllocation">
+          <div class="empty-state" *ngIf="marketCapAllocation.results?.length === 0">
+            <span class="empty-state-icon">◌</span>
+            No market cap data available.
+          </div>
+
+          <div class="allocation-chart-container" *ngIf="marketCapAllocation.results?.length > 0">
+            <canvas #marketCapChart></canvas>
+          </div>
+        </ng-container>
+      </section>
+
+      <!-- NON-STOCK HOLDING TYPES -->
+
+      <section class="analytics-card">
+        <div class="card-header">
+          <div>
+            <span class="section-eyebrow"
+              ><i class="eyebrow-dot eyebrow-dot--brass"></i>HOLDING TYPES</span
+            >
+
+            <h2>Non-Stock Holding Types</h2>
+
+            <p>What's inside the funds, bonds &amp; alternatives.</p>
+          </div>
+        </div>
+
+        <div class="loading-card" *ngIf="!nonStockHoldingTypesError && !nonStockHoldingTypes">
+          <div class="loading-spinner"></div>
+
+          <span> Loading holding type breakdown... </span>
+        </div>
+
+        <div class="empty-state" *ngIf="nonStockHoldingTypesError">
+          {{ nonStockHoldingTypesError }}
+        </div>
+
+        <ng-container *ngIf="!nonStockHoldingTypesError && nonStockHoldingTypes">
+          <div class="empty-state" *ngIf="nonStockHoldingTypes.results?.length === 0">
+            <span class="empty-state-icon">◌</span>
+            No non-stock holdings found.
+          </div>
+
+          <div class="allocation-chart-container" *ngIf="nonStockHoldingTypes.results?.length > 0">
+            <canvas #nonStockHoldingTypesChart></canvas>
+          </div>
+        </ng-container>
+      </section>
+    </div>
+
+    <!-- ================================================== -->
+    <!-- SECTOR ALLOCATION -->
+    <!-- ================================================== -->
+
+    <section class="analytics-card allocation-card sector-allocation-card">
+      <div class="card-header">
+        <div>
+          <span class="section-eyebrow"><i class="eyebrow-dot eyebrow-dot--brass"></i>SECTOR</span>
+
+          <h2>Sector Allocation</h2>
+
+          <p>Current value distribution across sectors, for direct equity holdings.</p>
+        </div>
+      </div>
+
+      <div class="loading-card" *ngIf="!sectorAllocationError && !sectorAllocation">
+        <div class="loading-spinner"></div>
+
+        <span> Loading sector allocation... </span>
+      </div>
+
+      <div class="empty-state" *ngIf="sectorAllocationError">
+        {{ sectorAllocationError }}
+      </div>
+
+      <ng-container *ngIf="!sectorAllocationError && sectorAllocation">
+        <div class="allocation-content" *ngIf="sectorAllocation?.results?.length">
+          <div class="allocation-chart-container">
+            <canvas #sectorChart></canvas>
+          </div>
+
+          <div class="allocation-list">
+            <div
+              class="allocation-row"
+              *ngFor="let item of sectorAllocation?.results; let i = index"
+            >
+              <span class="allocation-label">
+                <i class="swatch-dot" [style.background]="swatchColor(i)"></i>
+                {{ item.sector }}
+              </span>
+
+              <div class="allocation-value">
+                <strong>
+                  {{ formatAxisCurrency(item.current_value) }}
+                </strong>
+
+                <small> {{ item.percentage | number: '1.1-2' }}% </small>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="empty-state" *ngIf="!sectorAllocation?.results?.length">
+          <span class="empty-state-icon">◌</span>
+          No sector data available.
+        </div>
+      </ng-container>
+    </section>
+
+    <!-- ================================================== -->
     <!-- INVESTMENT PERFORMANCE -->
     <!-- ================================================== -->
 
     <section class="analytics-card performance-card">
       <div class="card-header">
         <div>
-          <span class="section-eyebrow"><i class="eyebrow-dot eyebrow-dot--ink"></i>PERFORMANCE RANKING</span>
+          <span class="section-eyebrow"
+            ><i class="eyebrow-dot eyebrow-dot--ink"></i>PERFORMANCE RANKING</span
+          >
 
           <h2>Investment Performance</h2>
 
@@ -396,10 +545,9 @@
         <div class="allocation-list">
           <div class="allocation-row" *ngFor="let item of advisorAllocation?.results">
             <span class="allocation-label">
-              <i
-                class="advisor-avatar"
-                [style.background]="advisorColor(item.advisor)"
-              >{{ advisorInitials(item.advisor) }}</i>
+              <i class="advisor-avatar" [style.background]="advisorColor(item.advisor)">{{
+                advisorInitials(item.advisor)
+              }}</i>
               {{ item.advisor }}
             </span>
 
@@ -441,7 +589,9 @@
 
       <div
         class="empty-state"
-        *ngIf="!advisorPerformance || !advisorPerformance.results || !advisorPerformance.results.length"
+        *ngIf="
+          !advisorPerformance || !advisorPerformance.results || !advisorPerformance.results.length
+        "
       >
         <span class="empty-state-icon">◌</span>
         No advisor performance data yet — assign advisors to your holdings to see this.
@@ -454,7 +604,9 @@
 
     <section class="period-card">
       <div>
-        <span class="section-eyebrow"><i class="eyebrow-dot eyebrow-dot--ink"></i>ANALYSIS WINDOW</span>
+        <span class="section-eyebrow"
+          ><i class="eyebrow-dot eyebrow-dot--ink"></i>ANALYSIS WINDOW</span
+        >
 
         <h2>{{ selectedDays }} Day Analysis</h2>
 

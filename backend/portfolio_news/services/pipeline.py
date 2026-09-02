@@ -30,6 +30,32 @@ DEFAULT_LOOKBACK_DAYS = 3
 # A short delay between calls keeps the run under that cap.
 DEFAULT_AI_CALL_DELAY_SECONDS = 4.0
 
+# Cost control: even after the deterministic HoldingMatcher
+# filter, a single holding can occasionally surface more
+# candidate articles than are worth Gemini's per-call cost in
+# one run (e.g. a very actively-covered large-cap stock). This
+# caps how many articles per holding are sent to the AI in a
+# single run - the remainder are simply picked up on the next
+# run rather than dropped, since store_article/deduplication
+# already ensures nothing is lost.
+DEFAULT_MAX_ARTICLES_PER_HOLDING = 15
+
+# Deterministic floor below which an AI-judged relevance_score
+# is treated as noise: the alert row is still created (so the
+# article is never re-sent to Gemini for this user/holding), but
+# marked not relevant so it never appears in the user's feed.
+# This is a safety net independent of the AI's own `relevant`
+# boolean - it catches cases where Gemini says "relevant" but
+# with a low confidence-adjacent score.
+DEFAULT_MIN_RELEVANCE_SCORE = 30
+
+# Same idea, but against the final composite alert_score (which
+# already factors in portfolio weight, source quality, and
+# recency) rather than raw relevance - filters out alerts that,
+# even if individually "relevant", carry negligible priority for
+# this specific user's portfolio.
+DEFAULT_MIN_ALERT_SCORE = 2.0
+
 
 def _get_ai_call_delay_seconds() -> float:
     try:
@@ -53,6 +79,42 @@ def _get_lookback_days() -> int:
         )
     except (TypeError, ValueError):
         return DEFAULT_LOOKBACK_DAYS
+
+
+def _get_max_articles_per_holding() -> int:
+    try:
+        return int(
+            os.environ.get(
+                "NEWS_MONITOR_MAX_ARTICLES_PER_HOLDING",
+                DEFAULT_MAX_ARTICLES_PER_HOLDING,
+            )
+        )
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_ARTICLES_PER_HOLDING
+
+
+def _get_min_relevance_score() -> int:
+    try:
+        return int(
+            os.environ.get(
+                "NEWS_MONITOR_MIN_RELEVANCE_SCORE",
+                DEFAULT_MIN_RELEVANCE_SCORE,
+            )
+        )
+    except (TypeError, ValueError):
+        return DEFAULT_MIN_RELEVANCE_SCORE
+
+
+def _get_min_alert_score() -> float:
+    try:
+        return float(
+            os.environ.get(
+                "NEWS_MONITOR_MIN_ALERT_SCORE",
+                DEFAULT_MIN_ALERT_SCORE,
+            )
+        )
+    except (TypeError, ValueError):
+        return DEFAULT_MIN_ALERT_SCORE
 
 
 def _empty_stats() -> dict:
@@ -80,8 +142,29 @@ def _process_holding(
     from_date,
     stats: dict,
     ai_call_delay_seconds: float = 0.0,
+    max_articles_per_holding: Optional[int] = None,
+    min_relevance_score: Optional[int] = None,
+    min_alert_score: Optional[float] = None,
 ) -> None:
     from ..models import PortfolioNewsAlert
+
+    resolved_max_articles = (
+        max_articles_per_holding
+        if max_articles_per_holding is not None
+        else _get_max_articles_per_holding()
+    )
+
+    resolved_min_relevance_score = (
+        min_relevance_score
+        if min_relevance_score is not None
+        else _get_min_relevance_score()
+    )
+
+    resolved_min_alert_score = (
+        min_alert_score
+        if min_alert_score is not None
+        else _get_min_alert_score()
+    )
 
     try:
         queries = QueryBuilder.build_queries(holding)
@@ -128,12 +211,15 @@ def _process_holding(
         len(candidates),
     )
 
+    articles_sent_to_ai_this_holding = 0
+
     for candidate in candidates:
 
         if not HoldingMatcher.is_relevant(
             candidate.title,
             candidate.description,
             holding,
+            matched_query=candidate.matched_query,
         ):
             continue
 
@@ -167,16 +253,42 @@ def _process_holding(
         if already_processed:
             continue
 
+        if (
+            resolved_max_articles > 0
+            and articles_sent_to_ai_this_holding
+            >= resolved_max_articles
+        ):
+            # Cap reached for this run - remaining candidates
+            # stay unprocessed (not lost: they'll be picked up,
+            # deduplicated, and re-evaluated on the next run).
+            logger.info(
+                "user_id=%s holding=%r reached "
+                "max_articles_per_holding=%s, deferring "
+                "remaining candidates to next run",
+                user.id,
+                holding.display_name,
+                resolved_max_articles,
+            )
+            break
+
+        articles_sent_to_ai_this_holding += 1
         stats["articles_sent_to_ai"] += 1
 
         if ai_call_delay_seconds > 0:
             time.sleep(ai_call_delay_seconds)
 
-        analysis = analyzer.analyze(article, holding)
+        analysis = analyzer.analyze(article, holding, user=user)
 
         if analysis is None:
             stats["ai_failures"] += 1
             continue
+
+        # Deterministic floor beneath the AI's own `relevant`
+        # judgment: a low relevance_score is treated as noise
+        # regardless of what Gemini set `relevant` to, so the
+        # threshold is enforced even if the AI is over-eager.
+        if analysis.relevance_score < resolved_min_relevance_score:
+            analysis.relevant = False
 
         try:
             alert, alert_created = create_alert_from_analysis(
@@ -195,6 +307,24 @@ def _process_holding(
         if alert_created:
             stats["alerts_created"] += 1
 
+            # Same deterministic floor, applied to the final
+            # composite score (portfolio weight/source quality/
+            # recency already factored in) rather than raw
+            # relevance. The row stays (idempotency), it's just
+            # hidden from the feed and never notified.
+            if (
+                alert.relevant
+                and alert.alert_score < resolved_min_alert_score
+            ):
+                alert.relevant = False
+                alert.notification_sent = False
+                alert.save(
+                    update_fields=[
+                        "relevant",
+                        "notification_sent",
+                    ]
+                )
+
             if alert.notification_sent:
                 stats["notifications_sent"] += 1
 
@@ -204,6 +334,9 @@ def run_portfolio_news_monitor(
     analyzer: Optional[GeminiArticleAnalyzer] = None,
     lookback_days: Optional[int] = None,
     ai_call_delay_seconds: Optional[float] = None,
+    max_articles_per_holding: Optional[int] = None,
+    min_relevance_score: Optional[int] = None,
+    min_alert_score: Optional[float] = None,
 ) -> dict:
     """
     Runs the full portfolio news monitoring pipeline for every
@@ -219,12 +352,27 @@ def run_portfolio_news_monitor(
     one article - is logged and the run continues with
     everything else; it never aborts the whole command.
 
-    A short delay is inserted between Gemini calls
-    (ai_call_delay_seconds, default from
-    NEWS_MONITOR_AI_CALL_DELAY_SECONDS or 4 seconds) so a
-    portfolio with many holdings doesn't blow through Gemini's
-    free-tier requests-per-minute limit and get every call
-    rate-limited.
+    Every operational threshold is configurable via environment
+    variable (falling back to a documented default when unset or
+    invalid), rather than hardcoded:
+
+        NEWS_MONITOR_LOOKBACK_DAYS (default 3) - how far back,
+            in days, to search for news.
+        NEWS_MONITOR_AI_CALL_DELAY_SECONDS (default 4.0) - pacing
+            between Gemini calls, since Gemini's free tier
+            enforces a low requests-per-minute cap.
+        NEWS_MONITOR_MAX_ARTICLES_PER_HOLDING (default 15) - caps
+            AI calls per holding per run; anything over the cap
+            is deferred to the next run rather than dropped.
+        NEWS_MONITOR_MIN_RELEVANCE_SCORE (default 30) - alerts
+            whose AI relevance_score falls below this are kept
+            (for idempotency) but hidden from the feed.
+        NEWS_MONITOR_MIN_ALERT_SCORE (default 2.0) - same idea,
+            applied to the final portfolio-weighted alert_score.
+
+    (NEWS_MONITOR_INTERVAL, the delay between runs when using
+    `monitor_portfolio_news --loop`, is read by the management
+    command itself - see management/commands/monitor_portfolio_news.py.)
     """
 
     provider = provider or GoogleNewsRSSProvider()
@@ -242,6 +390,24 @@ def run_portfolio_news_monitor(
         else _get_ai_call_delay_seconds()
     )
 
+    resolved_max_articles_per_holding = (
+        max_articles_per_holding
+        if max_articles_per_holding is not None
+        else _get_max_articles_per_holding()
+    )
+
+    resolved_min_relevance_score = (
+        min_relevance_score
+        if min_relevance_score is not None
+        else _get_min_relevance_score()
+    )
+
+    resolved_min_alert_score = (
+        min_alert_score
+        if min_alert_score is not None
+        else _get_min_alert_score()
+    )
+
     from_date = timezone.now() - timedelta(
         days=resolved_lookback_days
     )
@@ -250,9 +416,13 @@ def run_portfolio_news_monitor(
 
     logger.info(
         "Portfolio news monitoring started (lookback_days=%s, "
-        "ai_call_delay_seconds=%s)",
+        "ai_call_delay_seconds=%s, max_articles_per_holding=%s, "
+        "min_relevance_score=%s, min_alert_score=%s)",
         resolved_lookback_days,
         resolved_ai_call_delay_seconds,
+        resolved_max_articles_per_holding,
+        resolved_min_relevance_score,
+        resolved_min_alert_score,
     )
 
     users = User.objects.filter(is_active=True)
@@ -289,6 +459,11 @@ def run_portfolio_news_monitor(
                 from_date,
                 stats,
                 ai_call_delay_seconds=resolved_ai_call_delay_seconds,
+                max_articles_per_holding=(
+                    resolved_max_articles_per_holding
+                ),
+                min_relevance_score=resolved_min_relevance_score,
+                min_alert_score=resolved_min_alert_score,
             )
 
     logger.info("Portfolio news monitoring finished: %s", stats)

@@ -153,3 +153,46 @@
   background: #f5f6f9;
   color: #111827;
 }
+
+/* --------------------------------------------------
+   RESPONSIVE — collapse to an icon-only rail below
+   900px so the sidebar never eats most of the screen
+   on a tablet or phone. Every nav item keeps its icon
+   (already an <svg>, unaffected by this) and only its
+   text <span> label is hidden — routing/click targets
+   and every existing behavior are unchanged, this is
+   purely a narrow-viewport visual adjustment.
+-------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .sidebar {
+    width: 72px;
+
+    padding: 16px 8px;
+  }
+
+  .brand {
+    justify-content: center;
+
+    padding: 4px 0 24px;
+  }
+
+  .brand-text {
+    display: none;
+  }
+
+  .section-title {
+    display: none;
+  }
+
+  .nav-item {
+    justify-content: center;
+
+    gap: 0;
+    padding: 0;
+  }
+
+  .nav-item span {
+    display: none;
+  }
+}

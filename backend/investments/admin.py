@@ -48,6 +48,8 @@ class SecurityMasterAdmin(admin.ModelAdmin):
         "isin",
         "sector",
         "cap_type",
+        "amc_name",
+        "credit_rating",
         "manual_nav_enabled",
         "manual_nav",
         "updated_at",
@@ -57,6 +59,8 @@ class SecurityMasterAdmin(admin.ModelAdmin):
         "manual_nav_enabled",
         "sector",
         "cap_type",
+        "amc_name",
+        "credit_rating",
     )
 
     search_fields = (
@@ -64,6 +68,60 @@ class SecurityMasterAdmin(admin.ModelAdmin):
         "isin",
         "sector",
         "cap_type",
+        "amc_name",
+    )
+
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "owner",
+                    "isin",
+                    "asset_name",
+                ),
+            },
+        ),
+        (
+            "Classification",
+            {
+                "fields": (
+                    "sector",
+                    "cap_type",
+                    "amc_name",
+                ),
+            },
+        ),
+        (
+            "Equity Quants",
+            {
+                "fields": (
+                    "pe_ratio",
+                    "pb_ratio",
+                    "roe",
+                ),
+            },
+        ),
+        (
+            "Fixed Income Quants",
+            {
+                "fields": (
+                    "credit_rating",
+                    "ytm",
+                    "modified_duration",
+                    "average_maturity",
+                ),
+            },
+        ),
+        (
+            "Manual NAV",
+            {
+                "fields": (
+                    "manual_nav_enabled",
+                    "manual_nav",
+                ),
+            },
+        ),
     )
 
 

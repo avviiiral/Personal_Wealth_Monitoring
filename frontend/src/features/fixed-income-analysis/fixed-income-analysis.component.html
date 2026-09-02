@@ -1,0 +1,102 @@
+<div class="analysis-page nx-report-theme">
+  <header class="page-header">
+    <h1>Fixed Income Analysis</h1>
+  </header>
+
+  <div class="loading-card" *ngIf="loading">Loading fixed income analysis…</div>
+
+  <div class="error-card" *ngIf="error">{{ error }}</div>
+
+  <ng-container *ngIf="!loading && !error && analysis as data">
+    <div class="empty-state" *ngIf="!hasData">No Fixed Income holdings found.</div>
+
+    <div class="analysis-grid" *ngIf="hasData">
+      <section class="panel spec-panel">
+        <h2>Portfolio Specification</h2>
+
+        <dl class="spec-list">
+          <div class="spec-row">
+            <dt>Current Value</dt>
+            <dd>{{ formatCurrency(data.current_value) }}</dd>
+          </div>
+
+          <div class="spec-row">
+            <dt>Number of Holdings</dt>
+            <dd>{{ data.number_of_holdings }}</dd>
+          </div>
+
+          <div class="spec-row">
+            <dt>
+              YTM
+              <span class="quant-basis" *ngIf="data.ytm !== null">
+                ({{ data.ytm_holding_count }} of {{ data.number_of_holdings }} holdings)
+              </span>
+            </dt>
+            <dd>{{ formatRatio(data.ytm, '%') }}</dd>
+          </div>
+
+          <div class="spec-row">
+            <dt>
+              Modified Duration
+              <span class="quant-basis" *ngIf="data.modified_duration !== null">
+                ({{ data.modified_duration_holding_count }} of {{ data.number_of_holdings }}
+                holdings)
+              </span>
+            </dt>
+            <dd>{{ formatRatio(data.modified_duration) }}</dd>
+          </div>
+
+          <div class="spec-row">
+            <dt>
+              Average Maturity
+              <span class="quant-basis" *ngIf="data.average_maturity !== null">
+                ({{ data.average_maturity_holding_count }} of {{ data.number_of_holdings }}
+                holdings)
+              </span>
+            </dt>
+            <dd>{{ formatRatio(data.average_maturity, ' yrs') }}</dd>
+          </div>
+        </dl>
+
+        <p class="quant-note" *ngIf="!data.ytm_holding_count">
+          No holdings have YTM, Duration, or Maturity data yet — fill in Security Master via
+          Django admin to populate this section.
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>Credit Rating Distribution</h2>
+
+        <div class="table-scroll">
+          <table class="cap-table">
+            <thead>
+              <tr>
+                <th>Rating</th>
+                <th>Current Value</th>
+                <th>Allocation</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              <tr *ngFor="let row of data.credit_rating_distribution">
+                <td class="cap-name">{{ row.credit_rating }}</td>
+
+                <td>{{ formatCurrency(row.current_value) }}</td>
+
+                <td>
+                  <div class="allocation-cell">
+                    <div class="allocation-bar">
+                      <div class="allocation-bar-fill" [style.width.%]="row.percentage"></div>
+                    </div>
+
+                    <span>{{ formatPercentage(row.percentage) }}</span>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </ng-container>
+</div>

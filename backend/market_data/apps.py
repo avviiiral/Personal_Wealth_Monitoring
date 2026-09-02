@@ -28,3 +28,9 @@ class MarketDataConfig(AppConfig):
         )
 
         MarketPriceScheduler.start()
+
+        from market_data.services.daily_refresh_scheduler import (
+            DailyRefreshScheduler,
+        )
+
+        DailyRefreshScheduler.start()

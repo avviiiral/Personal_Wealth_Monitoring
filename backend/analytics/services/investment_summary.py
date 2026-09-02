@@ -1,7 +1,7 @@
 import logging
 from decimal import Decimal
 
-from investments.models import Transaction
+from investments.models import Transaction, TransactionType
 from mutual_funds.models import MutualFundTransaction
 
 from .unified_wealth import UnifiedWealthAnalytics
@@ -55,6 +55,19 @@ class InvestmentSummaryService:
     """
 
     ZERO = Decimal("0")
+
+    @staticmethod
+    def _owner_ids(user):
+        """
+        Normalize `user` to a list of owner ids to filter by.
+
+        Accepts either a single User instance (existing,
+        single-owner behavior - unchanged) or an iterable of user
+        ids, for combining data across a shared-visibility group
+        (see users.permissions.get_visible_owner_ids).
+        """
+
+        return [user.pk] if hasattr(user, "pk") else list(user)
 
     # Master Asset Category -> Asset Class mapping. This also defines
     # the display order of the Investment Summary table. Do not add,
@@ -245,7 +258,7 @@ class InvestmentSummaryService:
 
         rows_qs = (
             Transaction.objects
-            .filter(owner=user)
+            .filter(owner_id__in=InvestmentSummaryService._owner_ids(user))
             .exclude(sub_class__isnull=True)
             .exclude(sub_class__exact="")
         )
@@ -277,6 +290,111 @@ class InvestmentSummaryService:
 
         return resolved
 
+    @staticmethod
+    def _equity_asset_class_weights_by_asset_id(user, family_name=None):
+        """
+        Resolve every asset's sub_class as a set of WEIGHTS rather
+        than a single winner, for assets genuinely held across more
+        than one sub_class (e.g. the same stock bought partly
+        directly and partly through a PMS — see Bharti Airtel /
+        Bajaj Finance in this project's real data, discovered while
+        investigating why the Dashboard's Direct Equity / Equity PMS
+        split didn't reconcile with the Portfolio page's per-channel
+        breakdown).
+
+        _equity_asset_class_by_asset_id (above) picks ONE sub_class
+        per asset — whichever transaction was most recent — and
+        assigns the asset's ENTIRE current_value to that one class.
+        For an asset held through only one channel that's correct
+        and cheap. For an asset held through more than one channel,
+        it silently misattributes the other channel's share of the
+        value to the wrong class. This method instead computes each
+        channel's real weight from actual transaction quantities
+        (BUY quantity minus SELL quantity, per (asset_id, sub_class)
+        pair — the same net-position logic HoldingCalculationEngine
+        uses, just grouped by sub_class as well as asset), so a
+        Holding's current_value can be split proportionally across
+        the classes it actually spans, rather than assigned whole to
+        one of them.
+
+        Returns: {asset_id: {sub_class: weight}}, weights summing to
+        1.0 per asset. Assets held through only one sub_class get a
+        single-entry dict with weight 1.0 — behaviourally identical
+        to the old single-class lookup for the common case.
+        """
+
+        rows_qs = (
+            Transaction.objects
+            .filter(owner_id__in=InvestmentSummaryService._owner_ids(user))
+            .exclude(sub_class__isnull=True)
+            .exclude(sub_class__exact="")
+        )
+
+        if family_name:
+            rows_qs = rows_qs.filter(
+                family_name=family_name
+            )
+
+        rows = rows_qs.values_list(
+            "asset_id",
+            "sub_class",
+            "transaction_type",
+            "quantity",
+        )
+
+        net_quantity = {}
+
+        for asset_id, sub_class, transaction_type, quantity in rows:
+
+            key = (asset_id, sub_class)
+
+            if key not in net_quantity:
+                net_quantity[key] = Decimal("0")
+
+            quantity = quantity or Decimal("0")
+
+            if transaction_type == TransactionType.SELL:
+                net_quantity[key] -= quantity
+            else:
+                # BUY, SIP, BONUS, SPLIT, and anything else that adds
+                # to the position. DIVIDEND/INTEREST/DEPOSIT/
+                # WITHDRAWAL/OTHER don't carry a meaningful quantity
+                # for this asset and are excluded upstream by
+                # requiring a non-blank sub_class in practice, but
+                # are harmless here even if present (quantity is
+                # typically 0/null for those).
+                net_quantity[key] += quantity
+
+        totals_by_asset = {}
+
+        for (asset_id, sub_class), qty in net_quantity.items():
+
+            if qty <= 0:
+                continue
+
+            totals_by_asset.setdefault(
+                asset_id, {}
+            )[sub_class] = qty
+
+        weights = {}
+
+        for asset_id, class_quantities in totals_by_asset.items():
+
+            asset_total = sum(
+                class_quantities.values(),
+                Decimal("0"),
+            )
+
+            if asset_total <= 0:
+                continue
+
+            weights[asset_id] = {
+                sub_class: (qty / asset_total)
+                for sub_class, qty in class_quantities.items()
+            }
+
+        return weights
+
     @classmethod
     def _family_equity_positions(cls, user, family_name):
         """
@@ -302,7 +420,7 @@ class InvestmentSummaryService:
         transactions = (
             Transaction.objects
             .filter(
-                owner=user,
+                owner_id__in=InvestmentSummaryService._owner_ids(user),
                 family_name=family_name,
             )
             .select_related("asset__holding")
@@ -379,7 +497,7 @@ class InvestmentSummaryService:
         transactions = (
             MutualFundTransaction.objects
             .filter(
-                owner=user,
+                owner_id__in=InvestmentSummaryService._owner_ids(user),
                 family_name=family_name,
             )
             .select_related("scheme__holding")
@@ -781,7 +899,7 @@ class InvestmentSummaryService:
 
         rows = (
             Transaction.objects
-            .filter(owner=user)
+            .filter(owner_id__in=InvestmentSummaryService._owner_ids(user))
             .exclude(advisors__isnull=True)
             .exclude(advisors__exact="")
             .order_by(
@@ -1003,3 +1121,920 @@ class InvestmentSummaryService:
             key=lambda item: item["pnl_percentage"],
             reverse=True,
         )
+
+    # ==========================================================
+    # COMPOSITION BY AMC
+    #
+    # Two distinct real data sources, deliberately not unified into
+    # a single AMC model yet (see the note on SecurityMaster.amc_name
+    # in investments/models.py — same fragile free-text limitation):
+    #
+    #   - Mutual fund holdings: MutualFundScheme.amc_name, an
+    #     existing, independently populated field.
+    #   - Equity/other holdings: SecurityMaster.amc_name, added
+    #     alongside credit_rating/pe_ratio/etc — populated via
+    #     Django admin, empty until filled in.
+    #
+    # A holding with no AMC name available from either source is
+    # bucketed under UNASSIGNED_AMC rather than dropped, same
+    # pattern as UNASSIGNED_ADVISOR above.
+    # ==========================================================
+
+    UNASSIGNED_AMC = "Unassigned"
+
+    @staticmethod
+    def _amc_by_equity_asset_id(user):
+        """
+        Resolve every equity/other-investment asset's AMC from its
+        linked SecurityMaster row, the same lookup shape as
+        _advisor_by_asset_id (dict of asset_id -> value).
+        """
+
+        from investments.models import Asset
+
+        rows = (
+            Asset.objects
+            .filter(
+                owner_id__in=InvestmentSummaryService._owner_ids(user),
+                security_master__isnull=False,
+            )
+            .exclude(security_master__amc_name__isnull=True)
+            .exclude(security_master__amc_name__exact="")
+            .values_list(
+                "id",
+                "security_master__amc_name",
+            )
+        )
+
+        return dict(rows)
+
+    @classmethod
+    def calculate_composition_by_amc(cls, user):
+        """
+        Aggregate current value, invested value, and holding count
+        by AMC, for Portfolio Composition Analysis (Top AMC
+        exposures, AMC concentration).
+        """
+
+        totals = {}
+
+        amc_by_asset_id = (
+            cls._amc_by_equity_asset_id(user)
+        )
+
+        equity_holdings = (
+            UnifiedWealthAnalytics
+            .get_equity_holdings(user)
+        )
+
+        for holding in equity_holdings:
+            amc = (
+                amc_by_asset_id.get(holding.asset_id)
+                or ""
+            ).strip() or cls.UNASSIGNED_AMC
+
+            if amc not in totals:
+                totals[amc] = {
+                    "invested": cls.ZERO,
+                    "current": cls.ZERO,
+                    "holding_count": 0,
+                }
+
+            totals[amc]["invested"] += (
+                holding.invested_value or cls.ZERO
+            )
+
+            totals[amc]["current"] += (
+                holding.current_value or cls.ZERO
+            )
+
+            totals[amc]["holding_count"] += 1
+
+        mutual_fund_holdings = (
+            UnifiedWealthAnalytics
+            .get_mutual_fund_holdings(user)
+        )
+
+        for holding in mutual_fund_holdings:
+            amc = (
+                getattr(
+                    holding.scheme,
+                    "amc_name",
+                    None,
+                )
+                or ""
+            ).strip() or cls.UNASSIGNED_AMC
+
+            if amc not in totals:
+                totals[amc] = {
+                    "invested": cls.ZERO,
+                    "current": cls.ZERO,
+                    "holding_count": 0,
+                }
+
+            totals[amc]["invested"] += (
+                holding.invested_value or cls.ZERO
+            )
+
+            totals[amc]["current"] += (
+                holding.current_value or cls.ZERO
+            )
+
+            totals[amc]["holding_count"] += 1
+
+        grand_total = sum(
+            (entry["current"] for entry in totals.values()),
+            cls.ZERO,
+        )
+
+        results = []
+
+        for amc, entry in totals.items():
+            current = entry["current"]
+
+            if current <= 0:
+                continue
+
+            percentage = (
+                (current / grand_total) * 100
+                if grand_total
+                else cls.ZERO
+            )
+
+            results.append({
+                "amc_name": amc,
+                "invested_value": entry["invested"],
+                "current_value": current,
+                "holding_count": entry["holding_count"],
+                "percentage": round(
+                    percentage,
+                    2,
+                ),
+            })
+
+        return {
+            "results": sorted(
+                results,
+                key=lambda item: item["current_value"],
+                reverse=True,
+            ),
+            "total_current_value": grand_total,
+            "number_of_amcs": len(results),
+        }
+
+
+    # ==========================================================
+    # EQUITY ANALYSIS
+    #
+    # Sourced entirely from SecurityMaster (pe_ratio/pb_ratio/roe/
+    # cap_type — investments/migrations/0007_...) joined onto
+    # equity/other-investment Holdings via Asset.security_master.
+    #
+    # Only Holding-based (equity/other) positions are considered —
+    # mutual fund SIP/scheme holdings do not carry a SecurityMaster
+    # link, so they contribute to "Market Value" and the product-
+    # category split's own count, but not to the P/E, P/B, ROE
+    # weighted averages or market-cap allocation below, since there
+    # is no per-holding quant data to weight.
+    # ==========================================================
+
+    @staticmethod
+    def _security_master_by_asset_id(user):
+        """
+        Bulk-fetch SecurityMaster fields keyed by asset_id, in one
+        query, for every asset owned by the user that has one
+        linked — same shape as _advisor_by_asset_id /
+        _amc_by_equity_asset_id above.
+        """
+
+        from investments.models import Asset
+
+        rows = (
+            Asset.objects
+            .filter(
+                owner_id__in=InvestmentSummaryService._owner_ids(user),
+                security_master__isnull=False,
+            )
+            .values_list(
+                "id",
+                "security_master__sector",
+                "security_master__cap_type",
+                "security_master__pe_ratio",
+                "security_master__pb_ratio",
+                "security_master__roe",
+            )
+        )
+
+        return {
+            asset_id: {
+                "sector": sector,
+                "cap_type": cap_type,
+                "pe_ratio": pe_ratio,
+                "pb_ratio": pb_ratio,
+                "roe": roe,
+            }
+            for asset_id, sector, cap_type, pe_ratio, pb_ratio, roe in rows
+        }
+
+    @classmethod
+    def calculate_equity_analysis(cls, user):
+        """
+        Return the Equity Analysis view: current value / allocation
+        of the overall portfolio, market-cap allocation, and
+        value-weighted P/E, P/B, ROE across every equity/other-
+        investment Holding that has SecurityMaster quant data.
+
+        Weighting: each holding's ratio is weighted by its
+        current_value's share of the total current_value of ONLY
+        the holdings that have that specific ratio populated — so a
+        handful of populated holdings don't get diluted to near-zero
+        by every unpopulated one. This means the three weighted
+        averages (P/E, P/B, ROE) may each be computed over a
+        different, smaller base than "Current Value" below, and
+        that base size is returned explicitly rather than left
+        implicit.
+        """
+
+        equity_holdings = list(
+            UnifiedWealthAnalytics
+            .get_equity_holdings(user)
+        )
+
+        sm_by_asset_id = (
+            cls._security_master_by_asset_id(user)
+        )
+
+        total_current_value = sum(
+            (
+                holding.current_value
+                or cls.ZERO
+            )
+            for holding in equity_holdings
+        )
+
+        cap_totals = {}
+
+        weighted_sums = {
+            "pe_ratio": cls.ZERO,
+            "pb_ratio": cls.ZERO,
+            "roe": cls.ZERO,
+        }
+
+        weighted_bases = {
+            "pe_ratio": cls.ZERO,
+            "pb_ratio": cls.ZERO,
+            "roe": cls.ZERO,
+        }
+
+        weighted_counts = {
+            "pe_ratio": 0,
+            "pb_ratio": 0,
+            "roe": 0,
+        }
+
+        for holding in equity_holdings:
+            current_value = (
+                holding.current_value
+                or cls.ZERO
+            )
+
+            sm = sm_by_asset_id.get(
+                holding.asset_id,
+                {},
+            )
+
+            cap_type = (
+                sm.get("cap_type")
+                or ""
+            ).strip() or "Unclassified"
+
+            cap_totals[cap_type] = (
+                cap_totals.get(
+                    cap_type,
+                    cls.ZERO,
+                )
+                + current_value
+            )
+
+            for field in (
+                "pe_ratio",
+                "pb_ratio",
+                "roe",
+            ):
+                value = sm.get(field)
+
+                if value is None or current_value <= 0:
+                    continue
+
+                weighted_sums[field] += (
+                    value * current_value
+                )
+
+                weighted_bases[field] += current_value
+
+                weighted_counts[field] += 1
+
+        market_cap_allocation = []
+
+        for cap_type, value in sorted(
+            cap_totals.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        ):
+            percentage = (
+                (value / total_current_value) * 100
+                if total_current_value
+                else cls.ZERO
+            )
+
+            market_cap_allocation.append({
+                "cap_type": cap_type,
+                "current_value": value,
+                "percentage": round(
+                    percentage,
+                    2,
+                ),
+            })
+
+        def weighted_average(field):
+            base = weighted_bases[field]
+
+            if not base:
+                return None
+
+            return round(
+                weighted_sums[field] / base,
+                2,
+            )
+
+        return {
+            "current_value": total_current_value,
+            "number_of_holdings": len(equity_holdings),
+            "portfolio_pe": weighted_average("pe_ratio"),
+            "portfolio_pe_holding_count": weighted_counts["pe_ratio"],
+            "portfolio_pb": weighted_average("pb_ratio"),
+            "portfolio_pb_holding_count": weighted_counts["pb_ratio"],
+            "portfolio_roe": weighted_average("roe"),
+            "portfolio_roe_holding_count": weighted_counts["roe"],
+            "market_cap_allocation": market_cap_allocation,
+        }
+
+    # ==========================================================
+    # FIXED INCOME ANALYSIS
+    #
+    # Same sourcing/weighting approach as Equity Analysis, but for
+    # the Fixed Income quant fields (ytm/modified_duration/
+    # average_maturity/credit_rating) — see the same migration.
+    # ==========================================================
+
+    @staticmethod
+    def _fixed_income_security_master_by_asset_id(user):
+        from investments.models import Asset
+
+        rows = (
+            Asset.objects
+            .filter(
+                owner_id__in=InvestmentSummaryService._owner_ids(user),
+                security_master__isnull=False,
+            )
+            .values_list(
+                "id",
+                "security_master__credit_rating",
+                "security_master__ytm",
+                "security_master__modified_duration",
+                "security_master__average_maturity",
+            )
+        )
+
+        return {
+            asset_id: {
+                "credit_rating": credit_rating,
+                "ytm": ytm,
+                "modified_duration": modified_duration,
+                "average_maturity": average_maturity,
+            }
+            for (
+                asset_id,
+                credit_rating,
+                ytm,
+                modified_duration,
+                average_maturity,
+            ) in rows
+        }
+
+    CREDIT_RATING_LABELS = {
+        "SOVEREIGN": "Sovereign",
+        "AAA": "AAA / AAA+",
+        "AA": "AA / AA+",
+        "A_AND_BELOW": "A and Below",
+        "UNRATED": "Unrated",
+    }
+
+    @classmethod
+    def calculate_fixed_income_analysis(cls, user):
+        """
+        Return the Fixed Income Analysis view: current value /
+        allocation, credit rating distribution, and value-weighted
+        YTM / Modified Duration / Average Maturity — restricted to
+        Holdings whose Asset is classified under the Fixed Income
+        canonical asset category (see
+        InvestmentSummaryService.MASTER_MAPPING), the same
+        classification the Dashboard's Investment Summary already
+        uses, so this page's "Current Value" always reconciles with
+        that table's Fixed Income row.
+        """
+
+        asset_class_weights_by_asset_id = (
+            cls._equity_asset_class_weights_by_asset_id(user)
+        )
+
+        fixed_income_classes = set()
+
+        for category, asset_classes in cls.MASTER_MAPPING:
+            if category == "Fixed Income":
+                fixed_income_classes.update(asset_classes)
+
+        equity_holdings = list(
+            UnifiedWealthAnalytics
+            .get_equity_holdings(user)
+        )
+
+        # (holding, fi_weight) pairs rather than a plain filtered
+        # list — fi_weight is the FRACTION of the holding's value
+        # genuinely bought through a Fixed-Income sub_class, from
+        # real transaction quantities (see
+        # _equity_asset_class_weights_by_asset_id). A holding bought
+        # entirely through one FI channel gets weight 1.0, same as
+        # a simple filter would give — this only differs for a
+        # holding split across an FI and a non-FI channel, where the
+        # old plain filter would have included/excluded the whole
+        # position based on whichever channel's transaction was most
+        # recent. No holding in this data is currently split this
+        # way, so this is a correctness safeguard, not something
+        # that changes today's numbers.
+        fi_holdings = []
+
+        for holding in equity_holdings:
+
+            class_weights = asset_class_weights_by_asset_id.get(
+                holding.asset_id
+            )
+
+            if not class_weights:
+                continue
+
+            fi_weight = sum(
+                weight
+                for raw_class, weight in class_weights.items()
+                if cls._normalize_asset_class(raw_class)
+                in fixed_income_classes
+            )
+
+            if fi_weight > 0:
+                fi_holdings.append((holding, fi_weight))
+
+        sm_by_asset_id = (
+            cls._fixed_income_security_master_by_asset_id(user)
+        )
+
+        total_current_value = sum(
+            (
+                (holding.current_value or cls.ZERO) * fi_weight
+            )
+            for holding, fi_weight in fi_holdings
+        )
+
+        rating_totals = {}
+
+        weighted_sums = {
+            "ytm": cls.ZERO,
+            "modified_duration": cls.ZERO,
+            "average_maturity": cls.ZERO,
+        }
+
+        weighted_bases = {
+            "ytm": cls.ZERO,
+            "modified_duration": cls.ZERO,
+            "average_maturity": cls.ZERO,
+        }
+
+        weighted_counts = {
+            "ytm": 0,
+            "modified_duration": 0,
+            "average_maturity": 0,
+        }
+
+        for holding, fi_weight in fi_holdings:
+            current_value = (
+                (holding.current_value or cls.ZERO) * fi_weight
+            )
+
+            sm = sm_by_asset_id.get(
+                holding.asset_id,
+                {},
+            )
+
+            raw_rating = sm.get("credit_rating")
+
+            rating_label = (
+                cls.CREDIT_RATING_LABELS.get(
+                    raw_rating,
+                    "Unrated",
+                )
+            )
+
+            rating_totals[rating_label] = (
+                rating_totals.get(
+                    rating_label,
+                    cls.ZERO,
+                )
+                + current_value
+            )
+
+            for field in (
+                "ytm",
+                "modified_duration",
+                "average_maturity",
+            ):
+                value = sm.get(field)
+
+                if value is None or current_value <= 0:
+                    continue
+
+                weighted_sums[field] += (
+                    value * current_value
+                )
+
+                weighted_bases[field] += current_value
+
+                weighted_counts[field] += 1
+
+        rating_distribution = []
+
+        for rating, value in sorted(
+            rating_totals.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        ):
+            percentage = (
+                (value / total_current_value) * 100
+                if total_current_value
+                else cls.ZERO
+            )
+
+            rating_distribution.append({
+                "credit_rating": rating,
+                "current_value": value,
+                "percentage": round(
+                    percentage,
+                    2,
+                ),
+            })
+
+        def weighted_average(field):
+            base = weighted_bases[field]
+
+            if not base:
+                return None
+
+            return round(
+                weighted_sums[field] / base,
+                2,
+            )
+
+        return {
+            "current_value": total_current_value,
+            "number_of_holdings": len(fi_holdings),
+            "ytm": weighted_average("ytm"),
+            "ytm_holding_count": weighted_counts["ytm"],
+            "modified_duration": weighted_average("modified_duration"),
+            "modified_duration_holding_count": weighted_counts["modified_duration"],
+            "average_maturity": weighted_average("average_maturity"),
+            "average_maturity_holding_count": weighted_counts["average_maturity"],
+            "credit_rating_distribution": rating_distribution,
+        }
+
+    # ==========================================================
+    # SECTOR ALLOCATION
+    #
+    # Sourced from SecurityMaster.sector (populated for direct
+    # equity/other-investment holdings via refresh_security_master
+    # / the AMFI-sourced batches — investments/migrations/0007_...).
+    # Covers every equity/other-investment Holding, same population
+    # as calculate_equity_analysis — mutual funds routed through the
+    # separate MutualFundHolding model are not included here, since
+    # a fund holds many sectors at once and SecurityMaster.sector
+    # models a single security's sector, not a fund's blend.
+    # Holdings with no sector on file are bucketed under
+    # "Unclassified" rather than dropped, same pattern as
+    # market_cap_allocation / calculate_composition_by_amc.
+    # ==========================================================
+
+    @classmethod
+    def calculate_sector_allocation(cls, user):
+        """
+        Return current-value allocation by sector, across every
+        equity/other-investment Holding.
+        """
+
+        equity_holdings = list(
+            UnifiedWealthAnalytics
+            .get_equity_holdings(user)
+        )
+
+        sm_by_asset_id = (
+            cls._security_master_by_asset_id(user)
+        )
+
+        totals = {}
+
+        for holding in equity_holdings:
+            current_value = (
+                holding.current_value
+                or cls.ZERO
+            )
+
+            if current_value <= 0:
+                continue
+
+            sm = sm_by_asset_id.get(
+                holding.asset_id,
+                {},
+            )
+
+            sector = (
+                sm.get("sector")
+                or ""
+            ).strip() or "Unclassified"
+
+            totals[sector] = (
+                totals.get(
+                    sector,
+                    cls.ZERO,
+                )
+                + current_value
+            )
+
+        grand_total = sum(
+            totals.values(),
+            cls.ZERO,
+        )
+
+        results = []
+
+        for sector, value in sorted(
+            totals.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        ):
+            percentage = (
+                (value / grand_total) * 100
+                if grand_total
+                else cls.ZERO
+            )
+
+            results.append({
+                "sector": sector,
+                "current_value": value,
+                "percentage": round(
+                    percentage,
+                    2,
+                ),
+            })
+
+        return {
+            "results": results,
+            "total_current_value": grand_total,
+        }
+
+    # ==========================================================
+    # MARKET CAP ALLOCATION (Dashboard donut)
+    #
+    # Same pattern as calculate_sector_allocation above, keyed on
+    # SecurityMaster.cap_type instead of sector — populated for
+    # 73 of this project's real stock holdings via the official
+    # AMFI stock categorisation batch (see the earlier session's
+    # load_security_master_data run), giving noticeably better
+    # coverage than sector (which depends on Yahoo Finance's
+    # per-stock resolution succeeding). This is a standalone,
+    # dashboard-facing duplicate of the market_cap_allocation
+    # block already computed inside calculate_equity_analysis —
+    # kept separate rather than reusing that method directly so
+    # the Dashboard's donut doesn't have to fetch (and wait on)
+    # the P/E/P/B/ROE weighted-average computation it doesn't need.
+    # ==========================================================
+
+    @classmethod
+    def calculate_market_cap_allocation(cls, user):
+        """
+        Return current-value allocation across every equity/other-
+        investment Holding: Large/Mid/Small Cap for holdings with a
+        real cap_type on their SecurityMaster row, and — in place of
+        a single lumped "Unclassified" bucket — that same value
+        broken down by its actual sub_class (Debt Mutual Fund,
+        Liquid Mutual Fund, InvITs, REITs, Gold Bond, Private
+        Equity, Unlisted, etc.).
+
+        Uses the exact same sub_class classification as
+        calculate_non_stock_holding_types (_normalize_asset_class
+        over each holding's most recent transaction sub_class), so
+        a holding always gets the identical label on both charts -
+        this just folds that breakdown directly into the Market Cap
+        chart instead of hiding it behind one "Unclassified" slice.
+        calculate_non_stock_holding_types is left as-is: it remains
+        useful as a focused, zoomed-in view of just that non-stock
+        portion.
+        """
+
+        equity_holdings = list(
+            UnifiedWealthAnalytics
+            .get_equity_holdings(user)
+        )
+
+        sm_by_asset_id = (
+            cls._security_master_by_asset_id(user)
+        )
+
+        asset_class_by_asset_id = (
+            cls._equity_asset_class_by_asset_id(user)
+        )
+
+        totals = {}
+
+        for holding in equity_holdings:
+            current_value = (
+                holding.current_value
+                or cls.ZERO
+            )
+
+            if current_value <= 0:
+                continue
+
+            sm = sm_by_asset_id.get(
+                holding.asset_id,
+                {},
+            )
+
+            cap_type = (
+                sm.get("cap_type")
+                or ""
+            ).strip()
+
+            if cap_type:
+                label = cap_type
+            else:
+                raw_class = asset_class_by_asset_id.get(
+                    holding.asset_id
+                )
+
+                label = cls._normalize_asset_class(
+                    raw_class
+                )
+
+            totals[label] = (
+                totals.get(
+                    label,
+                    cls.ZERO,
+                )
+                + current_value
+            )
+
+        grand_total = sum(
+            totals.values(),
+            cls.ZERO,
+        )
+
+        results = []
+
+        for cap_type, value in sorted(
+            totals.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        ):
+            percentage = (
+                (value / grand_total) * 100
+                if grand_total
+                else cls.ZERO
+            )
+
+            results.append({
+                "cap_type": cap_type,
+                "current_value": value,
+                "percentage": round(
+                    percentage,
+                    2,
+                ),
+            })
+
+        return {
+            "results": results,
+            "total_current_value": grand_total,
+        }
+
+    # ==========================================================
+    # NON-STOCK HOLDING TYPES (Dashboard, second donut)
+    #
+    # Large/Mid/Small Cap only applies to individual listed stocks
+    # — mutual funds, ETFs, InvITs/REITs, bonds, and unlisted/
+    # private holdings are structurally "Unclassified" on that
+    # chart, correctly, since forcing a fund into a single cap
+    # bucket would misrepresent it (a fund holds a blend of caps
+    # internally). This gives that same set of holdings a REAL,
+    # accurate classification instead: their transaction sub_class
+    # (Debt Mutual Fund, Liquid Mutual Fund, InvITs, REITs, Gold
+    # Bonds, Private Equity, Unlisted holdings, etc.) — already
+    # correctly populated for every holding, no new data source
+    # needed, unlike sector/cap_type/ratios elsewhere in this file.
+    # ==========================================================
+
+    @classmethod
+    def calculate_non_stock_holding_types(cls, user):
+        """
+        Return current-value allocation by sub_class, restricted to
+        holdings that have NO cap_type on their SecurityMaster row
+        (i.e. exactly the "Unclassified" slice of
+        calculate_market_cap_allocation) — the complementary chart
+        to that one.
+        """
+
+        asset_class_by_asset_id = (
+            cls._equity_asset_class_by_asset_id(user)
+        )
+
+        sm_by_asset_id = (
+            cls._security_master_by_asset_id(user)
+        )
+
+        equity_holdings = list(
+            UnifiedWealthAnalytics
+            .get_equity_holdings(user)
+        )
+
+        totals = {}
+
+        for holding in equity_holdings:
+            current_value = (
+                holding.current_value
+                or cls.ZERO
+            )
+
+            if current_value <= 0:
+                continue
+
+            sm = sm_by_asset_id.get(
+                holding.asset_id,
+                {},
+            )
+
+            if sm.get("cap_type"):
+                # Has a real cap_type — belongs on the Market Cap
+                # chart, not this one.
+                continue
+
+            raw_class = asset_class_by_asset_id.get(
+                holding.asset_id
+            )
+
+            asset_class = cls._normalize_asset_class(
+                raw_class
+            )
+
+            totals[asset_class] = (
+                totals.get(
+                    asset_class,
+                    cls.ZERO,
+                )
+                + current_value
+            )
+
+        grand_total = sum(
+            totals.values(),
+            cls.ZERO,
+        )
+
+        results = []
+
+        for asset_class, value in sorted(
+            totals.items(),
+            key=lambda item: item[1],
+            reverse=True,
+        ):
+            percentage = (
+                (value / grand_total) * 100
+                if grand_total
+                else cls.ZERO
+            )
+
+            results.append({
+                "holding_type": asset_class,
+                "current_value": value,
+                "percentage": round(
+                    percentage,
+                    2,
+                ),
+            })
+
+        return {
+            "results": results,
+            "total_current_value": grand_total,
+        }

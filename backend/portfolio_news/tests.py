@@ -341,6 +341,190 @@ class ArticleStoreDeduplicationTests(TestCase):
         self.assertEqual(NewsArticle.objects.count(), 1)
 
 
+class ArticleSourceAttachmentTests(TestCase):
+    """
+    When the same event is reported by several publishers, the
+    duplicate reports must not be discarded: each distinct
+    publisher should be retained as a NewsArticleSource, and the
+    article's denormalized source_quality/source_count should
+    reflect the best tier and the count seen so far.
+    """
+
+    def setUp(self):
+        self.published_at = datetime(
+            2026, 8, 24, 9, 0, tzinfo=timezone.utc
+        )
+
+    def _result(self, title, url, source, description=""):
+        return NewsArticleResult(
+            title=title,
+            url=url,
+            source=source,
+            description=description,
+            published_at=self.published_at,
+            matched_query="Aurobindo Pharma",
+        )
+
+    def test_duplicate_event_retains_all_distinct_sources(self):
+        reuters = self._result(
+            "Aurobindo Pharma receives USFDA approval",
+            "https://reuters.com/article-1",
+            "Reuters",
+        )
+
+        economic_times = self._result(
+            "Aurobindo Pharma gets USFDA approval",
+            "https://economictimes.com/article-2",
+            "Economic Times",
+        )
+
+        article_1, created_1 = store_article(reuters)
+        article_2, created_2 = store_article(economic_times)
+
+        self.assertTrue(created_1)
+        self.assertFalse(created_2)
+        self.assertEqual(article_1.id, article_2.id)
+        self.assertEqual(article_1.sources.count(), 2)
+
+        publisher_names = set(
+            article_1.sources.values_list(
+                "publisher_name", flat=True
+            )
+        )
+
+        self.assertEqual(
+            publisher_names, {"Reuters", "Economic Times"}
+        )
+
+    def test_same_publisher_url_seen_twice_not_duplicated_as_source(self):
+        candidate = self._result(
+            "Aurobindo Pharma receives USFDA approval",
+            "https://reuters.com/article-1",
+            "Reuters",
+        )
+
+        store_article(candidate)
+        article, _ = store_article(candidate)
+
+        self.assertEqual(article.sources.count(), 1)
+        self.assertEqual(article.source_count, 1)
+
+    def test_source_quality_reflects_best_tier_seen(self):
+        # An unclassified/low-tier outlet arrives first...
+        blog = self._result(
+            "Aurobindo Pharma receives USFDA approval",
+            "https://some-random-blog.example/post-1",
+            "Random Finance Blog",
+        )
+
+        # ...then a top-tier wire service reports the same event.
+        reuters = self._result(
+            "Aurobindo Pharma gets USFDA approval",
+            "https://reuters.com/article-1",
+            "Reuters",
+        )
+
+        article, _ = store_article(blog)
+        self.assertEqual(article.source_quality, "tier_3")
+
+        article, _ = store_article(reuters)
+        article.refresh_from_db()
+
+        self.assertEqual(article.source_quality, "tier_1")
+        self.assertEqual(article.source_count, 2)
+
+    def test_first_stored_source_gets_correct_tier(self):
+        reuters = self._result(
+            "Aurobindo Pharma receives USFDA approval",
+            "https://reuters.com/article-1",
+            "Reuters",
+        )
+
+        article, created = store_article(reuters)
+
+        self.assertTrue(created)
+        self.assertEqual(article.source_quality, "tier_1")
+        self.assertEqual(article.source_count, 1)
+        self.assertEqual(article.sources.count(), 1)
+        self.assertEqual(
+            article.sources.first().quality_tier, "tier_1"
+        )
+
+
+class SourceQualityClassificationTests(TestCase):
+
+    def test_known_tier_1_publisher_is_classified_correctly(self):
+        from portfolio_news.services.source_quality import (
+            classify_source,
+        )
+
+        self.assertEqual(classify_source("Reuters"), "tier_1")
+        self.assertEqual(
+            classify_source("The Economic Times"), "tier_1"
+        )
+        self.assertEqual(classify_source("Moneycontrol"), "tier_1")
+
+    def test_known_tier_2_publisher_is_classified_correctly(self):
+        from portfolio_news.services.source_quality import (
+            classify_source,
+        )
+
+        self.assertEqual(classify_source("The Hindu"), "tier_2")
+        self.assertEqual(
+            classify_source("Business Today"), "tier_2"
+        )
+
+    def test_unknown_publisher_defaults_to_tier_3(self):
+        from portfolio_news.services.source_quality import (
+            classify_source,
+        )
+
+        self.assertEqual(
+            classify_source("Random Finance Blog"), "tier_3"
+        )
+
+    def test_empty_or_missing_publisher_defaults_to_tier_3(self):
+        from portfolio_news.services.source_quality import (
+            classify_source,
+        )
+
+        self.assertEqual(classify_source(""), "tier_3")
+        self.assertEqual(classify_source(None), "tier_3")
+
+    def test_classification_is_case_insensitive(self):
+        from portfolio_news.services.source_quality import (
+            classify_source,
+        )
+
+        self.assertEqual(classify_source("REUTERS"), "tier_1")
+        self.assertEqual(classify_source("reuters"), "tier_1")
+
+    def test_best_tier_picks_highest_quality(self):
+        from portfolio_news.services.source_quality import best_tier
+
+        self.assertEqual(
+            best_tier(["tier_3", "tier_1", "tier_2"]), "tier_1"
+        )
+        self.assertEqual(best_tier(["tier_3", "tier_2"]), "tier_2")
+        self.assertEqual(best_tier([]), "tier_3")
+
+    def test_overrides_setting_takes_precedence(self):
+        from django.test import override_settings
+
+        from portfolio_news.services.source_quality import (
+            classify_source,
+        )
+
+        with override_settings(
+            NEWS_SOURCE_QUALITY_OVERRIDES={
+                "random finance blog": "tier_1",
+            }
+        ):
+            self.assertEqual(
+                classify_source("Random Finance Blog"), "tier_1"
+            )
+
+
 from decimal import Decimal
 
 from django.contrib.auth.models import User
@@ -574,6 +758,132 @@ class QueryBuilderTests(TestCase):
 
         self.assertEqual(QueryBuilder.build_queries(holding), [])
 
+    def test_sector_query_generated_for_known_sector(self):
+        holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=1,
+            display_name="HDFC Bank Limited",
+            symbol="HDFCBANK",
+            sector="Banking",
+        )
+
+        queries = QueryBuilder.build_queries(holding)
+
+        self.assertIn("Indian Banking sector", queries)
+
+    def test_no_sector_query_when_sector_unknown(self):
+        holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=1,
+            display_name="HDFC Bank Limited",
+            symbol="HDFCBANK",
+            sector="",
+        )
+
+        queries = QueryBuilder.build_queries(holding)
+
+        self.assertFalse(
+            any(q.startswith("Indian ") for q in queries)
+        )
+
+    def test_macro_queries_added_for_defensible_sector(self):
+        holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=1,
+            display_name="HDFC Bank Limited",
+            symbol="HDFCBANK",
+            sector="Banking",
+        )
+
+        queries = QueryBuilder.build_queries(holding)
+
+        self.assertIn("RBI", queries)
+
+    def test_no_macro_queries_for_unmapped_sector(self):
+        holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=1,
+            display_name="Some Obscure Company Limited",
+            sector="Widgets",
+        )
+
+        terms = QueryBuilder.macro_terms_for_sector(
+            holding.sector
+        )
+
+        self.assertEqual(terms, [])
+
+    def test_macro_terms_capped(self):
+        terms = QueryBuilder.macro_terms_for_sector("Banking")
+
+        self.assertLessEqual(
+            len(terms),
+            QueryBuilder.MAX_MACRO_QUERIES_PER_HOLDING,
+        )
+
+    def test_is_sector_or_macro_query_true_for_generated_queries(
+        self,
+    ):
+        holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=1,
+            display_name="HDFC Bank Limited",
+            sector="Banking",
+        )
+
+        self.assertTrue(
+            QueryBuilder.is_sector_or_macro_query(
+                "Indian Banking sector", holding
+            )
+        )
+        self.assertTrue(
+            QueryBuilder.is_sector_or_macro_query("RBI", holding)
+        )
+
+    def test_is_sector_or_macro_query_false_for_unrelated_query(
+        self,
+    ):
+        holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=1,
+            display_name="HDFC Bank Limited",
+            sector="Banking",
+        )
+
+        self.assertFalse(
+            QueryBuilder.is_sector_or_macro_query(
+                "HDFC Bank Limited earnings", holding
+            )
+        )
+
+    def test_is_sector_or_macro_query_false_without_sector(self):
+        holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=1,
+            display_name="HDFC Bank Limited",
+            sector="",
+        )
+
+        self.assertFalse(
+            QueryBuilder.is_sector_or_macro_query("RBI", holding)
+        )
+
+    def test_query_count_still_bounded_with_sector_and_macro(self):
+        holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=1,
+            display_name="HDFC Bank Limited",
+            symbol="HDFCBANK",
+            sector="Banking",
+        )
+
+        queries = QueryBuilder.build_queries(holding)
+
+        self.assertLessEqual(
+            len(queries),
+            QueryBuilder.MAX_QUERIES_PER_HOLDING,
+        )
+
 
 class HoldingMatcherTests(TestCase):
 
@@ -649,6 +959,111 @@ class HoldingMatcherTests(TestCase):
         )
 
         self.assertEqual(matches, [self.holding])
+
+    def test_sector_query_article_without_company_name_matches(
+        self,
+    ):
+        banking_holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=3,
+            display_name="HDFC Bank Limited",
+            symbol="HDFCBANK",
+            sector="Banking",
+        )
+
+        # No mention of "HDFC Bank" anywhere - a genuine sector
+        # story, which is the whole point of this fallback path.
+        self.assertTrue(
+            HoldingMatcher.is_relevant(
+                "Indian banking sector sees record credit growth",
+                "Analysts say the banking sector is expanding.",
+                banking_holding,
+                matched_query="Indian Banking sector",
+            )
+        )
+
+    def test_macro_query_article_matches_via_topic_term(self):
+        banking_holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=3,
+            display_name="HDFC Bank Limited",
+            symbol="HDFCBANK",
+            sector="Banking",
+        )
+
+        self.assertTrue(
+            HoldingMatcher.is_relevant(
+                "RBI raises repo rate by 25 basis points",
+                "",
+                banking_holding,
+                matched_query="RBI",
+            )
+        )
+
+    def test_sector_query_without_sector_or_topic_mention_rejected(
+        self,
+    ):
+        banking_holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=3,
+            display_name="HDFC Bank Limited",
+            symbol="HDFCBANK",
+            sector="Banking",
+        )
+
+        # Query was a sector/macro query for this holding, but the
+        # returned article text doesn't actually mention the
+        # sector or the macro topic - must not be waved through.
+        self.assertFalse(
+            HoldingMatcher.is_relevant(
+                "Local cricket team wins championship",
+                "",
+                banking_holding,
+                matched_query="RBI",
+            )
+        )
+
+    def test_sector_fallback_not_applied_when_query_not_sector_or_macro(
+        self,
+    ):
+        banking_holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=3,
+            display_name="HDFC Bank Limited",
+            symbol="HDFCBANK",
+            sector="Banking",
+        )
+
+        # matched_query is a normal company query, not a
+        # sector/macro one - sector text alone should not be
+        # enough to match without an actual company mention.
+        self.assertFalse(
+            HoldingMatcher.is_relevant(
+                "Banking sector conference held in Mumbai",
+                "",
+                banking_holding,
+                matched_query="HDFC Bank Limited",
+            )
+        )
+
+    def test_sector_fallback_not_applied_without_holding_sector(
+        self,
+    ):
+        no_sector_holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=4,
+            display_name="Some Company Limited",
+            sector="",
+        )
+
+        self.assertFalse(
+            HoldingMatcher.is_relevant(
+                "RBI raises repo rate",
+                "",
+                no_sector_holding,
+                matched_query="RBI",
+            )
+        )
         
 
 
@@ -801,6 +1216,100 @@ class ArticleAnalysisValidationTests(TestCase):
         self.assertTrue(analysis.summary)
         self.assertTrue(analysis.portfolio_implication)
         self.assertTrue(analysis.reason)
+
+    def test_materiality_and_fact_fields_parse_correctly(self):
+        from portfolio_news.constants import Materiality
+
+        analysis = ArticleAnalysis.from_gemini_json(
+            {
+                "relevant": True,
+                "relevance_score": 90,
+                "sentiment": "negative",
+                "impact": "critical",
+                "impact_score": 92,
+                "category": "REGULATORY",
+                "time_horizon": "immediate",
+                "summary": "s",
+                "portfolio_implication": "p",
+                "reason": "r",
+                "confidence": 0.85,
+                "materiality": "critical",
+                "key_facts": (
+                    "The regulator issued a formal notice."
+                ),
+                "interpretation": (
+                    "This could signal heightened scrutiny."
+                ),
+                "uncertainty_notes": (
+                    "The final penalty amount is not yet known."
+                ),
+            }
+        )
+
+        self.assertEqual(analysis.materiality, Materiality.CRITICAL)
+        self.assertEqual(
+            analysis.key_facts,
+            "The regulator issued a formal notice.",
+        )
+        self.assertEqual(
+            analysis.interpretation,
+            "This could signal heightened scrutiny.",
+        )
+        self.assertEqual(
+            analysis.uncertainty_notes,
+            "The final penalty amount is not yet known.",
+        )
+
+    def test_missing_materiality_defaults_from_impact_level(self):
+        from portfolio_news.constants import Materiality
+
+        analysis = ArticleAnalysis.from_gemini_json(
+            {
+                "relevant": True,
+                "relevance_score": 90,
+                "sentiment": "negative",
+                "impact": "critical",
+                "impact_score": 92,
+                "category": "REGULATORY",
+                "time_horizon": "immediate",
+                "summary": "s",
+                "portfolio_implication": "p",
+                "reason": "r",
+                "confidence": 0.85,
+                # materiality/key_facts/interpretation/
+                # uncertainty_notes intentionally omitted, as an
+                # older/partial Gemini response might do.
+            }
+        )
+
+        self.assertEqual(analysis.materiality, Materiality.CRITICAL)
+        self.assertEqual(analysis.key_facts, "")
+        self.assertEqual(analysis.interpretation, "")
+        self.assertEqual(analysis.uncertainty_notes, "")
+
+    def test_invalid_materiality_falls_back_to_impact_derived_value(
+        self,
+    ):
+        from portfolio_news.constants import Materiality
+
+        analysis = ArticleAnalysis.from_gemini_json(
+            {
+                "relevant": True,
+                "relevance_score": 20,
+                "sentiment": "neutral",
+                "impact": "low",
+                "impact_score": 25,
+                "category": "OTHER",
+                "time_horizon": "unspecified",
+                "summary": "s",
+                "portfolio_implication": "p",
+                "reason": "r",
+                "confidence": 0.3,
+                "materiality": "super-duper-critical",
+            }
+        )
+
+        self.assertEqual(analysis.materiality, Materiality.LOW)
 
 
 class ImpactLevelThresholdTests(TestCase):
@@ -1084,6 +1593,131 @@ class AlertScoringTests(TestCase):
         )
 
 
+class AlertScoringSourceQualityAndRecencyTests(TestCase):
+    """
+    Covers the additive source_quality/published_at factors on
+    compute_alert_score. Every existing (pre-slice-2) call
+    pattern - omitting these two arguments - must keep producing
+    exactly the same score as before; that is verified by the
+    untouched tests in AlertScoringTests above. These tests cover
+    only the new behavior.
+    """
+
+    def test_omitting_new_params_matches_base_formula_exactly(self):
+        score = compute_alert_score(
+            impact_score=80,
+            portfolio_weight_percent=25,
+            confidence=1.0,
+        )
+
+        self.assertAlmostEqual(score, 20.0)
+
+    def test_tier_1_source_scores_higher_than_tier_3(self):
+        from portfolio_news.constants import SourceQualityTier
+
+        tier_1_score = compute_alert_score(
+            impact_score=80,
+            portfolio_weight_percent=25,
+            confidence=1.0,
+            source_quality=SourceQualityTier.TIER_1,
+        )
+
+        tier_3_score = compute_alert_score(
+            impact_score=80,
+            portfolio_weight_percent=25,
+            confidence=1.0,
+            source_quality=SourceQualityTier.TIER_3,
+        )
+
+        self.assertGreater(tier_1_score, tier_3_score)
+        self.assertAlmostEqual(tier_1_score, 20.0)
+        self.assertAlmostEqual(tier_3_score, 10.0)
+
+    def test_fresh_article_scores_higher_than_stale_one(self):
+        now = datetime(2026, 8, 27, 12, 0, tzinfo=timezone.utc)
+
+        fresh_score = compute_alert_score(
+            impact_score=80,
+            portfolio_weight_percent=25,
+            confidence=1.0,
+            published_at=datetime(
+                2026, 8, 27, 6, 0, tzinfo=timezone.utc
+            ),
+            now=now,
+        )
+
+        stale_score = compute_alert_score(
+            impact_score=80,
+            portfolio_weight_percent=25,
+            confidence=1.0,
+            published_at=datetime(
+                2026, 8, 1, 6, 0, tzinfo=timezone.utc
+            ),
+            now=now,
+        )
+
+        self.assertGreater(fresh_score, stale_score)
+        self.assertAlmostEqual(fresh_score, 20.0)
+        self.assertAlmostEqual(stale_score, 10.0)
+
+    def test_missing_published_at_is_neutral_not_penalized(self):
+        with_date_fresh = compute_alert_score(
+            impact_score=80,
+            portfolio_weight_percent=25,
+            confidence=1.0,
+            published_at=datetime(
+                2026, 8, 27, 6, 0, tzinfo=timezone.utc
+            ),
+            now=datetime(
+                2026, 8, 27, 12, 0, tzinfo=timezone.utc
+            ),
+        )
+
+        without_date = compute_alert_score(
+            impact_score=80,
+            portfolio_weight_percent=25,
+            confidence=1.0,
+            published_at=None,
+        )
+
+        self.assertAlmostEqual(with_date_fresh, without_date)
+
+    def test_recency_decays_linearly_between_one_and_seven_days(self):
+        now = datetime(2026, 8, 27, 0, 0, tzinfo=timezone.utc)
+
+        # 4 days old -> halfway through the 1-7 day decay window.
+        score = compute_alert_score(
+            impact_score=100,
+            portfolio_weight_percent=100,
+            confidence=1.0,
+            published_at=datetime(
+                2026, 8, 23, 0, 0, tzinfo=timezone.utc
+            ),
+            now=now,
+        )
+
+        # weight_fraction=1.0, confidence=1.0, recency=0.75
+        self.assertAlmostEqual(score, 75.0)
+
+    def test_score_still_bounded_0_to_100_with_all_factors(self):
+        from portfolio_news.constants import SourceQualityTier
+
+        score = compute_alert_score(
+            impact_score=100,
+            portfolio_weight_percent=100,
+            confidence=1.0,
+            source_quality=SourceQualityTier.TIER_1,
+            published_at=datetime(
+                2026, 8, 27, 0, 0, tzinfo=timezone.utc
+            ),
+            now=datetime(
+                2026, 8, 27, 1, 0, tzinfo=timezone.utc
+            ),
+        )
+
+        self.assertEqual(score, 100.0)
+
+
 class NotificationCreationTests(TestCase):
 
     def setUp(self):
@@ -1241,7 +1875,175 @@ class NotificationCreationTests(TestCase):
             user_alert_ids.intersection(other_user_alert_ids),
             set(),
         )
-        
+
+
+class DigestServiceTests(TestCase):
+    """
+    Direct unit coverage for build_daily_digest, independent of
+    the API layer (see PortfolioNewsAPITests for the endpoint
+    tests).
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="digestuser",
+            password="testpassword",
+        )
+
+        self.holding = MonitoredHolding(
+            holding_type=HoldingType.EQUITY,
+            holding_id=77,
+            display_name="Aurobindo Pharma Limited",
+            symbol="AUROPHARMA",
+            portfolio_weight=18.4,
+        )
+
+    def _analysis(self, impact, impact_score, confidence=0.9):
+        return ArticleAnalysis(
+            relevant=True,
+            relevance_score=90,
+            sentiment="neutral",
+            impact=impact,
+            impact_score=impact_score,
+            category="OTHER",
+            time_horizon="medium_term",
+            summary="Summary.",
+            portfolio_implication="Implication.",
+            reason="Reason.",
+            confidence=confidence,
+        )
+
+    def test_digest_excludes_low_tier_alerts(self):
+        from portfolio_news.services.digest import (
+            build_daily_digest,
+        )
+
+        article, _ = store_article(
+            NewsArticleResult(
+                title="Aurobindo Pharma minor update",
+                url="https://reuters.com/aurobindo-low-1",
+                source="Reuters",
+                description="Minor update.",
+            )
+        )
+
+        create_alert_from_analysis(
+            self.user,
+            article,
+            self.holding,
+            self._analysis(impact="low", impact_score=15),
+        )
+
+        digest = build_daily_digest(self.user)
+
+        self.assertEqual(digest.item_count, 0)
+
+    def test_digest_excludes_other_users_alerts(self):
+        from portfolio_news.services.digest import (
+            build_daily_digest,
+        )
+
+        other_user = User.objects.create_user(
+            username="otherdigestuser",
+            password="testpassword",
+        )
+
+        article, _ = store_article(
+            NewsArticleResult(
+                title="Aurobindo Pharma big development",
+                url="https://reuters.com/aurobindo-other-1",
+                source="Reuters",
+                description="Big development.",
+            )
+        )
+
+        create_alert_from_analysis(
+            other_user,
+            article,
+            self.holding,
+            self._analysis(impact="critical", impact_score=90),
+        )
+
+        digest = build_daily_digest(self.user)
+
+        self.assertEqual(digest.item_count, 0)
+
+    def test_digest_excludes_alerts_from_other_days(self):
+        from datetime import timedelta
+
+        from django.utils import timezone as dj_timezone
+
+        from portfolio_news.services.digest import (
+            build_daily_digest,
+        )
+
+        article, _ = store_article(
+            NewsArticleResult(
+                title="Aurobindo Pharma another update",
+                url="https://reuters.com/aurobindo-other-day-1",
+                source="Reuters",
+                description="Update.",
+            )
+        )
+
+        alert, _ = create_alert_from_analysis(
+            self.user,
+            article,
+            self.holding,
+            self._analysis(impact="high", impact_score=70),
+        )
+
+        # Backdate the alert to yesterday.
+        yesterday = dj_timezone.now() - timedelta(days=1)
+
+        PortfolioNewsAlert.objects.filter(
+            id=alert.id
+        ).update(created_at=yesterday)
+
+        digest = build_daily_digest(self.user)
+
+        self.assertEqual(digest.item_count, 0)
+
+    def test_digest_item_reflects_source_count(self):
+        from portfolio_news.services.digest import (
+            build_daily_digest,
+        )
+
+        published_at = datetime(
+            2026, 8, 24, 9, 0, tzinfo=timezone.utc
+        )
+
+        store_article(
+            NewsArticleResult(
+                title="Aurobindo Pharma wins big order",
+                url="https://reuters.com/aurobindo-multi-1",
+                source="Reuters",
+                description="Order news.",
+                published_at=published_at,
+            )
+        )
+
+        article, _ = store_article(
+            NewsArticleResult(
+                title="Aurobindo Pharma secures major order",
+                url="https://economictimes.com/aurobindo-multi-2",
+                source="Economic Times",
+                description="Order news.",
+                published_at=published_at,
+            )
+        )
+
+        create_alert_from_analysis(
+            self.user,
+            article,
+            self.holding,
+            self._analysis(impact="high", impact_score=70),
+        )
+
+        digest = build_daily_digest(self.user)
+
+        self.assertEqual(digest.item_count, 1)
+        self.assertEqual(digest.items[0].source_count, 2)
 
 
 from rest_framework.test import APIClient
@@ -1355,6 +2157,156 @@ class PortfolioNewsAPITests(TestCase):
             response.data["results"][0]["id"], self.alert.id
         )
 
+    def test_news_list_category_filter(self):
+        response = self.client.get(
+            "/api/ai/news/?category=REGULATORY"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(
+            response.data["results"][0]["id"], self.alert.id
+        )
+
+    def test_news_list_sentiment_filter(self):
+        response = self.client.get(
+            "/api/ai/news/?sentiment=positive"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(
+            response.data["results"][0]["id"],
+            self.moderate_alert.id,
+        )
+
+    def test_news_list_holding_type_filter(self):
+        mf_article, _ = store_article(
+            NewsArticleResult(
+                title="HDFC Flexi Cap Fund NAV update",
+                url="https://reuters.com/hdfc-flexicap-1",
+                source="Reuters",
+                description="NAV update.",
+                published_at=datetime(
+                    2026, 8, 22, 9, 0, tzinfo=timezone.utc
+                ),
+            )
+        )
+
+        mf_holding = MonitoredHolding(
+            holding_type=HoldingType.MUTUAL_FUND,
+            holding_id=501,
+            display_name="HDFC Flexi Cap Fund",
+            amc_name="HDFC Mutual Fund",
+            portfolio_weight=10.0,
+        )
+
+        mf_analysis = ArticleAnalysis(
+            relevant=True,
+            relevance_score=40,
+            sentiment="neutral",
+            impact="low",
+            impact_score=20,
+            category="OTHER",
+            time_horizon="unspecified",
+            summary="NAV summary.",
+            portfolio_implication="No material implication.",
+            reason="Routine update.",
+            confidence=0.5,
+        )
+
+        create_alert_from_analysis(
+            self.user, mf_article, mf_holding, mf_analysis
+        )
+
+        response = self.client.get(
+            "/api/ai/news/?holding_type=MUTUAL_FUND"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(
+            response.data["results"][0]["holding_type"],
+            "MUTUAL_FUND",
+        )
+
+    def test_news_list_holding_id_filter(self):
+        response = self.client.get("/api/ai/news/?holding_id=101")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 2)
+
+        response = self.client.get("/api/ai/news/?holding_id=999")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 0)
+
+    def test_news_list_date_range_today_excludes_backdated_alert(
+        self,
+    ):
+        from datetime import timedelta
+
+        from django.utils import timezone as dj_timezone
+
+        PortfolioNewsAlert.objects.filter(
+            id=self.moderate_alert.id
+        ).update(
+            created_at=dj_timezone.now() - timedelta(days=10)
+        )
+
+        response = self.client.get(
+            "/api/ai/news/?date_range=today"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(
+            response.data["results"][0]["id"], self.alert.id
+        )
+
+    def test_news_list_date_range_30d_includes_recent_alerts(self):
+        response = self.client.get(
+            "/api/ai/news/?date_range=30d"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 2)
+
+    def test_news_list_date_range_7d_excludes_older_alert(self):
+        from datetime import timedelta
+
+        from django.utils import timezone as dj_timezone
+
+        PortfolioNewsAlert.objects.filter(
+            id=self.moderate_alert.id
+        ).update(
+            created_at=dj_timezone.now() - timedelta(days=10)
+        )
+
+        response = self.client.get("/api/ai/news/?date_range=7d")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(
+            response.data["results"][0]["id"], self.alert.id
+        )
+
+    def test_news_list_filters_combine_with_and_semantics(self):
+        response = self.client.get(
+            "/api/ai/news/?category=REGULATORY&sentiment=positive"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 0)
+
+    def test_news_list_invalid_holding_id_is_ignored_not_error(self):
+        response = self.client.get(
+            "/api/ai/news/?holding_id=not-a-number"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 2)
+
     def test_news_detail_returns_full_fields(self):
         response = self.client.get(
             f"/api/ai/news/{self.alert.id}/"
@@ -1442,7 +2394,61 @@ class PortfolioNewsAPITests(TestCase):
 
         self.assertEqual(other_response.status_code, 200)
         self.assertEqual(other_response.data["updated"], 0)
-        
+
+    def test_digest_includes_high_and_moderate_alerts_for_today(self):
+        response = self.client.get("/api/ai/news/digest/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["item_count"], 2)
+
+        holding_names = {
+            item["holding_display_name"]
+            for item in response.data["items"]
+        }
+
+        self.assertEqual(
+            holding_names, {"Aurobindo Pharma Limited"}
+        )
+
+    def test_digest_orders_by_alert_score_descending(self):
+        response = self.client.get("/api/ai/news/digest/")
+
+        scores = [
+            item["alert_score"]
+            for item in response.data["items"]
+        ]
+
+        self.assertEqual(scores, sorted(scores, reverse=True))
+
+    def test_digest_scoped_to_requesting_user_only(self):
+        response = self.other_client.get("/api/ai/news/digest/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["item_count"], 0)
+
+    def test_digest_accepts_explicit_date_param(self):
+        # A date with no alerts should return an empty digest,
+        # not an error.
+        response = self.client.get(
+            "/api/ai/news/digest/?date=2020-01-01"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["item_count"], 0)
+        self.assertEqual(
+            response.data["digest_date"], "2020-01-01"
+        )
+
+    def test_digest_ignores_unparseable_date_and_falls_back_to_today(
+        self,
+    ):
+        response = self.client.get(
+            "/api/ai/news/digest/?date=not-a-date"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["item_count"], 2)
+
 
 
 from django.utils import timezone as dj_timezone
@@ -1484,7 +2490,7 @@ class _FakeAnalyzer:
         self.fail = fail
         self.call_count = 0
 
-    def analyze(self, article, holding):
+    def analyze(self, article, holding, user=None):
         self.call_count += 1
 
         if self.fail:
@@ -1749,3 +2755,177 @@ class PortfolioNewsPipelineTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["count"], 0)
+
+    def test_low_relevance_score_hides_alert_but_keeps_idempotency(
+        self,
+    ):
+        low_relevance_analysis = ArticleAnalysis(
+            relevant=True,
+            relevance_score=10,
+            sentiment="neutral",
+            impact="low",
+            impact_score=20,
+            category="OTHER",
+            time_horizon="unspecified",
+            summary="Tangentially related.",
+            portfolio_implication="Minimal.",
+            reason="Weak match.",
+            confidence=0.5,
+        )
+
+        provider = _FakeProvider(
+            results_by_query={
+                "Aurobindo Pharma Limited": [
+                    self.relevant_article_result,
+                ]
+            }
+        )
+
+        analyzer = _FakeAnalyzer(analysis=low_relevance_analysis)
+
+        run_portfolio_news_monitor(
+            provider=provider,
+            analyzer=analyzer,
+            min_relevance_score=30,
+        )
+
+        alert = PortfolioNewsAlert.objects.first()
+
+        # Row exists (idempotency)...
+        self.assertIsNotNone(alert)
+        # ...but hidden from the feed, since relevance_score (10)
+        # is below the configured floor (30), even though the AI
+        # itself said relevant=True.
+        self.assertFalse(alert.relevant)
+
+        # Running again must not re-call the AI.
+        run_portfolio_news_monitor(
+            provider=provider,
+            analyzer=analyzer,
+            min_relevance_score=30,
+        )
+
+        self.assertEqual(analyzer.call_count, 1)
+
+    def test_low_alert_score_hides_alert_but_keeps_idempotency(self):
+        # High relevance, but a very low portfolio_weight makes
+        # the composite alert_score negligible.
+        low_weight_holding_analysis = ArticleAnalysis(
+            relevant=True,
+            relevance_score=90,
+            sentiment="neutral",
+            impact="low",
+            impact_score=10,
+            category="OTHER",
+            time_horizon="unspecified",
+            summary="Minor development.",
+            portfolio_implication="Negligible.",
+            reason="Low materiality.",
+            confidence=0.3,
+        )
+
+        provider = _FakeProvider(
+            results_by_query={
+                "Aurobindo Pharma Limited": [
+                    self.relevant_article_result,
+                ]
+            }
+        )
+
+        analyzer = _FakeAnalyzer(
+            analysis=low_weight_holding_analysis
+        )
+
+        run_portfolio_news_monitor(
+            provider=provider,
+            analyzer=analyzer,
+            min_relevance_score=0,
+            min_alert_score=50.0,
+        )
+
+        alert = PortfolioNewsAlert.objects.first()
+
+        self.assertIsNotNone(alert)
+        self.assertFalse(alert.relevant)
+        self.assertFalse(alert.notification_sent)
+
+    def test_max_articles_per_holding_defers_remaining_candidates(
+        self,
+    ):
+        second_article_result = NewsArticleResult(
+            title="Aurobindo Pharma announces new plant",
+            url="https://reuters.com/pipeline-article-cap-2",
+            source="Reuters",
+            description="Aurobindo Pharma plant announcement.",
+            published_at=dj_timezone.now(),
+            matched_query="Aurobindo Pharma Limited",
+        )
+
+        provider = _FakeProvider(
+            results_by_query={
+                "Aurobindo Pharma Limited": [
+                    self.relevant_article_result,
+                    second_article_result,
+                ]
+            }
+        )
+
+        analyzer = _FakeAnalyzer(analysis=self.high_impact_analysis)
+
+        stats = run_portfolio_news_monitor(
+            provider=provider,
+            analyzer=analyzer,
+            max_articles_per_holding=1,
+        )
+
+        # Both candidates matched the deterministic filter, but
+        # only 1 was sent to the AI this run - the cap applies
+        # after matching, before the (expensive) AI call.
+        self.assertEqual(stats["articles_matched"], 2)
+        self.assertEqual(stats["articles_sent_to_ai"], 1)
+        self.assertEqual(analyzer.call_count, 1)
+
+        # Both articles are still stored, though - nothing is
+        # lost, just deferred.
+        self.assertEqual(NewsArticle.objects.count(), 2)
+
+    def test_deferred_candidate_is_picked_up_on_a_later_run(self):
+        second_article_result = NewsArticleResult(
+            title="Aurobindo Pharma announces new plant",
+            url="https://reuters.com/pipeline-article-cap-3",
+            source="Reuters",
+            description="Aurobindo Pharma plant announcement.",
+            published_at=dj_timezone.now(),
+            matched_query="Aurobindo Pharma Limited",
+        )
+
+        provider = _FakeProvider(
+            results_by_query={
+                "Aurobindo Pharma Limited": [
+                    self.relevant_article_result,
+                    second_article_result,
+                ]
+            }
+        )
+
+        analyzer = _FakeAnalyzer(analysis=self.high_impact_analysis)
+
+        # First run: cap of 1 defers the second article.
+        run_portfolio_news_monitor(
+            provider=provider,
+            analyzer=analyzer,
+            max_articles_per_holding=1,
+        )
+
+        self.assertEqual(analyzer.call_count, 1)
+
+        # Second run: no cap, so the deferred article is now
+        # processed (the first is skipped via idempotency).
+        run_portfolio_news_monitor(
+            provider=provider,
+            analyzer=analyzer,
+            max_articles_per_holding=100,
+        )
+
+        self.assertEqual(analyzer.call_count, 2)
+        self.assertEqual(PortfolioNewsAlert.objects.count(), 2)

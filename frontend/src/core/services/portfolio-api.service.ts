@@ -126,6 +126,23 @@ export interface PortfolioAssetNode {
   sector: string | null;
   cap_type: string | null;
 
+  /* ============================================================
+     Added alongside the SecurityMaster schema extension
+     (investments/migrations/0007_...). All null whenever no
+     SecurityMaster row exists for the asset yet, or the specific
+     field hasn't been filled in via Django admin — never
+     defaulted/fabricated on the backend, so treat null as
+     "unknown", not zero.
+     ============================================================ */
+  amc_name: string | null;
+  pe_ratio: number | null;
+  pb_ratio: number | null;
+  roe: number | null;
+  credit_rating: string | null;
+  ytm: number | null;
+  modified_duration: number | null;
+  average_maturity: number | null;
+
   price_source: string | null;
 }
 

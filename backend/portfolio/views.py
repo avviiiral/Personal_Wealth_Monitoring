@@ -42,6 +42,8 @@ from .serializers import (
     TransactionSerializer,
 )
 
+from users.permissions import get_visible_owner_ids
+
 
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
@@ -51,7 +53,7 @@ def portfolio_assets(request):
 
         assets = (
             Asset.objects
-            .filter(owner=request.user)
+            .filter(owner_id__in=get_visible_owner_ids(request.user))
             .order_by("name")
         )
 
@@ -205,7 +207,7 @@ def portfolio_transactions(request):
 
         transactions = (
             Transaction.objects
-            .filter(owner=request.user)
+            .filter(owner_id__in=get_visible_owner_ids(request.user))
             .select_related("asset")
             .order_by(
                 "-transaction_date",
@@ -372,7 +374,7 @@ def portfolio_summary(request):
     holdings = (
         Holding.objects
         .filter(
-            owner=request.user,
+            owner_id__in=get_visible_owner_ids(request.user),
             asset__is_active=True,
         )
     )
@@ -424,7 +426,7 @@ def portfolio_holdings(request):
     holdings = (
         Holding.objects
         .filter(
-            owner=request.user,
+            owner_id__in=get_visible_owner_ids(request.user),
             asset__is_active=True,
         )
         .exclude(
@@ -453,7 +455,7 @@ def portfolio_tree(request):
 
     try:
         tree = PortfolioTreeService.build(
-            owner=request.user
+            owner=get_visible_owner_ids(request.user)
         )
 
     except Exception as exc:
