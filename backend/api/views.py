@@ -13,6 +13,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from users.models import UserPreference
+from users.serializers import CurrentUserSerializer
 
 
 # ==========================================================
@@ -90,11 +91,7 @@ def login_view(request):
 
     return Response({
         "authenticated": True,
-        "user": {
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-        },
+        "user": CurrentUserSerializer(user).data,
     })
 
 
@@ -117,16 +114,19 @@ def logout_view(request):
 @permission_classes([IsAuthenticated])
 def current_user(request):
     """
-    Return the currently authenticated PWMS user.
+    GET /api/auth/me/
+
+    Return the currently authenticated PWMS user, including their
+    role, derived permission flags, family memberships, and
+    currently active family - everything the frontend needs to
+    render a role-appropriate UI. Backend authorization is always
+    re-checked independently on every subsequent request; this
+    payload is for display/navigation only.
     """
 
     return Response({
         "authenticated": True,
-        "user": {
-            "id": request.user.id,
-            "username": request.user.username,
-            "email": request.user.email,
-        },
+        "user": CurrentUserSerializer(request.user).data,
     })
 
 

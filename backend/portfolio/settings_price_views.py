@@ -6,6 +6,8 @@ from investments.models import Asset
 
 from portfolio.services.holding_engine import HoldingCalculationEngine
 
+from users.permissions import get_visible_owner_ids
+
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -13,13 +15,15 @@ def settings_price_list(request):
     """
     GET /api/settings/prices/
 
-    Lists the authenticated user's assets with their current
-    effective price, clearly distinguishing an automatic quote
-    from a manual override (per-user, consistent with how assets
-    are owned elsewhere in PWMS).
+    Lists the assets the authenticated user can currently see -
+    their own, plus any fellow member's within their active
+    family (the same family-shared visibility used by Dashboard/
+    Portfolio/Analytics; System Owner sees every asset) - with
+    each one's current effective price, clearly distinguishing an
+    automatic quote from a manual override.
 
     Viewers can see this (view-only); editing still requires
-    Admin/Super User and goes through the existing
+    Admin/Super User/System Owner and goes through the existing
     `PUT/PATCH /api/portfolio/assets/<id>/manual-price/` endpoint,
     also exposed at `/api/settings/prices/<id>/` for the same
     view function.
@@ -27,7 +31,7 @@ def settings_price_list(request):
 
     assets = (
         Asset.objects
-        .filter(owner=request.user, is_active=True)
+        .filter(owner__in=get_visible_owner_ids(request.user), is_active=True)
         .order_by("name")
     )
 

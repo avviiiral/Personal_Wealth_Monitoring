@@ -105,6 +105,44 @@ DATABASES = {
 }
 
 
+# ==========================================================
+# SQLITE CONCURRENCY
+# ==========================================================
+#
+# By default SQLite uses a rollback journal, under which a writer
+# blocks every reader for the duration of its transaction (not
+# just other writers). PWMS has background threads (the market
+# price scheduler and the daily refresh job - see
+# market_data.services.daily_refresh_scheduler) that write to the
+# database while the app is also serving ordinary requests, so a
+# long-running background write (e.g. importing an AMFI NAV file)
+# can otherwise block simple GETs like the dashboard or login for
+# the whole duration, surfacing as "database is locked" errors
+# even with OPTIONS.timeout set above.
+#
+# WAL (write-ahead log) mode lets readers proceed concurrently
+# with a writer - only writer-vs-writer still serializes, and that
+# case is what OPTIONS.timeout above already covers by making
+# SQLite retry/wait rather than fail immediately. This is a
+# process-wide PRAGMA set on every new connection; it does not
+# change query results or existing data.
+from django.db.backends.signals import connection_created  # noqa: E402
+
+
+def _configure_sqlite_pragmas(sender, connection, **kwargs):
+    if connection.vendor != 'sqlite':
+        return
+
+    cursor = connection.cursor()
+    cursor.execute('PRAGMA journal_mode=WAL;')
+    cursor.execute('PRAGMA synchronous=NORMAL;')
+    cursor.execute('PRAGMA busy_timeout=30000;')
+    cursor.close()
+
+
+connection_created.connect(_configure_sqlite_pragmas)
+
+
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 

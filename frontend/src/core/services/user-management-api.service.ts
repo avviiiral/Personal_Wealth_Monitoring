@@ -3,7 +3,7 @@ import { HttpClient, HttpHeaders } from '@angular/common/http';
 
 import { Observable } from 'rxjs';
 
-import { PwmsRole } from './rbac.service';
+import { PwmsRole, FamilySummary } from './rbac.service';
 
 export interface ManagedUser {
   id: number;
@@ -16,7 +16,9 @@ export interface ManagedUser {
   is_active: boolean;
   last_login: string | null;
   date_joined: string;
-  family_group: { id: number; name: string } | null;
+  families: FamilySummary[];
+  active_family: FamilySummary | null;
+  created_by: string | null;
 }
 
 export interface CreateUserPayload {
@@ -28,7 +30,8 @@ export interface CreateUserPayload {
   confirm_password: string;
   role: PwmsRole;
   is_active?: boolean;
-  family_group_id?: number | null;
+  /** System Owner only - every other role must omit this entirely. */
+  family_ids?: number[];
 }
 
 export interface UpdateUserPayload {
@@ -38,7 +41,8 @@ export interface UpdateUserPayload {
   email?: string;
   role?: PwmsRole;
   is_active?: boolean;
-  family_group_id?: number | null;
+  /** System Owner only - every other role must omit this entirely. */
+  family_ids?: number[];
 }
 
 export interface FamilyGroupMember {

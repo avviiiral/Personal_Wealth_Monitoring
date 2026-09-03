@@ -2,7 +2,7 @@ import { ChangeDetectorRef, Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
-import { RbacService } from '../../../core/services/rbac.service';
+import { RbacService, ROLE_LABELS } from '../../../core/services/rbac.service';
 import { ToastService } from '../../../core/services/toast.service';
 
 import {
@@ -27,11 +27,13 @@ type ModalMode = 'add' | 'edit' | null;
 export class UserManagementComponent implements OnInit {
   private readonly api = inject(UserManagementApiService);
 
-  private readonly rbac = inject(RbacService);
+  readonly rbac = inject(RbacService);
 
   private readonly toast = inject(ToastService);
 
   private readonly cdr = inject(ChangeDetectorRef);
+
+  readonly roleLabels = ROLE_LABELS;
 
   users: ManagedUser[] = [];
 
@@ -39,7 +41,10 @@ export class UserManagementComponent implements OnInit {
 
   error = '';
 
-  groups: FamilyGroup[] = [];
+  // Only populated (and only rendered) for a System Owner, who is
+  // the only role allowed to see/assign family membership from
+  // this screen - see users.permissions matrix.
+  families: FamilyGroup[] = [];
 
   // --------------------------------------------------------
   // MODAL STATE
@@ -62,7 +67,7 @@ export class UserManagementComponent implements OnInit {
     is_active: boolean;
     password: string;
     confirm_password: string;
-    family_group_id: number | null;
+    family_ids: number[];
   } = this.emptyForm();
 
   // --------------------------------------------------------
@@ -89,23 +94,40 @@ export class UserManagementComponent implements OnInit {
 
   ngOnInit(): void {
     this.loadUsers();
-    this.loadGroups();
+
+    if (this.rbac.canManageFamilies()) {
+      this.loadFamilies();
+    }
   }
 
   // ==========================================================
   // PERMISSIONS (display only - backend is authoritative)
   // ==========================================================
 
-  canAssignSuperUser(): boolean {
-    return this.rbac.canAssignSuperUser();
+  canManageFamilies(): boolean {
+    return this.rbac.canManageFamilies();
   }
 
   currentUserId(): number | null {
     return this.rbac.currentUser()?.id ?? null;
   }
 
+  /** Roles the modal's Role dropdown should offer. */
   assignableRoles(): PwmsRole[] {
-    return this.canAssignSuperUser() ? ['VIEWER', 'ADMIN', 'SUPERUSER'] : ['VIEWER', 'ADMIN'];
+    return this.rbac.assignableRoles();
+  }
+
+  /** Whether the Role field should appear at all in the Edit modal. */
+  canShowRoleField(): boolean {
+    if (this.modalMode === 'add') {
+      return true;
+    }
+
+    // Editing: only a Super User/System Owner can actually change
+    // a role, and never their own (self-role-change is always
+    // rejected server-side) - hide the control entirely rather
+    // than show a disabled one.
+    return this.rbac.canChangeRoles() && this.editingUserId !== this.currentUserId();
   }
 
   // ==========================================================
@@ -136,19 +158,28 @@ export class UserManagementComponent implements OnInit {
     });
   }
 
-  loadGroups(): void {
+  loadFamilies(): void {
     this.api.listGroups().subscribe({
-      next: (groups) => {
-        this.groups = groups;
+      next: (families) => {
+        this.families = families;
 
         this.cdr.detectChanges();
       },
 
       error: () => {
-        // Non-fatal: the Add/Edit User group dropdown simply shows
-        // no options if this fails; the user list itself still works.
+        // Non-fatal: the Add/Edit User family checklist simply
+        // shows no options if this fails; the user list itself
+        // still works.
       },
     });
+  }
+
+  familyNames(user: ManagedUser): string {
+    if (!user.families || user.families.length === 0) {
+      return '-';
+    }
+
+    return user.families.map((f) => f.name).join(', ');
   }
 
   // ==========================================================
@@ -160,6 +191,10 @@ export class UserManagementComponent implements OnInit {
     this.editingUserId = null;
     this.formErrors = {};
     this.form = this.emptyForm();
+
+    if (this.assignableRoles().length > 0) {
+      this.form.role = this.assignableRoles()[0];
+    }
   }
 
   openEditUser(user: ManagedUser): void {
@@ -175,7 +210,7 @@ export class UserManagementComponent implements OnInit {
       is_active: user.is_active,
       password: '',
       confirm_password: '',
-      family_group_id: user.family_group?.id ?? null,
+      family_ids: user.families.map((f) => f.id),
     };
   }
 
@@ -184,6 +219,20 @@ export class UserManagementComponent implements OnInit {
     this.editingUserId = null;
     this.formErrors = {};
     this.saving = false;
+  }
+
+  toggleFamilySelection(familyId: number): void {
+    const index = this.form.family_ids.indexOf(familyId);
+
+    if (index === -1) {
+      this.form.family_ids = [...this.form.family_ids, familyId];
+    } else {
+      this.form.family_ids = this.form.family_ids.filter((id) => id !== familyId);
+    }
+  }
+
+  isFamilySelected(familyId: number): boolean {
+    return this.form.family_ids.includes(familyId);
   }
 
   submitForm(): void {
@@ -230,8 +279,15 @@ export class UserManagementComponent implements OnInit {
       confirm_password: this.form.confirm_password,
       role: this.form.role,
       is_active: this.form.is_active,
-      family_group_id: this.form.family_group_id,
     };
+
+    // Family assignment is a System Owner-only action - every
+    // other role must omit the field entirely rather than send an
+    // empty array (the backend rejects the field outright if a
+    // non-System-Owner sends it, even empty).
+    if (this.rbac.canManageFamilies()) {
+      payload.family_ids = this.form.family_ids;
+    }
 
     this.saving = true;
 
@@ -273,14 +329,22 @@ export class UserManagementComponent implements OnInit {
       email: this.form.email.trim(),
     };
 
+    const isSelfEdit = userId === this.currentUserId();
+
     // Only send role/is_active if this user is allowed to manage
-    // them - avoids the backend rejecting a self-edit for
-    // attempting to touch fields a Viewer editing themselves isn't
-    // allowed to send. Admin/Super User always sends both.
-    if (this.rbac.canManageUsers()) {
-      payload.role = this.form.role;
+    // them, and never for a self-edit - avoids the backend
+    // rejecting the request for attempting to touch fields nobody
+    // may change on their own account.
+    if (this.rbac.canManageUsers() && !isSelfEdit) {
       payload.is_active = this.form.is_active;
-      payload.family_group_id = this.form.family_group_id;
+
+      if (this.canShowRoleField()) {
+        payload.role = this.form.role;
+      }
+    }
+
+    if (this.rbac.canManageFamilies()) {
+      payload.family_ids = this.form.family_ids;
     }
 
     this.saving = true;
@@ -433,147 +497,6 @@ export class UserManagementComponent implements OnInit {
   }
 
   // ==========================================================
-  // FAMILY GROUPS PANEL
-  // ==========================================================
-
-  showGroupPanel = false;
-
-  newGroupName = '';
-
-  creatingGroup = false;
-
-  renamingGroupId: number | null = null;
-
-  renameGroupText = '';
-
-  addMemberSelection: Record<number, number | null> = {};
-
-  toggleGroupPanel(): void {
-    this.showGroupPanel = !this.showGroupPanel;
-  }
-
-  usersNotInGroup(group: FamilyGroup): ManagedUser[] {
-    const memberIds = new Set(group.members.map((m) => m.id));
-
-    return this.users.filter((u) => !memberIds.has(u.id));
-  }
-
-  createGroup(): void {
-    const name = this.newGroupName.trim();
-
-    if (!name || this.creatingGroup) {
-      return;
-    }
-
-    this.creatingGroup = true;
-
-    this.api.createGroup(name).subscribe({
-      next: () => {
-        this.creatingGroup = false;
-        this.newGroupName = '';
-
-        this.toast.success(`Group "${name}" created.`);
-
-        this.loadGroups();
-      },
-
-      error: (err) => {
-        this.creatingGroup = false;
-
-        this.toast.error(this.extractError(err) || 'Unable to create group.');
-
-        this.cdr.detectChanges();
-      },
-    });
-  }
-
-  startRenameGroup(group: FamilyGroup): void {
-    this.renamingGroupId = group.id;
-    this.renameGroupText = group.name;
-  }
-
-  cancelRenameGroup(): void {
-    this.renamingGroupId = null;
-    this.renameGroupText = '';
-  }
-
-  saveRenameGroup(group: FamilyGroup): void {
-    const name = this.renameGroupText.trim();
-
-    if (!name) {
-      return;
-    }
-
-    this.api.renameGroup(group.id, name).subscribe({
-      next: () => {
-        this.cancelRenameGroup();
-        this.loadGroups();
-      },
-
-      error: (err) => {
-        this.toast.error(this.extractError(err) || 'Unable to rename group.');
-      },
-    });
-  }
-
-  deleteGroup(group: FamilyGroup): void {
-    const confirmed = window.confirm(
-      `Delete group "${group.name}"? Members will no longer share data - their own accounts and data are untouched.`,
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
-    this.api.deleteGroup(group.id).subscribe({
-      next: () => {
-        this.toast.success(`Group "${group.name}" deleted.`);
-
-        this.loadGroups();
-        this.loadUsers();
-      },
-
-      error: (err) => {
-        this.toast.error(this.extractError(err) || 'Unable to delete group.');
-      },
-    });
-  }
-
-  addMember(group: FamilyGroup): void {
-    const userId = this.addMemberSelection[group.id];
-
-    if (!userId) {
-      return;
-    }
-
-    this.api.addGroupMember(group.id, userId).subscribe({
-      next: () => {
-        this.addMemberSelection[group.id] = null;
-
-        this.loadGroups();
-        this.loadUsers();
-      },
-
-      error: (err) => {
-        this.toast.error(this.extractError(err) || 'Unable to add member.');
-      },
-    });
-  }
-
-  removeMember(group: FamilyGroup, userId: number): void {
-    this.api.removeGroupMember(group.id, userId).subscribe({
-      next: () => {
-        this.loadGroups();
-        this.loadUsers();
-      },
-
-      error: (err) => {
-        this.toast.error(this.extractError(err) || 'Unable to remove member.');
-      },
-    });
-  }
-
-  // ==========================================================
   // HELPERS
   // ==========================================================
 
@@ -587,7 +510,7 @@ export class UserManagementComponent implements OnInit {
       is_active: true,
       password: '',
       confirm_password: '',
-      family_group_id: null as number | null,
+      family_ids: [] as number[],
     };
   }
 

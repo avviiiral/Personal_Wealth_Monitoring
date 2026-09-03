@@ -5,6 +5,7 @@ import { Router, RouterLink } from '@angular/router';
 import { Subscription, interval } from 'rxjs';
 
 import { AuthService } from '../../../core/services/auth.service';
+import { RbacService, ROLE_LABELS, FamilySummary } from '../../../core/services/rbac.service';
 import { AiChatApiService } from '../../../core/services/ai-chat-api.service';
 import {
   NewsApiService,
@@ -26,10 +27,13 @@ interface ChatMessage {
 })
 export class HeaderComponent implements OnInit, OnDestroy {
   private readonly authService = inject(AuthService);
+  readonly rbac = inject(RbacService);
   private readonly aiChatApi = inject(AiChatApiService);
   private readonly newsApi = inject(NewsApiService);
   private readonly browserNotifications = inject(BrowserNotificationService);
   private readonly router = inject(Router);
+
+  readonly roleLabels = ROLE_LABELS;
 
   private pollSubscription?: Subscription;
 
@@ -67,6 +71,43 @@ export class HeaderComponent implements OnInit, OnDestroy {
 
   get currentUser() {
     return this.authService.currentUser;
+  }
+
+  /*
+   * --------------------------------------------------
+   * FAMILY SWITCHER (only shown when the user belongs to more
+   * than one family - see rbac.hasMultipleFamilies()). Switching
+   * changes which family's Dashboard/Portfolio/Analytics/Mutual
+   * Fund data the user sees; it is never a membership change,
+   * and every role may do it for their own families.
+   * --------------------------------------------------
+   */
+
+  switchingFamily = false;
+
+  switchFamily(family: FamilySummary): void {
+    if (this.switchingFamily || family.id === this.rbac.activeFamily()?.id) {
+      this.profileMenuOpen = false;
+      return;
+    }
+
+    this.switchingFamily = true;
+
+    this.rbac.setActiveFamily(family.id).subscribe({
+      next: () => {
+        // Every data screen (Dashboard/Portfolio/Analytics/Mutual
+        // Funds) fetches its own data on init from the backend,
+        // which now scopes to the newly-selected family - a full
+        // reload is the simplest way to guarantee every already-
+        // loaded screen reflects the new scope immediately.
+        window.location.reload();
+      },
+
+      error: () => {
+        this.switchingFamily = false;
+        this.profileMenuOpen = false;
+      },
+    });
   }
 
   /*

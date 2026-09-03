@@ -1,6 +1,8 @@
 from datetime import date
 from decimal import Decimal
 
+from dateutil.relativedelta import relativedelta
+
 from django.contrib.auth.models import User
 from django.test import TestCase
 
@@ -36,15 +38,31 @@ class SIPEngineTests(TestCase):
             is_active=True,
         )
 
+        # Anchored to the first of the CURRENT month, computed at
+        # test-run time, rather than a fixed calendar date. These
+        # tests used to hardcode dates around "today is
+        # 2026-08-12", which silently broke the moment the real
+        # clock moved past the dates baked into the fixtures.
+        # Anchoring on day=1 specifically sidesteps relativedelta's
+        # month-length clamping (e.g. Mar 31 minus a month lands on
+        # Feb 28, not "Mar 3") ever affecting these comparisons.
+        self.anchor = date.today().replace(day=1)
+
     def create_sip(
         self,
-        start_date=date(2026, 1, 1),
-        next_installment_date=date(2026, 7, 1),
+        start_date=None,
+        next_installment_date=None,
         frequency=SIPFrequency.MONTHLY,
         amount=Decimal("5000.00"),
         end_date=None,
         is_active=True,
     ):
+        if start_date is None:
+            start_date = self.anchor - relativedelta(months=6)
+
+        if next_installment_date is None:
+            next_installment_date = self.anchor - relativedelta(months=1)
+
         return SIP.objects.create(
             owner=self.user,
             scheme=self.scheme,
@@ -58,6 +76,11 @@ class SIPEngineTests(TestCase):
 
     # --------------------------------------------------
     # calculate_next_date
+    #
+    # A pure function of its two arguments - no dependency on
+    # "today", so fixed calendar dates here are fine and
+    # intentional (they're just exercising month/quarter/year
+    # rollover arithmetic).
     # --------------------------------------------------
 
     def test_calculate_next_date_weekly(self):
@@ -117,20 +140,20 @@ class SIPEngineTests(TestCase):
 
     def test_due_count_counts_overdue_installments(self):
         """
-        Today is 2026-08-12.
+        Relative to "the first of this month" (self.anchor):
 
-        Starting from 2026-07-01 with a monthly SIP:
+            anchor - 1 month -> due
+            anchor            -> due
+            anchor + 1 month  -> future
 
-            2026-07-01 -> due
-            2026-08-01 -> due
-            2026-09-01 -> future
-
-        Therefore the due count must be 2.
+        Therefore the due count must be 2, regardless of which
+        real-world month or day-of-month the test happens to run
+        on.
         """
 
         sip = self.create_sip(
-            start_date=date(2026, 1, 1),
-            next_installment_date=date(2026, 7, 1),
+            start_date=self.anchor - relativedelta(months=6),
+            next_installment_date=self.anchor - relativedelta(months=1),
             frequency=SIPFrequency.MONTHLY,
         )
 
@@ -152,9 +175,11 @@ class SIPEngineTests(TestCase):
         )
 
     def test_due_count_zero_before_start_date(self):
+        future_date = self.anchor + relativedelta(months=1)
+
         sip = self.create_sip(
-            start_date=date(2026, 9, 1),
-            next_installment_date=date(2026, 9, 1),
+            start_date=future_date,
+            next_installment_date=future_date,
         )
 
         self.assertEqual(
@@ -164,10 +189,10 @@ class SIPEngineTests(TestCase):
 
     def test_due_count_respects_end_date(self):
         sip = self.create_sip(
-            start_date=date(2026, 1, 1),
-            next_installment_date=date(2026, 7, 1),
+            start_date=self.anchor - relativedelta(months=6),
+            next_installment_date=self.anchor - relativedelta(months=1),
             frequency=SIPFrequency.MONTHLY,
-            end_date=date(2026, 7, 31),
+            end_date=self.anchor - relativedelta(days=1),
         )
 
         self.assertEqual(
@@ -181,7 +206,7 @@ class SIPEngineTests(TestCase):
 
     def test_is_due_returns_true_when_installment_is_due(self):
         sip = self.create_sip(
-            next_installment_date=date(2026, 7, 1),
+            next_installment_date=self.anchor - relativedelta(months=1),
         )
 
         self.assertTrue(
@@ -190,7 +215,7 @@ class SIPEngineTests(TestCase):
 
     def test_is_due_returns_false_when_installment_is_not_due(self):
         sip = self.create_sip(
-            next_installment_date=date(2026, 9, 1),
+            next_installment_date=self.anchor + relativedelta(months=1),
         )
 
         self.assertFalse(
@@ -203,7 +228,7 @@ class SIPEngineTests(TestCase):
 
     def test_get_due_sips_returns_only_due_active_sips(self):
         due_sip = self.create_sip(
-            next_installment_date=date(2026, 7, 1),
+            next_installment_date=self.anchor - relativedelta(months=1),
         )
 
         future_sip = SIP.objects.create(
@@ -211,8 +236,8 @@ class SIPEngineTests(TestCase):
             scheme=self.scheme,
             amount=Decimal("3000.00"),
             frequency=SIPFrequency.MONTHLY,
-            start_date=date(2026, 1, 1),
-            next_installment_date=date(2026, 9, 1),
+            start_date=self.anchor - relativedelta(months=6),
+            next_installment_date=self.anchor + relativedelta(months=1),
             is_active=True,
         )
 
@@ -221,8 +246,8 @@ class SIPEngineTests(TestCase):
             scheme=self.scheme,
             amount=Decimal("2000.00"),
             frequency=SIPFrequency.MONTHLY,
-            start_date=date(2026, 1, 1),
-            next_installment_date=date(2026, 7, 1),
+            start_date=self.anchor - relativedelta(months=6),
+            next_installment_date=self.anchor - relativedelta(months=1),
             is_active=False,
         )
 
@@ -251,7 +276,7 @@ class SIPEngineTests(TestCase):
 
     def test_sip_status_due(self):
         sip = self.create_sip(
-            next_installment_date=date(2026, 7, 1),
+            next_installment_date=self.anchor - relativedelta(months=1),
         )
 
         result = SIPEngine.get_sip_status(
@@ -269,9 +294,11 @@ class SIPEngineTests(TestCase):
         )
 
     def test_sip_status_upcoming(self):
+        future_date = self.anchor + relativedelta(months=1)
+
         sip = self.create_sip(
-            start_date=date(2026, 9, 1),
-            next_installment_date=date(2026, 9, 1),
+            start_date=future_date,
+            next_installment_date=future_date,
         )
 
         result = SIPEngine.get_sip_status(
@@ -309,9 +336,9 @@ class SIPEngineTests(TestCase):
 
     def test_sip_status_completed(self):
         sip = self.create_sip(
-            start_date=date(2026, 1, 1),
-            next_installment_date=date(2026, 7, 1),
-            end_date=date(2026, 7, 31),
+            start_date=self.anchor - relativedelta(months=6),
+            next_installment_date=self.anchor - relativedelta(months=1),
+            end_date=self.anchor - relativedelta(days=1),
         )
 
         result = SIPEngine.get_sip_status(
@@ -340,7 +367,7 @@ class SIPEngineTests(TestCase):
 
     def test_execute_sip_rejects_non_due_sip(self):
         sip = self.create_sip(
-            next_installment_date=date(2026, 9, 1),
+            next_installment_date=self.anchor + relativedelta(months=1),
         )
 
         with self.assertRaisesMessage(
@@ -348,3 +375,87 @@ class SIPEngineTests(TestCase):
             "SIP installment is not due.",
         ):
             SIPEngine.execute_sip(sip)
+
+# ==================================================================
+# AMFI NAV IMPORT - BATCHED COMMITS
+# ==================================================================
+#
+# Regression coverage for importing NAV records in bounded-size
+# batches (see services.amfi.AMFIService.NAV_IMPORT_BATCH_SIZE)
+# instead of one single transaction spanning the whole AMFI file
+# (which, for a full ~14,000-scheme file, could hold SQLite's
+# write lock long enough to surface as "database is locked" errors
+# on unrelated concurrent requests).
+
+from unittest.mock import patch
+
+from mutual_funds.services.amfi import AMFIService
+
+
+class AMFINavImportBatchingTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="amfi_batch_test",
+            password="test-password",
+        )
+
+    def _make_records(self, count):
+        return [
+            {
+                "scheme_code": f"SC{i:04d}",
+                "scheme_name": f"Test Scheme {i}",
+                "isin_growth": "",
+                "isin_dividend": "",
+                "date": date(2026, 1, 1),
+                "nav": Decimal("10.00") + i,
+            }
+            for i in range(count)
+        ]
+
+    def test_import_records_across_multiple_batches(self):
+        # Small batch size so a modest record count still exercises
+        # more than one batch/transaction.
+        with patch.object(AMFIService, "NAV_IMPORT_BATCH_SIZE", 3):
+            result = AMFIService._import_records(
+                self.user,
+                self._make_records(7),
+            )
+
+        self.assertEqual(result["schemes"], 7)
+        self.assertEqual(result["nav_records"], 7)
+
+        self.assertEqual(
+            MutualFundScheme.objects.filter(
+                owner=self.user
+            ).count(),
+            7,
+        )
+
+    def test_import_records_is_idempotent(self):
+        records = self._make_records(5)
+
+        with patch.object(AMFIService, "NAV_IMPORT_BATCH_SIZE", 2):
+            AMFIService._import_records(self.user, records)
+            result = AMFIService._import_records(self.user, records)
+
+        # Re-importing the same records updates rather than
+        # duplicates them.
+        self.assertEqual(result["schemes"], 5)
+        self.assertEqual(
+            MutualFundScheme.objects.filter(
+                owner=self.user
+            ).count(),
+            5,
+        )
+        self.assertEqual(
+            MutualFundNAV.objects.filter(
+                scheme__owner=self.user
+            ).count(),
+            5,
+        )
+
+    def test_import_records_empty_list(self):
+        result = AMFIService._import_records(self.user, [])
+
+        self.assertEqual(result["schemes"], 0)
+        self.assertEqual(result["nav_records"], 0)

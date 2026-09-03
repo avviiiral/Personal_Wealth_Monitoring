@@ -249,3 +249,225 @@ class SecurityMasterServiceTests(TestCase):
             transaction.source,
             TransactionSource.EXCEL,
         )
+
+# ==================================================================
+# TRANSACTION IMPORT - EXCEL WORKBOOK SHAPES
+# ==================================================================
+#
+# Regression coverage for the "Summary" sheet being treated as
+# required when it is actually optional supplementary data. A
+# workbook containing only a "Transactions" sheet (no "Summary"
+# sheet at all) must import successfully.
+
+import io
+
+import openpyxl
+
+from unittest.mock import patch
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+
+from .services.transaction_import import (
+    TransactionImporter,
+)
+
+
+def _build_transactions_workbook(include_summary):
+    """
+    Build a minimal, valid transaction-import .xlsx file in
+    memory, with or without a "Summary" sheet, for testing
+    TransactionImporter.import_file's sheet-reading behavior.
+    """
+
+    workbook = openpyxl.Workbook()
+
+    transactions_sheet = workbook.active
+    transactions_sheet.title = "Transactions"
+
+    transactions_sheet.append([
+        "Family Name",
+        "Asset Class",
+        "Sub Class",
+        "Asset Name",
+        "Underlying",
+        "Advisors",
+        "ISIN",
+        "Date",
+        "Trans. Type",
+        "Quantity",
+        "Price",
+        "Amount",
+    ])
+
+    transactions_sheet.append([
+        "Test Family",
+        "Equity",
+        "Direct Equity",
+        "Reliance Industries",
+        "Reliance Industries Ltd",
+        "DIRECT",
+        "INE002A01018",
+        "2026-07-16",
+        "Buy",
+        "100",
+        "1897.87",
+        "189787.00",
+    ])
+
+    if include_summary:
+        summary_sheet = workbook.create_sheet("Summary")
+
+        # Summary sheet header is on row 2 (row 1 is blank), see
+        # TransactionImporter._read_excel(header=1).
+        summary_sheet.append([None] * 6)
+
+        summary_sheet.append([
+            "Family Name",
+            "Portfolio Name",
+            "Asset Class",
+            "Advisors",
+            "Asset Name",
+            "ISIN",
+        ])
+
+        summary_sheet.append([
+            "Test Family",
+            "Direct Equity",
+            "Equity",
+            "DIRECT",
+            "Reliance Industries",
+            "INE002A01018",
+        ])
+
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    buffer.seek(0)
+
+    return SimpleUploadedFile(
+        "transactions.xlsx",
+        buffer.read(),
+        content_type=(
+            "application/vnd.openxmlformats-officedocument"
+            ".spreadsheetml.sheet"
+        ),
+    )
+
+
+class TransactionImportExcelShapeTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="import_shape_test",
+            password="test-password",
+        )
+
+    def test_import_succeeds_without_summary_sheet(self):
+        upload = _build_transactions_workbook(include_summary=False)
+
+        result = TransactionImporter.import_file(
+            file=upload,
+            owner=self.user,
+        )
+
+        self.assertEqual(result["imported_investments"], 1)
+
+        self.assertTrue(
+            Asset.objects.filter(
+                owner=self.user,
+                isin="INE002A01018",
+            ).exists()
+        )
+
+    def test_import_succeeds_with_summary_sheet(self):
+        upload = _build_transactions_workbook(include_summary=True)
+
+        result = TransactionImporter.import_file(
+            file=upload,
+            owner=self.user,
+        )
+
+        self.assertEqual(result["imported_investments"], 1)
+
+    def test_import_returns_touched_asset_ids(self):
+        upload = _build_transactions_workbook(include_summary=False)
+
+        result = TransactionImporter.import_file(
+            file=upload,
+            owner=self.user,
+        )
+
+        asset = Asset.objects.get(
+            owner=self.user,
+            isin="INE002A01018",
+        )
+
+        self.assertIn(asset.id, result["touched_asset_ids"])
+
+
+class AutoPriceRefreshTests(TestCase):
+    """
+    The post-import price refresh runs on a background thread (see
+    services.auto_price_refresh) so the import response never
+    blocks on external network calls. These tests call the
+    synchronous worker function directly to verify it fetches every
+    touched asset, without depending on real thread timing or
+    hitting any external market-data API.
+    """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="refresh_test",
+            password="test-password",
+        )
+
+        self.asset = Asset.objects.create(
+            owner=self.user,
+            name="Refresh Target",
+            category=AssetCategory.STOCK,
+            isin="INE000REFRESH1",
+        )
+
+    def test_refresh_assets_calls_fetch_and_rebuild_for_each_asset(self):
+        from .services.auto_price_refresh import _refresh_assets
+
+        with patch(
+            "market_data.services.market_data_manager."
+            "MarketDataManager.fetch_and_rebuild"
+        ) as mock_fetch:
+            mock_fetch.return_value = {"success": True}
+
+            _refresh_assets([self.asset.id])
+
+        mock_fetch.assert_called_once()
+        self.assertEqual(
+            mock_fetch.call_args[0][0].id,
+            self.asset.id,
+        )
+
+    def test_refresh_assets_does_not_raise_on_individual_failure(self):
+        from .services.auto_price_refresh import _refresh_assets
+
+        with patch(
+            "market_data.services.market_data_manager."
+            "MarketDataManager.fetch_and_rebuild"
+        ) as mock_fetch:
+            mock_fetch.side_effect = Exception("boom")
+
+            # Must not propagate - a failed refresh is logged, never
+            # raised, since the import itself already succeeded.
+            # assertLogs both captures the expected error log (so
+            # it doesn't spill into the test runner's console) and
+            # confirms the failure really was logged rather than
+            # silently swallowed.
+            with self.assertLogs(
+                "investments.services.auto_price_refresh",
+                level="ERROR",
+            ):
+                _refresh_assets([self.asset.id])
+
+    def test_refresh_assets_async_ignores_empty_input(self):
+        from .services.auto_price_refresh import refresh_assets_async
+
+        with patch("threading.Thread") as mock_thread:
+            refresh_assets_async([])
+
+        mock_thread.assert_not_called()

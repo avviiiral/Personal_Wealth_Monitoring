@@ -79,6 +79,16 @@
       <button
         type="button"
         class="tab-button"
+        *ngIf="canManageFamilies()"
+        [class.tab-active]="activeTab === 'families'"
+        (click)="setTab('families')"
+      >
+        Family Management
+      </button>
+
+      <button
+        type="button"
+        class="tab-button"
         *ngIf="canEditPrices()"
         [class.tab-active]="activeTab === 'prices'"
         (click)="setTab('prices')"
@@ -120,7 +130,35 @@
         <div class="form-field">
           <label> Role </label>
 
-          <input type="text" [value]="rbac.role() || '-'" disabled />
+          <input type="text" [value]="rbac.roleLabel()" disabled />
+        </div>
+
+        <div class="form-field">
+          <label> Families </label>
+
+          <input
+            type="text"
+            [value]="rbac.families().length ? familyNamesText() : 'None assigned'"
+            disabled
+          />
+
+          <span class="field-help" *ngIf="rbac.families().length === 0">
+            Only a System Owner can assign you to a family.
+          </span>
+        </div>
+
+        <div class="form-field" *ngIf="rbac.hasMultipleFamilies()">
+          <label> Currently Viewing </label>
+
+          <select [ngModel]="rbac.activeFamily()?.id" (ngModelChange)="onActiveFamilyChange($event)">
+            <option *ngFor="let family of rbac.families()" [ngValue]="family.id">
+              {{ family.name }}
+            </option>
+          </select>
+
+          <span class="field-help">
+            Dashboard, Portfolio, Analytics, and Mutual Funds show data for this family only.
+          </span>
         </div>
 
         <div class="form-field">
@@ -281,7 +319,7 @@
     </section>
 
     <!-- ================================================== -->
-    <!-- USER MANAGEMENT (Admin / Super User only) -->
+    <!-- USER MANAGEMENT (System Owner / Super User / Admin) -->
     <!-- ================================================== -->
 
     <section class="settings-card" *ngIf="activeTab === 'users' && canManageUsers()">
@@ -289,7 +327,15 @@
     </section>
 
     <!-- ================================================== -->
-    <!-- MANUAL PRICES (Admin / Super User only) -->
+    <!-- FAMILY MANAGEMENT (System Owner only) -->
+    <!-- ================================================== -->
+
+    <section class="settings-card" *ngIf="activeTab === 'families' && canManageFamilies()">
+      <app-family-management></app-family-management>
+    </section>
+
+    <!-- ================================================== -->
+    <!-- MANUAL PRICES (System Owner / Super User / Admin) -->
     <!-- ================================================== -->
 
     <section class="settings-card" *ngIf="activeTab === 'prices' && canEditPrices()">

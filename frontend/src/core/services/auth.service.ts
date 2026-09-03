@@ -3,13 +3,16 @@ import { HttpClient } from '@angular/common/http';
 
 import { Observable, BehaviorSubject, tap, catchError, of } from 'rxjs';
 
-import { RbacService } from './rbac.service';
+import { RbacService, CurrentUser } from './rbac.service';
 
-export interface AuthUser {
-  id: number;
-  username: string;
-  email: string;
-}
+/**
+ * The authenticated user's identity AND role/permission/family
+ * state, as returned by `/api/auth/login/` and `/api/auth/me/`.
+ * This is a superset of the old minimal `{id, username, email}`
+ * shape - see users.serializers.CurrentUserSerializer on the
+ * backend for the authoritative field list.
+ */
+export type AuthUser = CurrentUser;
 
 export interface LoginResponse {
   authenticated: boolean;
@@ -59,6 +62,10 @@ export class AuthService {
           this.userSubject.next(response.user);
 
           this.authenticationChecked = true;
+
+          if (response.user) {
+            this.rbacService.hydrate(response.user);
+          }
         }),
       );
   }
@@ -93,6 +100,10 @@ export class AuthService {
           this.userSubject.next(response.user);
 
           this.authenticationChecked = true;
+
+          if (response.user) {
+            this.rbacService.hydrate(response.user);
+          }
         }),
 
         catchError((error) => {

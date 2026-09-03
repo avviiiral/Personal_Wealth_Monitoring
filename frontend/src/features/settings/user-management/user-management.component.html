@@ -7,73 +7,8 @@
     </div>
 
     <div class="header-actions">
-      <button type="button" class="secondary-button" (click)="toggleGroupPanel()">
-        {{ showGroupPanel ? 'Hide' : 'Manage' }} Family Groups
-      </button>
-
       <button type="button" class="primary-button" (click)="openAddUser()">+ Add User</button>
     </div>
-  </div>
-
-  <!-- ================================================== -->
-  <!-- FAMILY GROUPS PANEL -->
-  <!-- ================================================== -->
-
-  <div class="groups-panel" *ngIf="showGroupPanel">
-    <div class="new-group-row">
-      <input
-        type="text"
-        placeholder="New group name (e.g. Sharma Family)"
-        [(ngModel)]="newGroupName"
-      />
-      <button
-        type="button"
-        class="secondary-button"
-        (click)="createGroup()"
-        [disabled]="creatingGroup || !newGroupName.trim()"
-      >
-        + Create Group
-      </button>
-    </div>
-
-    <div class="group-card" *ngFor="let group of groups">
-      <div class="group-card-header">
-        <ng-container *ngIf="renamingGroupId !== group.id">
-          <strong>{{ group.name }}</strong>
-          <button type="button" class="link-button" (click)="startRenameGroup(group)">Rename</button>
-          <button type="button" class="link-button danger-link" (click)="deleteGroup(group)">
-            Delete
-          </button>
-        </ng-container>
-
-        <ng-container *ngIf="renamingGroupId === group.id">
-          <input type="text" [(ngModel)]="renameGroupText" class="rename-input" />
-          <button type="button" class="link-button" (click)="saveRenameGroup(group)">Save</button>
-          <button type="button" class="link-button" (click)="cancelRenameGroup()">Cancel</button>
-        </ng-container>
-      </div>
-
-      <div class="member-chips">
-        <span class="member-chip" *ngFor="let member of group.members">
-          {{ member.username }} ({{ member.role }})
-          <button type="button" (click)="removeMember(group, member.id)">×</button>
-        </span>
-
-        <span class="no-members" *ngIf="group.members.length === 0">No members yet.</span>
-      </div>
-
-      <div class="add-member-row" *ngIf="usersNotInGroup(group).length > 0">
-        <select [(ngModel)]="addMemberSelection[group.id]">
-          <option [ngValue]="null">Add a member...</option>
-          <option *ngFor="let user of usersNotInGroup(group)" [ngValue]="user.id">
-            {{ user.username }} ({{ user.role }})
-          </option>
-        </select>
-        <button type="button" class="link-button" (click)="addMember(group)">Add</button>
-      </div>
-    </div>
-
-    <p class="no-members" *ngIf="groups.length === 0">No family groups yet.</p>
   </div>
 
   <div class="loading-row" *ngIf="loading">
@@ -94,7 +29,7 @@
           <th>Username</th>
           <th>Role</th>
           <th>Status</th>
-          <th>Family Group</th>
+          <th>Families</th>
           <th>Last Login</th>
           <th>Created</th>
           <th>Actions</th>
@@ -108,7 +43,7 @@
           <td>{{ user.username }}</td>
           <td>
             <span class="role-badge" [class]="'role-' + user.role.toLowerCase()">
-              {{ user.role }}
+              {{ roleLabels[user.role] }}
             </span>
           </td>
           <td>
@@ -116,7 +51,7 @@
               {{ user.status }}
             </span>
           </td>
-          <td>{{ user.family_group ? user.family_group.name : '-' }}</td>
+          <td>{{ familyNames(user) }}</td>
           <td>{{ formatDate(user.last_login) }}</td>
           <td>{{ formatDate(user.date_joined) }}</td>
           <td class="actions-cell">
@@ -207,33 +142,46 @@
             </span>
           </div>
 
-          <div class="form-field">
+          <div class="form-field" *ngIf="canShowRoleField()">
             <label>Role</label>
             <select [(ngModel)]="form.role">
               <option *ngFor="let role of assignableRoles()" [ngValue]="role">
-                {{ role }}
+                {{ roleLabels[role] }}
               </option>
             </select>
-            <span class="field-help" *ngIf="!canAssignSuperUser()">
-              Only a Super User can assign the Super User role.
-            </span>
             <span class="field-error" *ngIf="formErrors['role']">{{ formErrors['role'] }}</span>
           </div>
 
-          <div class="form-field">
-            <label>Family Group</label>
-            <select [(ngModel)]="form.family_group_id">
-              <option [ngValue]="null">No group (private)</option>
-              <option *ngFor="let group of groups" [ngValue]="group.id">
-                {{ group.name }}
-              </option>
-            </select>
-            <span class="field-help">
-              Members of the same group can view each other's portfolio data.
-            </span>
+          <div class="form-field" *ngIf="modalMode === 'edit' && !canShowRoleField()">
+            <label>Role</label>
+            <input type="text" [value]="roleLabels[form.role]" disabled />
           </div>
 
-          <div class="form-field checkbox-field">
+          <!-- Family assignment: System Owner only. Every other -->
+          <!-- role never even sees this control. -->
+          <div class="form-field family-select-field" *ngIf="canManageFamilies()">
+            <label>Families</label>
+            <div class="family-checklist">
+              <label class="family-checkbox-row" *ngFor="let family of families">
+                <input
+                  type="checkbox"
+                  [checked]="isFamilySelected(family.id)"
+                  (change)="toggleFamilySelection(family.id)"
+                />
+                {{ family.name }}
+              </label>
+
+              <p class="no-members" *ngIf="families.length === 0">
+                No families exist yet - create one in Family Management first.
+              </p>
+            </div>
+            <span class="field-help">
+              A user may belong to more than one family at the same time.
+            </span>
+            <span class="field-error" *ngIf="formErrors['family_ids']">{{ formErrors['family_ids'] }}</span>
+          </div>
+
+          <div class="form-field checkbox-field" *ngIf="modalMode === 'add' || editingUserId !== currentUserId()">
             <label>
               <input type="checkbox" [(ngModel)]="form.is_active" />
               Active

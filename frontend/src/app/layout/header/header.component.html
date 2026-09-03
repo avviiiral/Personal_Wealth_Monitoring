@@ -57,7 +57,7 @@
             {{ currentUser?.username || 'Aviral' }}
           </span>
 
-          <span class="user-role"> Investor </span>
+          <span class="user-role"> {{ rbac.roleLabel() }} </span>
         </div>
 
         <span class="dropdown-arrow">
@@ -84,6 +84,25 @@
         </div>
 
         <div class="menu-divider"></div>
+
+        <!-- FAMILY SWITCHER (only when the user has more than one family) -->
+        <ng-container *ngIf="rbac.hasMultipleFamilies()">
+          <div class="menu-section-label">Viewing family</div>
+
+          <button
+            type="button"
+            class="profile-menu-item family-menu-item"
+            *ngFor="let family of rbac.families()"
+            [class.family-menu-item-active]="family.id === rbac.activeFamily()?.id"
+            [disabled]="switchingFamily"
+            (click)="switchFamily(family)"
+          >
+            <span class="menu-item-icon">{{ family.id === rbac.activeFamily()?.id ? '●' : '○' }}</span>
+            <span>{{ family.name }}</span>
+          </button>
+
+          <div class="menu-divider"></div>
+        </ng-container>
 
         <!-- SETTINGS -->
         <button type="button" class="profile-menu-item" (click)="openSettings()">
