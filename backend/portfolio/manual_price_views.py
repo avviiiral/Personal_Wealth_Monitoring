@@ -27,7 +27,10 @@ from portfolio.services.portfolio_position_engine import (
     PortfolioPositionEngine,
 )
 
-from users.permissions import IsAdminOrSuperUser
+from users.permissions import (
+    IsAdminOrSuperUser,
+    get_visible_owner_ids,
+)
 
 
 @api_view(["PUT", "PATCH", "DELETE"])
@@ -46,6 +49,15 @@ def manual_asset_price(
 
     This is intended for assets where automatic
     market data is unavailable or unreliable.
+
+    An asset's underlying data is still stored against the user
+    who originally created it (Asset.owner), but editability here
+    follows the same family-shared visibility as everywhere else
+    in PWMS (Dashboard/Portfolio/Analytics) - any Admin/Super
+    User/System Owner who can SEE an asset (their own, or a
+    fellow family member's, per their currently active family)
+    can also edit its price. Role still gates WHO can edit at
+    all; family membership gates WHICH assets.
     """
 
     # ==========================================================
@@ -57,7 +69,7 @@ def manual_asset_price(
             Asset.objects
             .get(
                 id=asset_id,
-                owner=request.user,
+                owner__in=get_visible_owner_ids(request.user),
                 is_active=True,
             )
         )
@@ -96,7 +108,12 @@ def manual_asset_price(
             )
 
             PortfolioPositionEngine.rebuild_all_for_user(
-                request.user
+                # The actual data owner, not the editor - Transaction
+                # rows (and therefore positions) are keyed by
+                # Asset.owner, which may differ from request.user
+                # now that a family member can edit another
+                # member's asset.
+                asset.owner
             )
 
         return Response(
@@ -281,7 +298,9 @@ def manual_asset_price(
         # ======================================================
 
         PortfolioPositionEngine.rebuild_all_for_user(
-            request.user
+            # See the matching comment in the DELETE branch above -
+            # must be the asset's actual owner, not request.user.
+            asset.owner
         )
 
     # ==========================================================

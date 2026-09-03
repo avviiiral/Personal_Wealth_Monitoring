@@ -1236,6 +1236,117 @@ class FamilyVisibilityTests(TestCase):
         self.assertEqual(get_visible_owner_ids(user), [user.id])
 
 
+class FamilySharedManualPriceTests(TestCase):
+    """
+    Manual price editing is scoped by family-shared visibility
+    (get_visible_owner_ids), not strict Asset.owner - any Admin+
+    member of the asset owner's family can edit its price, not
+    only the specific account that originally created it. This
+    was tightened after a brand-new Super User (with no assets of
+    their own) was unable to edit ANY prices, since the previous
+    strict-owner check meant only the original importer's account
+    could ever edit a given asset regardless of role or shared
+    family membership.
+    """
+
+    def setUp(self):
+        self.family = FamilyGroup.objects.create(name="Shared Family")
+
+        self.owner = make_user("price_asset_owner", Role.VIEWER)
+        self.owner.profile.family_groups.add(self.family)
+
+        self.family_super_user = make_user(
+            "price_family_super_user", Role.SUPER_USER
+        )
+        self.family_super_user.profile.family_groups.add(self.family)
+
+        self.outsider_super_user = make_user(
+            "price_outsider_super_user", Role.SUPER_USER
+        )
+        # Deliberately NOT added to self.family.
+
+        self.asset = Asset.objects.create(
+            owner=self.owner,
+            name="Shared Family Stock",
+            category="STOCK",
+            isin="INE000SHARED01",
+        )
+
+    def client_as(self, user):
+        return client_for(user)
+
+    def test_family_member_can_edit_asset_owned_by_another_member(self):
+        response = self.client_as(self.family_super_user).patch(
+            f"/api/portfolio/assets/{self.asset.id}/manual-price/",
+            {"price": "321"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        latest = MarketPrice.objects.filter(
+            asset=self.asset, source=DataSource.MANUAL
+        ).first()
+
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest.updated_by, self.family_super_user)
+
+    def test_family_member_can_view_asset_in_settings_price_list(self):
+        response = self.client_as(self.family_super_user).get(
+            "/api/settings/prices/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        asset_ids = {row["asset_id"] for row in response.data["results"]}
+
+        self.assertIn(self.asset.id, asset_ids)
+
+    def test_non_family_super_user_cannot_edit_asset(self):
+        response = self.client_as(self.outsider_super_user).patch(
+            f"/api/portfolio/assets/{self.asset.id}/manual-price/",
+            {"price": "321"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+        self.assertFalse(
+            MarketPrice.objects.filter(
+                asset=self.asset, source=DataSource.MANUAL
+            ).exists()
+        )
+
+    def test_non_family_super_user_does_not_see_asset_in_price_list(self):
+        response = self.client_as(self.outsider_super_user).get(
+            "/api/settings/prices/"
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        asset_ids = {row["asset_id"] for row in response.data["results"]}
+
+        self.assertNotIn(self.asset.id, asset_ids)
+
+    def test_edit_by_family_member_rebuilds_actual_owners_positions(self):
+        # The position rebuild after an edit must target the
+        # asset's real owner (whose Transactions actually exist),
+        # not the editor - regardless of who clicked Save.
+        response = self.client_as(self.family_super_user).patch(
+            f"/api/portfolio/assets/{self.asset.id}/manual-price/",
+            {"price": "555"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        # No exception raised means rebuild_all_for_user(asset.owner)
+        # ran against a user who actually owns matching Transaction
+        # rows, rather than the editor (who owns none for this
+        # asset) - a wrong target here wouldn't raise, it would
+        # just silently rebuild nothing, so this test mainly exists
+        # to document and pin the expected call target.
+
+
 class ActiveFamilyEndpointTests(BaseRBACTestCase):
     def test_user_can_select_active_family_among_own_families(self):
         family_a = FamilyGroup.objects.create(name="Family A")

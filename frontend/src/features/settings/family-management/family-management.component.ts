@@ -98,7 +98,12 @@ export class FamilyManagementComponent implements OnInit {
   createFamily(): void {
     const name = this.newFamilyName.trim();
 
-    if (!name || this.creatingFamily) {
+    if (this.creatingFamily) {
+      return;
+    }
+
+    if (!name) {
+      this.toast.error('Please enter a family name.');
       return;
     }
 

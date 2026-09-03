@@ -17,9 +17,9 @@
       type="button"
       class="primary-button"
       (click)="createFamily()"
-      [disabled]="creatingFamily || !newFamilyName.trim()"
+      [disabled]="creatingFamily"
     >
-      + Create Family
+      {{ creatingFamily ? 'Creating...' : '+ Create Family' }}
     </button>
   </div>
 

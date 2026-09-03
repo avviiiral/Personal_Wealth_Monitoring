@@ -16,6 +16,10 @@ from .services.security_master import (
     SecurityMasterService,
 )
 
+from .services.auto_price_refresh import (
+    refresh_assets_async,
+)
+
 from users.permissions import get_visible_owner_ids
 
 
@@ -86,6 +90,13 @@ def import_transactions(request):
             },
             status=500,
         )
+
+    # Kick off an immediate price refresh for every asset this
+    # import touched, on a background thread - see
+    # services.auto_price_refresh. The import itself already
+    # committed, so this can never affect the response below or
+    # the (already-saved) transactions/assets.
+    refresh_assets_async(result.get("touched_asset_ids", []))
 
     return Response(
         {

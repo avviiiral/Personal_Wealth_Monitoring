@@ -214,6 +214,21 @@ class TransactionImporter:
                 header=0,
             )
 
+        except Exception as exc:
+            raise TransactionImportError(
+                "Unable to read the Excel workbook. "
+                "Expected a sheet named 'Transactions'."
+            ) from exc
+
+        # The "Summary" sheet is optional supplementary data (used
+        # only to fill in Portfolio Name when present - see
+        # _resolve_portfolio_from_summary). A workbook containing
+        # only a Transactions sheet is perfectly valid and must
+        # still import; only fail the whole import if the required
+        # Transactions sheet itself could not be read.
+        summary = None
+
+        try:
             file.seek(0)
 
             summary = pd.read_excel(
@@ -222,11 +237,8 @@ class TransactionImporter:
                 header=1,
             )
 
-        except Exception as exc:
-            raise TransactionImportError(
-                "Unable to read the Excel workbook. "
-                "Expected sheets: Summary and Transactions."
-            ) from exc
+        except Exception:
+            summary = None
 
         return transactions, summary
 
@@ -1067,6 +1079,7 @@ class TransactionImporter:
 
         seen_source_keys = set()
         seen_mutual_fund_keys = set()
+        touched_asset_ids = set()
 
         for parsed in rows:
             source_key = parsed["source_key"]
@@ -1191,6 +1204,8 @@ class TransactionImporter:
                 sub_class=parsed["sub_class"],
             )
 
+            touched_asset_ids.add(asset.id)
+
             mapped_transaction_type = (
                 INVESTMENT_TRANSACTION_MAP.get(
                     parsed["transaction_type"]
@@ -1235,4 +1250,10 @@ class TransactionImporter:
                 imported_investments
                 + imported_mutual_funds
             ),
+            # Every investment-side Asset this import created or
+            # matched (new or pre-existing) - used to trigger an
+            # immediate price refresh right after import instead of
+            # waiting for the next scheduled run. See
+            # investments.services.auto_price_refresh.
+            "touched_asset_ids": list(touched_asset_ids),
         }

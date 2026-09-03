@@ -328,19 +328,70 @@ class AMFIService:
 
         return records
 
+    # Each batch commits as its own short transaction rather than
+    # one giant transaction spanning the entire import (which can
+    # be 14,000+ scheme/NAV upserts for a full AMFI file). A single
+    # multi-minute transaction holds SQLite's write lock the whole
+    # time, causing unrelated concurrent requests (login, dashboard
+    # reads, user management) to fail with "database is locked"
+    # even with a generous busy-timeout configured. Committing in
+    # batches bounds the lock-hold time to a fraction of a second
+    # per batch, letting other connections interleave, while each
+    # batch is still atomic (no partial-batch corruption on error).
+    NAV_IMPORT_BATCH_SIZE = 500
+
     @staticmethod
     def _import_records(
         owner,
         records,
     ):
         """
-        Import parsed NAV records.
+        Import parsed NAV records in short, bounded-size
+        transactions (see NAV_IMPORT_BATCH_SIZE) instead of one
+        transaction for the whole file.
 
         Existing schemes are updated.
         Existing NAV records are updated rather
         than duplicated.
         """
 
+        scheme_count = 0
+        nav_count = 0
+
+        batch = []
+
+        for record in records:
+            batch.append(record)
+
+            if len(batch) >= AMFIService.NAV_IMPORT_BATCH_SIZE:
+                batch_schemes, batch_navs = (
+                    AMFIService._import_batch(owner, batch)
+                )
+
+                scheme_count += batch_schemes
+                nav_count += batch_navs
+
+                batch = []
+
+        if batch:
+            batch_schemes, batch_navs = (
+                AMFIService._import_batch(owner, batch)
+            )
+
+            scheme_count += batch_schemes
+            nav_count += batch_navs
+
+        return {
+            "schemes": scheme_count,
+            "nav_records": nav_count,
+        }
+
+    @staticmethod
+    @transaction.atomic
+    def _import_batch(
+        owner,
+        records,
+    ):
         scheme_count = 0
         nav_count = 0
 
@@ -388,13 +439,9 @@ class AMFIService:
 
             nav_count += 1
 
-        return {
-            "schemes": scheme_count,
-            "nav_records": nav_count,
-        }
+        return scheme_count, nav_count
 
     @staticmethod
-    @transaction.atomic
     def import_latest_navs(owner):
         """
         Download the latest AMFI NAV file and import
@@ -420,7 +467,6 @@ class AMFIService:
         )
 
     @staticmethod
-    @transaction.atomic
     def import_historical_navs(
         owner,
         from_date,
