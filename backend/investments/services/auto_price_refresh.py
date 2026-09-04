@@ -47,8 +47,14 @@ def _refresh_assets(asset_ids):
     # market_data, and portfolio already reference each other's
     # models/services elsewhere in the app).
     from investments.models import Asset
+    from investments.services.security_master import (
+        SecurityMasterService,
+    )
     from market_data.services.market_data_manager import (
         MarketDataManager,
+    )
+    from market_data.services.yahoo_quant_enrichment import (
+        enrich_quant_fields,
     )
 
     # New thread, new DB connection - and since this thread outlives
@@ -73,6 +79,26 @@ def _refresh_assets(asset_ids):
                 logger.exception(
                     "[POST-IMPORT REFRESH] Failed for asset "
                     "%s (%s)",
+                    asset.id,
+                    asset.name,
+                )
+
+            try:
+                security = (
+                    SecurityMasterService
+                    .get_for_asset(
+                        owner=asset.owner,
+                        asset=asset,
+                    )
+                )
+
+                if security is not None:
+                    enrich_quant_fields(asset, security)
+
+            except Exception:
+                logger.exception(
+                    "[POST-IMPORT REFRESH] Quant enrichment "
+                    "failed for asset %s (%s)",
                     asset.id,
                     asset.name,
                 )
