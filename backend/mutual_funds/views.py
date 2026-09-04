@@ -12,14 +12,23 @@ from rest_framework.decorators import (
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from investments.models import (
+    Asset,
+    AssetCategory,
+    Holding,
+)
+
 from mutual_funds.models import (
     MutualFundHolding,
     MutualFundTransaction,
     MutualFundScheme,
+    MutualFundUnderlyingHolding,
     SIP,
     SIPInstallment,
     SIPInstallmentStatus,
 )
+
+from mutual_funds.services.lookthrough_engine import LookThroughEngine
 
 from .serializers import (
     MutualFundHoldingSerializer,
@@ -619,4 +628,179 @@ def csrf_token(request):
 
     return Response({
         "detail": "CSRF cookie set."
+    })
+
+
+# ==========================================================
+# MUTUAL FUND UNDERLYING HOLDINGS / LOOK-THROUGH (Phase 5)
+# ==========================================================
+#
+# Read-only, family-scoped the same way as every other view in
+# this file (owner_id__in=get_visible_owner_ids). Neither endpoint
+# writes anything - see mutual_funds/services/lookthrough_engine.py
+# for why: this is a derive-on-read analytics layer over Phase
+# 2/3's snapshot data, not a new source of truth.
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def mutual_fund_scheme_holdings(request, scheme_id):
+    """
+    The fund's own disclosed portfolio (latest snapshot) - what
+    the FUND owns, as disclosed. No user-value multiplication here;
+    see mutual_fund_scheme_lookthrough for the user's actual
+    indirect exposure.
+
+    scheme_id is an investments.Asset id (category=MUTUAL_FUND),
+    not a mutual_funds.MutualFundScheme id - see the docstring on
+    MutualFundPortfolioSnapshot for why.
+    """
+
+    asset = (
+        Asset.objects
+        .filter(
+            id=scheme_id,
+            category=AssetCategory.MUTUAL_FUND,
+            owner_id__in=get_visible_owner_ids(request.user),
+        )
+        .first()
+    )
+
+    if asset is None:
+        return Response(
+            {"detail": "Not found."},
+            status=404,
+        )
+
+    snapshot = LookThroughEngine.get_latest_snapshot(scheme_id)
+
+    if snapshot is None:
+        return Response({
+            "scheme": asset.name,
+            "portfolio_date": None,
+            "source": None,
+            "count": 0,
+            "results": [],
+        })
+
+    holdings = (
+        MutualFundUnderlyingHolding.objects
+        .filter(portfolio_snapshot=snapshot)
+        .select_related("security")
+        .order_by("-holding_percentage")
+    )
+
+    results = [
+        {
+            "security": (
+                holding.security.asset_name
+                if holding.security
+                else holding.security_name
+            ),
+            "isin": holding.isin,
+            "asset_type": holding.asset_type,
+            "holding_percentage": holding.holding_percentage,
+            "holding_value": holding.holding_value,
+            "quantity": holding.quantity,
+        }
+        for holding in holdings
+    ]
+
+    return Response({
+        "scheme": asset.name,
+        "portfolio_date": snapshot.portfolio_date,
+        "source": snapshot.source,
+        "count": len(results),
+        "results": results,
+    })
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def mutual_fund_scheme_lookthrough(request, scheme_id):
+    """
+    This user's (family-visible) indirect exposure to every
+    security disclosed in the fund's latest portfolio snapshot -
+    fund_value x holding_percentage per security. See
+    LookThroughEngine.compute_fund_lookthrough.
+
+    scheme_id is an investments.Asset id (category=MUTUAL_FUND).
+    """
+
+    holding = (
+        Holding.objects
+        .filter(
+            asset_id=scheme_id,
+            asset__category=AssetCategory.MUTUAL_FUND,
+            owner_id__in=get_visible_owner_ids(request.user),
+        )
+        .select_related("asset")
+        .first()
+    )
+
+    if holding is None:
+        return Response(
+            {"detail": "Not found."},
+            status=404,
+        )
+
+    result = LookThroughEngine.compute_fund_lookthrough(holding)
+
+    results = [
+        {
+            "security": row["security_name"],
+            "isin": row["isin"],
+            "asset_type": row["asset_type"],
+            "holding_percentage": row["holding_percentage"],
+            "indirect_exposure": row["indirect_exposure"],
+        }
+        for row in result["underlying"]
+    ]
+
+    return Response({
+        "scheme": result["scheme_name"],
+        "fund_value": result["fund_value"],
+        "portfolio_date": result["portfolio_date"],
+        "source": result["source"],
+        "count": len(results),
+        "results": results,
+    })
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def mutual_fund_assets(request):
+    """
+    List of the user's (family-visible) mutual fund holdings, for
+    the frontend fund picker - investments.Holding/Asset, NOT
+    mutual_funds.MutualFundHolding (see module-level notes above).
+    Deliberately separate from portfolio_holdings
+    (portfolio/views.py), which excludes MUTUAL_FUND category
+    on purpose for its own (direct-holdings-only) use case.
+    """
+
+    holdings = (
+        Holding.objects
+        .filter(
+            owner_id__in=get_visible_owner_ids(request.user),
+            asset__category=AssetCategory.MUTUAL_FUND,
+            asset__is_active=True,
+        )
+        .select_related("asset")
+        .order_by("-current_value")
+    )
+
+    results = [
+        {
+            "id": holding.asset_id,
+            "scheme_name": holding.asset.name,
+            "isin": holding.asset.isin,
+            "current_value": holding.current_value,
+        }
+        for holding in holdings
+    ]
+
+    return Response({
+        "count": len(results),
+        "results": results,
     })

@@ -76,6 +76,21 @@ class MutualFundScheme(models.Model):
     class Meta:
         ordering = ["scheme_name"]
 
+        constraints = [
+            # scheme_code is nullable (a scheme can be created
+            # without a known AMFI code via transaction_import.py)
+            # - SQLite/Postgres both treat NULL as distinct in a
+            # unique index by default, so this only actually
+            # enforces uniqueness once scheme_code is set, which
+            # is exactly what's needed here. Required for
+            # bulk_create(update_conflicts=True) below to have a
+            # real conflict target to upsert against.
+            models.UniqueConstraint(
+                fields=["owner", "scheme_code"],
+                name="unique_mf_scheme_owner_code",
+            ),
+        ]
+
     def __str__(self):
         return self.scheme_name
 
@@ -492,4 +507,234 @@ class SIPInstallment(models.Model):
             f"{self.sip.scheme.scheme_name} - "
             f"{self.scheduled_date} - "
             f"{self.status}"
+        )
+
+
+# ==================================================================
+# MUTUAL FUND UNDERLYING HOLDINGS / LOOK-THROUGH EXPOSURE
+# ==================================================================
+#
+# Analytics-only, read-derived layer. Nothing here participates in
+# unit/NAV/cost-basis/XIRR calculations - those stay entirely
+# owned by MutualFundTransaction / MutualFundHolding above. A
+# snapshot is a dated, sourced disclosure of what a scheme held on
+# one date; it is never mutated once created (see the uniqueness
+# constraint below) so historical disclosures remain queryable
+# exactly as published, the same way MutualFundNAV keeps every
+# dated NAV row rather than overwriting the latest one.
+
+
+class PortfolioSnapshotSource(models.TextChoices):
+    AMFI = "AMFI", "AMFI"
+    AMC = "AMC", "AMC"
+    OTHER = "OTHER", "Other"
+
+
+class UnderlyingAssetType(models.TextChoices):
+    """
+    Deliberately not equity-only - a fund's disclosed portfolio
+    routinely includes cash, government securities, and (for
+    hybrid/debt funds) corporate debt, so the model must represent
+    those from day one even though the initial dashboard
+    prioritises equity. See PWMS — Add Mutual Fund Underlying
+    Holdings spec, "SECURITY / ISIN RESOLUTION".
+    """
+
+    EQUITY = "EQUITY", "Equity"
+    DEBT = "DEBT", "Debt"
+    GOVERNMENT_SECURITY = "GOVERNMENT_SECURITY", "Government Security"
+    CASH = "CASH", "Cash / Cash Equivalent"
+    REIT_INVIT = "REIT_INVIT", "REIT / InvIT"
+    ETF = "ETF", "ETF"
+    OTHER = "OTHER", "Other"
+
+
+class MutualFundPortfolioSnapshot(models.Model):
+    """
+    A mutual fund's disclosed portfolio composition as of one
+    portfolio_date, from one source. Immutable once created - a
+    new disclosure for the same asset/date/source is a data
+    ingestion no-op (see mutual_fund_holdings.py, Phase 3), not an
+    update to this row, so historical snapshots are never
+    silently altered.
+
+    Points at investments.Asset (category=MUTUAL_FUND), NOT
+    mutual_funds.MutualFundScheme. This app's own
+    MutualFundScheme/MutualFundHolding models represent a SEPARATE
+    entry pipeline (dedicated MF transaction entry via
+    mutual_fund_transaction_create) - many PWMS deployments instead
+    enter mutual funds through the general Excel/CSV transaction
+    importer, which creates ordinary investments.Asset /
+    investments.Holding rows with category=MUTUAL_FUND and never
+    touches MutualFundScheme at all. This feature has to work
+    against whichever pipeline a given deployment actually uses,
+    so it targets Asset - the table both pipelines have in common
+    for anything the user actually owns.
+    """
+
+    asset = models.ForeignKey(
+        "investments.Asset",
+        on_delete=models.CASCADE,
+        related_name="mutual_fund_portfolio_snapshots",
+    )
+
+    if TYPE_CHECKING:
+        asset_id: int
+
+    portfolio_date = models.DateField(
+        help_text=(
+            "The date the disclosed portfolio is as of - not "
+            "when PWMS fetched/parsed it (see fetched_at)."
+        ),
+    )
+
+    source = models.CharField(
+        max_length=10,
+        choices=PortfolioSnapshotSource.choices,
+    )
+
+    source_reference = models.CharField(
+        max_length=500,
+        blank=True,
+        null=True,
+        help_text=(
+            "File name, URL, or other pointer to the disclosure "
+            "document this snapshot was parsed from."
+        ),
+    )
+
+    fetched_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When PWMS ingested this snapshot (not portfolio_date).",
+    )
+
+    class Meta:
+        ordering = ["-portfolio_date"]
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=["asset", "portfolio_date", "source"],
+                name="unique_mf_portfolio_snapshot",
+            )
+        ]
+
+        indexes = [
+            models.Index(
+                fields=["asset", "-portfolio_date"],
+            ),
+            models.Index(
+                fields=["portfolio_date"],
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.asset.name} - "
+            f"{self.portfolio_date} - "
+            f"{self.source}"
+        )
+
+
+class MutualFundUnderlyingHolding(models.Model):
+    """
+    One underlying security inside a MutualFundPortfolioSnapshot.
+
+    security is nullable and independent of isin/security_name
+    being populated: the raw disclosed name/ISIN is always kept
+    even when resolution into investments.SecurityMaster fails
+    (unlisted debt, an ISIN format PWMS doesn't recognise, cash
+    lines with no ISIN at all) - ingestion must not drop a
+    holding just because it couldn't be resolved. See
+    investments.services.security_master.SecurityMasterService,
+    reused here rather than duplicated.
+    """
+
+    portfolio_snapshot = models.ForeignKey(
+        MutualFundPortfolioSnapshot,
+        on_delete=models.CASCADE,
+        related_name="holdings",
+    )
+
+    if TYPE_CHECKING:
+        portfolio_snapshot_id: int
+
+    security = models.ForeignKey(
+        "investments.SecurityMaster",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="mutual_fund_underlying_holdings",
+    )
+
+    if TYPE_CHECKING:
+        security_id: int | None
+
+    security_name = models.CharField(
+        max_length=300,
+        help_text="Name as disclosed by the source, kept regardless of resolution.",
+    )
+
+    isin = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        help_text="ISIN as disclosed by the source, kept even if unresolved.",
+    )
+
+    asset_type = models.CharField(
+        max_length=25,
+        choices=UnderlyingAssetType.choices,
+        default=UnderlyingAssetType.OTHER,
+    )
+
+    holding_percentage = models.DecimalField(
+        max_digits=8,
+        decimal_places=4,
+        help_text="Percent of the scheme's NAV, as disclosed.",
+    )
+
+    holding_value = models.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        blank=True,
+        null=True,
+        help_text=(
+            "Disclosed market/fair value of this position within the "
+            "scheme, in the scheme's currency. Null when the source "
+            "doesn't disclose it - never derived/estimated here."
+        ),
+    )
+
+    quantity = models.DecimalField(
+        max_digits=20,
+        decimal_places=4,
+        blank=True,
+        null=True,
+        help_text="Disclosed unit/share count, when the source provides it.",
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    class Meta:
+        ordering = ["-holding_percentage"]
+
+        indexes = [
+            models.Index(
+                fields=["portfolio_snapshot"],
+            ),
+            models.Index(
+                fields=["isin"],
+            ),
+            models.Index(
+                fields=["security"],
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.portfolio_snapshot.scheme.scheme_name} - "
+            f"{self.security_name} - "
+            f"{self.holding_percentage}%"
         )
