@@ -8,7 +8,6 @@ from .views import (
     portfolio_summary,
     portfolio_holdings,
     portfolio_tree,
-    portfolio_lookthrough_exposure,
 )
 
 from .manual_price_views import (
@@ -57,12 +56,6 @@ urlpatterns = [
         "tree/",
         portfolio_tree,
         name="portfolio-tree",
-    ),
-
-    path(
-        "lookthrough-exposure/",
-        portfolio_lookthrough_exposure,
-        name="portfolio-lookthrough-exposure",
     ),
 
     path(

@@ -24,10 +24,6 @@ from portfolio.services.holding_engine import (
     HoldingCalculationEngine,
 )
 
-from analytics.services.lookthrough_exposure import (
-    compute_direct_and_indirect_exposure,
-)
-
 from portfolio.services.portfolio_position_engine import (
     PortfolioPositionEngine,
 )
@@ -483,69 +479,3 @@ def portfolio_tree(request):
         },
         status=status.HTTP_200_OK,
     )
-
-
-# ==========================================================
-# LOOK-THROUGH EXPOSURE (Phase 5)
-# ==========================================================
-#
-# Aggregated direct + indirect (mutual-fund look-through) exposure
-# per security, across every fund/asset visible to the requesting
-# user's family. Read-only, derived on every request from Holding
-# and mutual_funds' snapshot data - see
-# analytics/services/lookthrough_exposure.py. Does not touch or
-# duplicate portfolio_tree/portfolio_holdings above.
-
-
-@api_view(["GET"])
-@permission_classes([IsAuthenticated])
-def portfolio_lookthrough_exposure(request):
-
-    security_id_param = request.query_params.get("security_id")
-
-    security_id = None
-
-    if security_id_param:
-
-        try:
-            security_id = int(security_id_param)
-
-        except ValueError:
-            return Response(
-                {"detail": "security_id must be an integer."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-    rows = compute_direct_and_indirect_exposure(
-        get_visible_owner_ids(request.user),
-        security_id=security_id,
-    )
-
-    results = [
-        {
-            "security_id": row["security_id"],
-            "security": row["security_name"],
-            "isin": row["isin"],
-            "asset_type": row["asset_type"],
-            "direct_exposure": row["direct_exposure"],
-            "indirect_exposure": row["total_indirect_exposure"],
-            "total_economic_exposure": row["total_economic_exposure"],
-            "by_fund": [
-                {
-                    "scheme": entry["scheme_name"],
-                    "fund_value": entry["fund_value"],
-                    "holding_percentage": entry["holding_percentage"],
-                    "indirect_exposure": entry["indirect_exposure"],
-                    "portfolio_date": entry["portfolio_date"],
-                    "source": entry["source"],
-                }
-                for entry in row["by_fund"]
-            ],
-        }
-        for row in rows
-    ]
-
-    return Response({
-        "count": len(results),
-        "results": results,
-    })

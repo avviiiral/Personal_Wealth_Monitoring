@@ -8,9 +8,6 @@ from .views import (
     mutual_fund_transactions,
     mutual_fund_schemes,
     mutual_fund_transaction_create,
-    mutual_fund_scheme_holdings,
-    mutual_fund_scheme_lookthrough,
-    mutual_fund_assets,
 
     sip_due,
     sip_execute,
@@ -95,28 +92,6 @@ urlpatterns = [
         "transactions/create/",
         mutual_fund_transaction_create,
         name="mutual-fund-transaction-create",
-    ),
-
-    # ------------------------------------------------------
-    # Underlying Holdings / Look-Through (Phase 5)
-    # ------------------------------------------------------
-
-    path(
-        "<int:scheme_id>/holdings/",
-        mutual_fund_scheme_holdings,
-        name="mutual-fund-scheme-holdings",
-    ),
-
-    path(
-        "<int:scheme_id>/lookthrough/",
-        mutual_fund_scheme_lookthrough,
-        name="mutual-fund-scheme-lookthrough",
-    ),
-
-    path(
-        "lookthrough/assets/",
-        mutual_fund_assets,
-        name="mutual-fund-lookthrough-assets",
     ),
 
     # ------------------------------------------------------
