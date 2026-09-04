@@ -111,6 +111,33 @@ export interface ApiListResponse<T> {
   results: T[];
 }
 
+export interface MutualFundUnderlyingHoldingRow {
+  security: string;
+  isin: string | null;
+  asset_type: string;
+  holding_percentage: number;
+  holding_value?: number | null;
+  quantity?: number | null;
+  indirect_exposure?: number;
+}
+
+export interface MutualFundSchemeHoldingsResponse {
+  scheme: string;
+  portfolio_date: string | null;
+  source: string | null;
+  count: number;
+  results: MutualFundUnderlyingHoldingRow[];
+}
+
+export interface MutualFundSchemeLookthroughResponse {
+  scheme: string;
+  fund_value: number;
+  portfolio_date: string | null;
+  source: string | null;
+  count: number;
+  results: MutualFundUnderlyingHoldingRow[];
+}
+
 interface CsrfResponse {
   detail: string;
 }
@@ -190,6 +217,26 @@ export class MutualFundsApiService {
   getHoldings(): Observable<ApiListResponse<MutualFundHolding>> {
     return this.http.get<ApiListResponse<MutualFundHolding>>(
       `${this.baseUrl}/holdings/`,
+      this.requestOptions,
+    );
+  }
+
+  // ==========================================================
+  // UNDERLYING HOLDINGS / LOOK-THROUGH EXPOSURE
+  // ==========================================================
+
+  /** The scheme's own disclosed portfolio (latest snapshot) - no exposure math. */
+  getSchemeHoldings(schemeId: number): Observable<MutualFundSchemeHoldingsResponse> {
+    return this.http.get<MutualFundSchemeHoldingsResponse>(
+      `${this.baseUrl}/${schemeId}/holdings/`,
+      this.requestOptions,
+    );
+  }
+
+  /** This user's indirect exposure to each security disclosed in the scheme's latest snapshot. */
+  getSchemeLookthrough(schemeId: number): Observable<MutualFundSchemeLookthroughResponse> {
+    return this.http.get<MutualFundSchemeLookthroughResponse>(
+      `${this.baseUrl}/${schemeId}/lookthrough/`,
       this.requestOptions,
     );
   }

@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+import time
 
 import requests
 
@@ -340,6 +341,17 @@ class AMFIService:
     # batch is still atomic (no partial-batch corruption on error).
     NAV_IMPORT_BATCH_SIZE = 500
 
+    # Pause between batch transactions so the write lock is
+    # actually released for a moment before the next batch's
+    # BEGIN. Per-batch atomics alone don't guarantee a waiting
+    # connection (e.g. a manual-price PUT from another user) gets
+    # a turn - if this loop reacquires the lock immediately, a
+    # concurrent writer can lose the race on every retry within
+    # its own busy_timeout window. Combined with the bulk_create
+    # rewrite of _import_batch below, this keeps lock-hold time
+    # per batch to milliseconds instead of seconds.
+    NAV_IMPORT_BATCH_PAUSE_SECONDS = 0.1
+
     @staticmethod
     def _import_records(
         owner,
@@ -373,6 +385,11 @@ class AMFIService:
 
                 batch = []
 
+                time.sleep(
+                    AMFIService
+                    .NAV_IMPORT_BATCH_PAUSE_SECONDS
+                )
+
         if batch:
             batch_schemes, batch_navs = (
                 AMFIService._import_batch(owner, batch)
@@ -392,54 +409,132 @@ class AMFIService:
         owner,
         records,
     ):
-        scheme_count = 0
-        nav_count = 0
+        """
+        Two bulk_create(update_conflicts) calls instead of ~2 ORM
+        queries per record. Keeps each batch's write-lock hold
+        time to milliseconds instead of seconds - this is what was
+        starving concurrent writers (a manual-price PUT, another
+        user's edit) during a full AMFI import.
+
+        Field-preservation: a record that doesn't carry an
+        isin_growth/isin_dividend value (AMFI rows only ever
+        populate one of the two) must not blank out a value
+        already stored for that scheme, so existing values are
+        looked up first and only overwritten when the incoming
+        record actually has something.
+        """
+
+        scheme_codes = [
+            record["scheme_code"]
+            for record in records
+        ]
+
+        existing_schemes = {
+            scheme.scheme_code: scheme
+            for scheme in (
+                MutualFundScheme.objects
+                .filter(
+                    owner=owner,
+                    scheme_code__in=scheme_codes,
+                )
+            )
+        }
+
+        # Keyed by scheme_code so a scheme_code repeated within
+        # one batch naturally resolves to the last record's
+        # values, same as the sequential update_or_create loop
+        # this replaced - and so bulk_create never sees the same
+        # conflict target twice in one call, which SQLite/
+        # Postgres both reject.
+        schemes_by_code = {}
 
         for record in records:
 
-            defaults = {
-                "scheme_name": record[
-                    "scheme_name"
-                ],
-            }
+            scheme_code = record["scheme_code"]
+            existing = existing_schemes.get(scheme_code)
 
-            if record["isin_growth"]:
-
-                defaults["isin_growth"] = (
+            schemes_by_code[scheme_code] = MutualFundScheme(
+                owner=owner,
+                scheme_code=scheme_code,
+                scheme_name=record["scheme_name"],
+                isin_growth=(
                     record["isin_growth"]
-                )
-
-            if record["isin_dividend"]:
-
-                defaults["isin_dividend"] = (
+                    or (
+                        existing.isin_growth
+                        if existing
+                        else None
+                    )
+                ),
+                isin_dividend=(
                     record["isin_dividend"]
-                )
-
-            scheme, _ = (
-                MutualFundScheme.objects
-                .update_or_create(
-                    owner=owner,
-                    scheme_code=record[
-                        "scheme_code"
-                    ],
-                    defaults=defaults,
-                )
+                    or (
+                        existing.isin_dividend
+                        if existing
+                        else None
+                    )
+                ),
             )
 
-            scheme_count += 1
+        MutualFundScheme.objects.bulk_create(
+            list(schemes_by_code.values()),
+            update_conflicts=True,
+            unique_fields=["owner", "scheme_code"],
+            update_fields=[
+                "scheme_name",
+                "isin_growth",
+                "isin_dividend",
+            ],
+        )
 
-            MutualFundNAV.objects.update_or_create(
-                scheme=scheme,
+        # bulk_create(update_conflicts=True) does not reliably
+        # return primary keys for rows that hit the conflict path
+        # (only freshly inserted rows are guaranteed one back), so
+        # re-fetch scheme ids by code to build the NAV rows below
+        # against the right scheme_id.
+        scheme_ids_by_code = dict(
+            MutualFundScheme.objects
+            .filter(
+                owner=owner,
+                scheme_code__in=scheme_codes,
+            )
+            .values_list("scheme_code", "id")
+        )
+
+        navs_by_key = {}
+
+        for record in records:
+
+            scheme_id = scheme_ids_by_code.get(
+                record["scheme_code"]
+            )
+
+            if scheme_id is None:
+                # Should be unreachable - the scheme was just
+                # written above - but never fabricate a NAV row
+                # against a scheme that doesn't actually exist.
+                continue
+
+            nav_key = (scheme_id, record["date"])
+
+            navs_by_key[nav_key] = MutualFundNAV(
+                scheme_id=scheme_id,
                 date=record["date"],
                 source="AMFI",
-                defaults={
-                    "nav": record["nav"],
-                },
+                nav=record["nav"],
             )
 
-            nav_count += 1
+        MutualFundNAV.objects.bulk_create(
+            list(navs_by_key.values()),
+            update_conflicts=True,
+            unique_fields=["scheme", "date", "source"],
+            update_fields=["nav"],
+        )
 
-        return scheme_count, nav_count
+        # Counts records processed, matching the old loop's
+        # semantics (it incremented both counters once per record
+        # regardless of create vs. update) - not the number of
+        # distinct rows bulk_create actually wrote.
+        return len(records), len(records)
 
     @staticmethod
     def import_latest_navs(owner):

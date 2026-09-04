@@ -1,0 +1,91 @@
+<div class="lookthrough-page">
+  <div class="lookthrough-header">
+    <h1>Look-Through Exposure</h1>
+    <p>What your mutual funds actually hold, and your indirect exposure to each security.</p>
+  </div>
+
+  <!-- LOADING FUND LIST -->
+  <div *ngIf="loadingFunds" class="state-panel">Loading your mutual fund holdings...</div>
+
+  <!-- FUND LIST ERROR -->
+  <div *ngIf="!loadingFunds && fundsError" class="state-panel error">
+    {{ fundsError }}
+  </div>
+
+  <!-- NO FUNDS HELD -->
+  <div *ngIf="!loadingFunds && !fundsError && funds.length === 0" class="state-panel">
+    You don't hold any mutual funds yet. Once you do, this page will show what each fund
+    actually owns.
+  </div>
+
+  <ng-container *ngIf="!loadingFunds && !fundsError && funds.length > 0">
+    <!-- FUND PICKER -->
+    <div class="fund-picker">
+      <label for="fund-select">Mutual Fund</label>
+      <select
+        id="fund-select"
+        [ngModel]="selectedSchemeId"
+        (ngModelChange)="onFundChange($event)"
+        name="fund"
+      >
+        <option *ngFor="let fund of funds" [value]="fund.scheme">
+          {{ fund.scheme_name }}
+        </option>
+      </select>
+    </div>
+
+    <!-- LOADING LOOK-THROUGH -->
+    <div *ngIf="loadingLookthrough" class="state-panel">Loading underlying holdings...</div>
+
+    <!-- LOOK-THROUGH ERROR -->
+    <div *ngIf="!loadingLookthrough && lookthroughError" class="state-panel error">
+      {{ lookthroughError }}
+    </div>
+
+    <ng-container *ngIf="!loadingLookthrough && !lookthroughError && lookthrough">
+      <div class="fund-summary">
+        <div class="fund-summary-line">
+          <span class="fund-name">{{ lookthrough.scheme }}</span>
+          <span class="fund-value">Your Investment: {{ formatCurrency(lookthrough.fund_value) }}</span>
+        </div>
+
+        <span class="as-of-note" *ngIf="lookthrough.portfolio_date">
+          Portfolio data as of: {{ formatDate(lookthrough.portfolio_date) }}
+          <span *ngIf="lookthrough.source"> ({{ lookthrough.source }})</span>
+        </span>
+      </div>
+
+      <!-- NO DISCLOSED PORTFOLIO YET -->
+      <div *ngIf="lookthrough.count === 0" class="state-panel">
+        No portfolio disclosure has been synced for this fund yet, so indirect exposure can't be
+        calculated. This isn't an error with your holding - the underlying portfolio data just
+        hasn't been ingested yet.
+      </div>
+
+      <table *ngIf="lookthrough.count > 0" class="holdings-table">
+        <caption>Indirect Exposure</caption>
+
+        <thead>
+          <tr>
+            <th>Security</th>
+            <th>Type</th>
+            <th class="numeric">Weight</th>
+            <th class="numeric">Your Exposure</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          <tr *ngFor="let row of lookthrough.results; trackBy: trackByIsin">
+            <td>
+              <span class="security-name">{{ row.security }}</span>
+              <span class="security-isin" *ngIf="row.isin">{{ row.isin }}</span>
+            </td>
+            <td class="asset-type">{{ row.asset_type }}</td>
+            <td class="numeric">{{ formatPercentage(row.holding_percentage) }}</td>
+            <td class="numeric exposure">{{ formatCurrency(row.indirect_exposure) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </ng-container>
+  </ng-container>
+</div>

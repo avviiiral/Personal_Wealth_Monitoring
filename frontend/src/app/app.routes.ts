@@ -12,6 +12,7 @@ import { SettingsComponent } from '../features/settings/settings.component';
 import { AiChatComponent } from '../features/ai-chat/ai-chat.component';
 import { PortfolioNewsListComponent } from '../features/portfolio-news/portfolio-news-list.component';
 import { PortfolioNewsDetailComponent } from '../features/portfolio-news/portfolio-news-detail.component';
+import { LookthroughComponent } from '../features/lookthrough/lookthrough.component';
 
 import { PagePlaceholderComponent } from '../shared/components/page-placeholder.component';
 
@@ -82,6 +83,11 @@ export const routes: Routes = [
       {
         path: 'portfolio-news/:id',
         component: PortfolioNewsDetailComponent,
+      },
+
+      {
+        path: 'lookthrough',
+        component: LookthroughComponent,
       },
     ],
   },

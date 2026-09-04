@@ -99,7 +99,12 @@ DATABASES = {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
         'OPTIONS': {
-            'timeout': 30,
+            # Kept in sync with PRAGMA busy_timeout below - if a
+            # concurrent writer (e.g. fetch_amfi_nav, or another
+            # user's manual price edit) holds the write lock, other
+            # connections wait up to this long before raising
+            # "database is locked".
+            'timeout': 60,
         },
     }
 }
@@ -136,7 +141,7 @@ def _configure_sqlite_pragmas(sender, connection, **kwargs):
     cursor = connection.cursor()
     cursor.execute('PRAGMA journal_mode=WAL;')
     cursor.execute('PRAGMA synchronous=NORMAL;')
-    cursor.execute('PRAGMA busy_timeout=30000;')
+    cursor.execute('PRAGMA busy_timeout=60000;')
     cursor.close()
 
 
