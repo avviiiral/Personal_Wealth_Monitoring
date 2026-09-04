@@ -3,7 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { ChangeDetectorRef, Component, OnInit, inject } from '@angular/core';
 
 import {
-  MutualFundHolding,
+  MutualFundLookthroughAsset,
   MutualFundSchemeLookthroughResponse,
   MutualFundUnderlyingHoldingRow,
   MutualFundsApiService,
@@ -31,7 +31,7 @@ export class LookthroughComponent implements OnInit {
 
   loadingFunds = true;
   fundsError = '';
-  funds: MutualFundHolding[] = [];
+  funds: MutualFundLookthroughAsset[] = [];
 
   selectedSchemeId: number | null = null;
 
@@ -47,13 +47,13 @@ export class LookthroughComponent implements OnInit {
     this.loadingFunds = true;
     this.fundsError = '';
 
-    this.mutualFundsApi.getHoldings().subscribe({
+    this.mutualFundsApi.getLookthroughAssets().subscribe({
       next: (data) => {
         this.funds = data.results;
         this.loadingFunds = false;
 
         if (this.funds.length > 0) {
-          this.selectScheme(this.funds[0].scheme);
+          this.selectScheme(this.funds[0].id);
         }
 
         this.cdr.markForCheck();

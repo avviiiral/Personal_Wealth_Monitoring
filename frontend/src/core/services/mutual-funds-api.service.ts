@@ -129,6 +129,13 @@ export interface MutualFundSchemeHoldingsResponse {
   results: MutualFundUnderlyingHoldingRow[];
 }
 
+export interface MutualFundLookthroughAsset {
+  id: number;
+  scheme_name: string;
+  isin: string | null;
+  current_value: number;
+}
+
 export interface MutualFundSchemeLookthroughResponse {
   scheme: string;
   fund_value: number;
@@ -237,6 +244,19 @@ export class MutualFundsApiService {
   getSchemeLookthrough(schemeId: number): Observable<MutualFundSchemeLookthroughResponse> {
     return this.http.get<MutualFundSchemeLookthroughResponse>(
       `${this.baseUrl}/${schemeId}/lookthrough/`,
+      this.requestOptions,
+    );
+  }
+
+  /**
+   * The user's (family-visible) mutual fund holdings, for the
+   * look-through fund picker. Backed by investments.Asset/Holding
+   * (category=MUTUAL_FUND), not MutualFundHolding above - see
+   * mutual_funds/services/lookthrough_engine.py.
+   */
+  getLookthroughAssets(): Observable<ApiListResponse<MutualFundLookthroughAsset>> {
+    return this.http.get<ApiListResponse<MutualFundLookthroughAsset>>(
+      `${this.baseUrl}/lookthrough/assets/`,
       this.requestOptions,
     );
   }

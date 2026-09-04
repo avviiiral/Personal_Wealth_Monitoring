@@ -28,7 +28,7 @@
         (ngModelChange)="onFundChange($event)"
         name="fund"
       >
-        <option *ngFor="let fund of funds" [value]="fund.scheme">
+        <option *ngFor="let fund of funds" [value]="fund.id">
           {{ fund.scheme_name }}
         </option>
       </select>
