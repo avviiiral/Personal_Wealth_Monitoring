@@ -4,7 +4,6 @@ import time
 from datetime import datetime
 
 from django.db import close_old_connections
-from django.utils import timezone
 
 from investments.models import Asset
 from market_data.services.market_data_manager import (
@@ -41,15 +40,6 @@ class MarketPriceScheduler:
 
             thread.start()
 
-            print(
-                "[MARKET SCHEDULER] Started."
-            )
-
-            print(
-                "[MARKET SCHEDULER] "
-                "Price update interval: 15 minutes."
-            )
-
             logger.info(
                 "Market price scheduler started. "
                 "Update interval: 15 minutes."
@@ -67,23 +57,13 @@ class MarketPriceScheduler:
 
                 close_old_connections()
 
-                print(
-                    "\n"
-                    "[MARKET UPDATE] "
-                    f"{timezone.localtime().strftime('%Y-%m-%d %H:%M:%S')}"
-                )
-
                 cls.update_prices()
 
             except Exception as exc:
 
-                print(
-                    "[MARKET UPDATE] ERROR: "
-                    f"{exc}"
-                )
-
                 logger.exception(
-                    "Market price scheduler failed."
+                    "Market price scheduler failed: %s",
+                    exc,
                 )
 
             finally:
@@ -114,10 +94,9 @@ class MarketPriceScheduler:
 
         total_assets = assets.count()
 
-        print(
-            "[MARKET UPDATE] "
-            f"Found {total_assets} "
-            "STOCK/ETF/MUTUAL_FUND/BOND assets."
+        logger.info(
+            "Found %s STOCK/ETF/MUTUAL_FUND/BOND assets.",
+            total_assets,
         )
 
         updated = 0
@@ -141,12 +120,6 @@ class MarketPriceScheduler:
                     if result.get("skipped"):
 
                         skipped += 1
-
-                        print(
-                            "[MARKET UPDATE] "
-                            f"{asset.name}: SKIPPED - "
-                            f"{result.get('reason')}"
-                        )
 
                         logger.info(
                             "Market price skipped for %s: %s",
@@ -174,30 +147,18 @@ class MarketPriceScheduler:
                             "MARKET_DATA",
                         )
 
-                        print(
-                            "[MARKET UPDATE] "
-                            f"{asset.name}: UPDATED - "
-                            f"source={source}, "
-                            f"records={records}, "
-                            f"price={current_price}"
-                        )
-
                         logger.info(
                             "Market price updated for %s: "
-                            "%s records.",
+                            "source=%s, records=%s, price=%s",
                             asset.name,
+                            source,
                             records,
+                            current_price,
                         )
 
                 else:
 
                     failed += 1
-
-                    print(
-                        "[MARKET UPDATE] "
-                        f"{asset.name}: FAILED - "
-                        f"{result.get('error') or result.get('reason')}"
-                    )
 
                     logger.warning(
                         "Market price update failed for %s: %s",
@@ -210,20 +171,17 @@ class MarketPriceScheduler:
 
                 failed += 1
 
-                print(
-                    "[MARKET UPDATE] "
-                    f"{asset.name}: ERROR - {exc}"
-                )
-
                 logger.exception(
-                    "Unable to update market price for %s.",
+                    "Unable to update market price for %s: %s",
                     asset.name,
+                    exc,
                 )
 
-        print(
-            "[MARKET UPDATE] Completed - "
-            f"updated={updated}, "
-            f"skipped={skipped}, "
-            f"failed={failed}, "
-            f"records={total_records}"
+        logger.info(
+            "Market update completed - updated=%s, skipped=%s, "
+            "failed=%s, records=%s",
+            updated,
+            skipped,
+            failed,
+            total_records,
         )

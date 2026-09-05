@@ -4,6 +4,7 @@ import { HttpClient } from '@angular/common/http';
 import { Observable, BehaviorSubject, tap, catchError, of } from 'rxjs';
 
 import { RbacService, CurrentUser } from './rbac.service';
+import { environment } from '../../environments/environment';
 
 /**
  * The authenticated user's identity AND role/permission/family
@@ -27,7 +28,7 @@ export class AuthService {
 
   private readonly rbacService = inject(RbacService);
 
-  private readonly baseUrl = 'http://localhost:8000/api/auth';
+  private readonly baseUrl = `${environment.apiUrl}/api/auth`;
 
   private readonly authenticatedSubject = new BehaviorSubject<boolean>(false);
 

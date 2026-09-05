@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 
 import { Observable } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 @Injectable({
   providedIn: 'root',
@@ -12,16 +13,13 @@ export class WealthApiService {
   /*
    * IMPORTANT:
    *
-   * Frontend:
-   *     http://localhost:4200
-   *
-   * Backend:
-   *     http://localhost:8000
-   *
-   * Use localhost for both so the Django session cookie
+   * The backend URL comes from environment.apiUrl (see
+   * src/environments/environment.ts), not a hardcoded string here.
+   * In dev, that's http://localhost:8000 - keep the frontend on
+   * http://localhost:4200 too, so the Django session cookie
    * belongs to the same site.
    */
-  private readonly baseUrl = 'http://localhost:8000/api/analytics/wealth';
+  private readonly baseUrl = `${environment.apiUrl}/api/analytics/wealth`;
 
   getSummary(family?: string): Observable<any> {
     let params = new HttpParams();

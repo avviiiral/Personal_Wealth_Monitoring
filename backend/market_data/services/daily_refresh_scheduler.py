@@ -7,7 +7,6 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management import call_command
 from django.db import close_old_connections
-from django.utils import timezone
 
 
 logger = logging.getLogger(__name__)
@@ -68,14 +67,6 @@ class DailyRefreshScheduler:
 
             thread.start()
 
-            print("[DAILY REFRESH] Started.")
-
-            print(
-                "[DAILY REFRESH] Runs once per calendar day: "
-                "AMFI NAV, security master ratios, SIP sync/execute, "
-                "portfolio news."
-            )
-
             logger.info("Daily refresh scheduler started.")
 
     @classmethod
@@ -115,24 +106,18 @@ class DailyRefreshScheduler:
 
                     close_old_connections()
 
-                    print(
-                        "\n[DAILY REFRESH] "
-                        f"{timezone.localtime().strftime('%Y-%m-%d %H:%M:%S')}"
-                    )
-
                     call_command("run_scheduled_refresh")
 
                     cls._mark_ran_today()
-
-                    print("[DAILY REFRESH] Completed for today.")
 
                     logger.info("Daily refresh completed.")
 
             except Exception as exc:
 
-                print(f"[DAILY REFRESH] ERROR: {exc}")
-
-                logger.exception("Daily refresh scheduler failed.")
+                logger.exception(
+                    "Daily refresh scheduler failed: %s",
+                    exc,
+                )
 
             finally:
 

@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable, switchMap } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 export interface PortfolioSummary {
   total_invested: number;
@@ -182,9 +183,9 @@ export interface PortfolioTreeResponse {
 export class PortfolioApiService {
   private readonly http = inject(HttpClient);
 
-  private readonly baseUrl = 'http://localhost:8000/api/portfolio';
+  private readonly baseUrl = `${environment.apiUrl}/api/portfolio`;
 
-  private readonly csrfUrl = 'http://localhost:8000/api/health/';
+  private readonly csrfUrl = `${environment.apiUrl}/api/health/`;
 
   private readonly requestOptions = {
     withCredentials: true,

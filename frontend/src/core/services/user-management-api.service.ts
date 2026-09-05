@@ -4,6 +4,7 @@ import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
 import { PwmsRole, FamilySummary } from './rbac.service';
+import { environment } from '../../environments/environment';
 
 export interface ManagedUser {
   id: number;
@@ -72,7 +73,7 @@ export interface ApiErrorDetail {
 export class UserManagementApiService {
   private readonly http = inject(HttpClient);
 
-  private readonly baseUrl = 'http://localhost:8000/api/settings';
+  private readonly baseUrl = `${environment.apiUrl}/api/settings`;
 
   private readonly requestOptions = {
     withCredentials: true,

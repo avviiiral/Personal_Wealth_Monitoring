@@ -250,6 +250,78 @@ class SecurityMasterServiceTests(TestCase):
             TransactionSource.EXCEL,
         )
 
+    # ------------------------------------------------------------
+    # AMC name auto-derivation for mutual funds (structural, no
+    # external lookup or per-security research file - see
+    # services/amc_name_resolver.py)
+    # ------------------------------------------------------------
+
+    def test_get_or_create_derives_amc_name_for_mutual_fund(self):
+
+        fund_asset = Asset.objects.create(
+            owner=self.user,
+            name="Kotak Liquid - Growth - Direct",
+            category=AssetCategory.MUTUAL_FUND,
+            isin="INF174K01NE8",
+        )
+
+        security = SecurityMasterService.get_or_create(
+            owner=self.user,
+            asset=fund_asset,
+        )
+
+        self.assertEqual(security.amc_name, "Kotak Mahindra Mutual Fund")
+
+    def test_get_or_create_does_not_derive_amc_name_for_stock(self):
+
+        # self.asset (Reliance Industries) is a STOCK - amc_name
+        # must stay None, never guessed from the name.
+        security = SecurityMasterService.get_or_create(
+            owner=self.user,
+            asset=self.asset,
+        )
+
+        self.assertIsNone(security.amc_name)
+
+    def test_get_or_create_never_overwrites_existing_amc_name(self):
+
+        fund_asset = Asset.objects.create(
+            owner=self.user,
+            name="Kotak Liquid - Growth - Direct",
+            category=AssetCategory.MUTUAL_FUND,
+            isin="INF174K01NE8",
+        )
+
+        SecurityMaster.objects.create(
+            owner=self.user,
+            isin="INF174K01NE8",
+            asset_name="Kotak Liquid - Growth - Direct",
+            amc_name="Manually Corrected AMC Name",
+        )
+
+        security = SecurityMasterService.get_or_create(
+            owner=self.user,
+            asset=fund_asset,
+        )
+
+        self.assertEqual(security.amc_name, "Manually Corrected AMC Name")
+
+    def test_get_or_create_leaves_amc_name_null_for_unknown_fund_house(self):
+
+        fund_asset = Asset.objects.create(
+            owner=self.user,
+            name="Totally Unknown Fund House Scheme - Growth",
+            category=AssetCategory.MUTUAL_FUND,
+            isin="INFUNKNOWN0001",
+        )
+
+        security = SecurityMasterService.get_or_create(
+            owner=self.user,
+            asset=fund_asset,
+        )
+
+        self.assertIsNone(security.amc_name)
+
 # ==================================================================
 # TRANSACTION IMPORT - EXCEL WORKBOOK SHAPES
 # ==================================================================

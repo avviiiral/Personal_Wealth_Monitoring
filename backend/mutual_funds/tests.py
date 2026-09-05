@@ -7,6 +7,7 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 
 from mutual_funds.models import (
+    MutualFundHolding,
     MutualFundNAV,
     MutualFundScheme,
     MutualFundTransaction,

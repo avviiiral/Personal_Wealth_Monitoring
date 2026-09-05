@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 
 import { Observable } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 export interface SettingsProfile {
   id: number;
@@ -38,7 +39,7 @@ interface CsrfResponse {
 export class SettingsApiService {
   private readonly http = inject(HttpClient);
 
-  private readonly baseUrl = 'http://localhost:8000/api';
+  private readonly baseUrl = `${environment.apiUrl}/api`;
 
   private readonly requestOptions = {
     withCredentials: true,

@@ -76,6 +76,21 @@ class MutualFundScheme(models.Model):
     class Meta:
         ordering = ["scheme_name"]
 
+        constraints = [
+            # scheme_code is nullable (a scheme can be created
+            # without a known AMFI code via transaction_import.py)
+            # - SQLite/Postgres both treat NULL as distinct in a
+            # unique index by default, so this only actually
+            # enforces uniqueness once scheme_code is set, which
+            # is exactly what's needed here. Required for
+            # bulk_create(update_conflicts=True) below to have a
+            # real conflict target to upsert against.
+            models.UniqueConstraint(
+                fields=["owner", "scheme_code"],
+                name="unique_mf_scheme_owner_code",
+            ),
+        ]
+
     def __str__(self):
         return self.scheme_name
 

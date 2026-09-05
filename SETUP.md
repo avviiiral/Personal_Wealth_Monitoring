@@ -2,7 +2,7 @@
 
 This guide takes you from a brand-new computer with nothing installed to a
 running PWMS instance (backend + frontend) that you can log into, on the
-`updates` branch.
+`Updates-2.0` branch.
 
 You do not need prior Django or Angular experience — just follow the steps
 in order. Commands are shown for **Windows (PowerShell)** since that's how
@@ -60,10 +60,10 @@ git clone https://github.com/avviiiral/Personal_Wealth_Monitoring.git
 cd Personal_Wealth_Monitoring
 ```
 
-Make sure you're on the `updates` branch (this guide assumes it):
+Make sure you're on the `Updates-2.0` branch (this guide assumes it):
 
 ```powershell
-git checkout updates
+git checkout Updates-2.0
 git pull
 git branch --show-current
 ```
@@ -115,22 +115,29 @@ own transitive dependencies installed to work correctly.
 
 ### 4.3 Create your environment file
 
-Create a new file at `backend/.env` (same folder as `manage.py`) with:
+Copy the template and fill it in:
+
+```powershell
+copy .env.example .env
+```
+
+Open `backend\.env` in a text editor. For local development, the only line
+worth filling in right away is:
 
 ```env
 GEMINI_API_KEY=YOUR_KEY_HERE
-GEMINI_MODEL=gemini-3.6-flash
-NEWS_MONITOR_LOOKBACK_DAYS=3
-NEWS_MONITOR_AI_CALL_DELAY_SECONDS=4
 ```
 
 - Get a Gemini API key from **Google AI Studio**
   (https://aistudio.google.com/) if you don't have one.
 - The Gemini key is only needed for the **AI Chat** and **Portfolio News**
   features. Everything else — portfolio tracking, holdings, analytics,
-  reports, user management — works without it. You can skip this file
-  entirely for now and add it later; the app will simply show an error only
-  when you try to use AI Chat or run the news monitor.
+  reports, user management — works without it.
+- Every other variable in `.env.example` (`SECRET_KEY`, `DEBUG`,
+  `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`, etc.) already has a safe default
+  for local development baked into `config/settings.py` — you only need to
+  set these for a real deployment, not for running this on your own
+  machine. See the comments in `.env.example` for what each one does.
 - **Do not commit this file.** It's already in `.gitignore`.
 
 ### 4.4 Set up the database
@@ -142,9 +149,8 @@ install. Just run the migrations to create the schema:
 python manage.py migrate
 ```
 
-You should see a list of `Applying ... OK` lines, ending with the most
-recent `users` migration (Family Groups). This step is safe to re-run any
-time; it never deletes existing data.
+You should see a list of `Applying ... OK` lines. This step is safe to
+re-run any time; it never deletes existing data.
 
 ### 4.5 Verify the backend is healthy
 
@@ -175,6 +181,8 @@ automatically given the `SUPERUSER` role — you don't need any extra step.
 
 ### 4.7 Start the backend server
 
+For local development:
+
 ```powershell
 python manage.py runserver
 ```
@@ -192,6 +200,10 @@ http://127.0.0.1:8000/api/health/
 ```
 
 You should see a small JSON response with `"status": "success"`.
+
+> **Running this closer to how it'd actually be deployed?** See
+> [section 11](#11-alternative-running-via-a-real-wsgiasgi-server) for the
+> `waitress`/`uvicorn` equivalents — same app, no dev-server autoreloader.
 
 ---
 
@@ -222,6 +234,11 @@ Local:   http://localhost:4200/
 
 Open that URL in your browser.
 
+> This dev server always talks to `http://localhost:8000` (set in
+> `frontend/src/environments/environment.ts`). You don't need to touch
+> this for local development — it's only relevant if you're building for
+> a real deployment, see [section 12](#12-building-the-frontend-for-a-real-deployment).
+
 ---
 
 ## 6. First login
@@ -251,52 +268,49 @@ This never changes who can _edit_ anything — only what's visible.
 
 ---
 
-## 7. Optional: automatic price updates
+## 7. Automatic background jobs — nothing to configure
 
-You don't need to do anything for this — a background thread inside the
-Django process automatically refreshes Stock/ETF prices (Yahoo Finance) and
-mutual fund NAVs (AMFI) every 15 minutes, for as long as
-`python manage.py runserver` is running. You'll see periodic
-`[MARKET UPDATE] ...` lines print in the backend terminal.
+You don't need to do anything for this. Four background jobs start
+automatically inside the Django process the moment you run `runserver`
+(or the WSGI/ASGI commands in section 11) — market price refresh (every 15
+minutes), a once-a-day refresh job, an immediate post-import price fetch,
+and Portfolio News monitoring (every 30 minutes, needs the Gemini key from
+step 4.3). None of them need Windows Task Scheduler, a `.bat` file, or any
+separate process — they run for as long as the server is up, and stop the
+moment you stop it.
 
-If you want an immediate one-off refresh instead of waiting:
+Check `backend\logs\pwms.log` (created automatically) to see them running.
+
+If you want an immediate one-off price refresh instead of waiting:
 
 ```powershell
 python manage.py update_market_prices
 ```
 
+Or an immediate one-off news check:
+
+```powershell
+python manage.py monitor_portfolio_news
+```
+
+Watch the printed statistics (`Holdings processed`, `Articles retrieved`,
+`Alerts created`, etc.) — `Alerts created: 0` is often normal on a fresh
+portfolio with no recent matching news yet.
+
 ---
 
 ## 8. Getting your portfolio data in
 
-You have two options:
+Import transactions from an Excel workbook (a "Summary" sheet is optional
+— a Transactions-only workbook is valid):
 
-**Option A — Enter data manually** through the Portfolio page in the app
-(Add Transaction, etc.) once you're logged in.
+1. Log in, go to **Portfolio**.
+2. Use the **Import** option and select your `.xlsx` file.
+3. Every asset the import touches gets an immediate background price
+   refresh (see section 7) — you don't need to wait for the scheduled run.
 
-**Option B — Import from Excel**, if you have an existing transaction
-workbook:
-
-```powershell
-cd backend
-.\venv\Scripts\Activate.ps1
-python manage.py import_transactions --username your_username --file path\to\your\transactions.xlsx
-```
-
-Omit `--file` to use the project's default workbook location
-(`backend/data/transactions.xlsx`), or use `--all-users` instead of
-`--username` to import for every user at once. The import is safe to
-re-run — it deduplicates rows automatically, so re-running with an updated
-workbook only inserts genuinely new rows. See the command's own help for
-every option:
-
-```powershell
-python manage.py import_transactions --help
-```
-
-After importing, rebuild holdings so the Dashboard/Portfolio reflect the
-new transactions immediately (this normally happens automatically, but is
-safe to force):
+If holdings look off after an import, rebuild them from the transaction
+history:
 
 ```powershell
 python manage.py rebuild_holdings --user-id <id>
@@ -307,83 +321,7 @@ python manage.py rebuild_holdings --user-id <id>
 
 ---
 
-## 9. Optional: enabling the Portfolio News agent
-
-This is entirely optional and separate from everything above. Skip this
-section unless you specifically want AI-driven portfolio news alerts.
-
-### 9.1 Prerequisite
-
-You need a Gemini API key in `backend/.env` (see step 4.3) and at least one
-user with real, non-zero holdings — the agent only monitors what a user
-actually owns.
-
-### 9.2 Run it once, manually, to test it
-
-With the backend virtual environment active:
-
-```powershell
-cd backend
-.\venv\Scripts\Activate.ps1
-python manage.py monitor_portfolio_news
-```
-
-Watch the printed statistics (`Holdings processed`, `Articles retrieved`,
-`Alerts created`, etc.). Then open:
-
-```text
-http://localhost:4200/portfolio-news
-```
-
-If `Alerts created` was `0`, that's often normal on a fresh portfolio (no
-recent matching news yet) — see the Troubleshooting section below.
-
-### 9.3 Schedule it to run automatically (Windows)
-
-The repo includes `backend/run_news_monitor.bat` and
-`backend/COMMANDS_NEWS.TXT` as a starting point, but the `.bat` file
-contains a placeholder path that **will not match your computer** — edit it
-first.
-
-1. Open `backend/run_news_monitor.bat` in a text editor and replace every
-   path with the actual path on your machine, e.g.:
-
-   ```bat
-   @echo off
-   "D:\Personal_Wealth_Monitoring\backend\venv\Scripts\python.exe" "D:\Personal_Wealth_Monitoring\backend\manage.py" monitor_portfolio_news >> "D:\Personal_Wealth_Monitoring\backend\news_monitor.log" 2>&1
-   ```
-
-2. Test it manually by double-clicking it or running it from PowerShell:
-
-   ```powershell
-   D:\Personal_Wealth_Monitoring\backend\run_news_monitor.bat
-   ```
-
-   Then check `backend\news_monitor.log` for output.
-
-3. Open **Task Scheduler** (search for it in the Start menu) →
-   **Create Task…**:
-   - **General tab**: give it a name like `PWMS News Monitor`. Choose
-     "Run whether user is logged on or not" if you want it to work even
-     when you're logged out.
-   - **Triggers tab** → **New…** → Begin the task **On a schedule** →
-     Daily, recur every 1 day → Repeat task every **45 minutes** for a
-     duration of **1 day** (a practical development interval).
-   - **Actions tab** → **New…** → Action: **Start a program** → Program/
-     script: the full path to `run_news_monitor.bat`.
-   - Save. You may be prompted for your Windows password if you chose
-     "run whether logged on or not".
-
-4. Confirm it's working by checking `backend\news_monitor.log` after the
-   next scheduled run, or right-click the task → **Run** to trigger it
-   immediately.
-
-`backend/COMMANDS_NEWS.TXT` has the equivalent raw `schtasks` command-line
-syntax if you prefer scripting the task creation instead of using the GUI.
-
----
-
-## 10. Running the test suites (optional, recommended if you plan to modify code)
+## 9. Running the test suites (optional, recommended if you plan to modify code)
 
 Backend (from `backend/`, virtual environment active):
 
@@ -406,9 +344,9 @@ npm run build
 
 ---
 
-## 11. Everyday startup (after the first-time setup above)
+## 10. Everyday startup (after the first-time setup above)
 
-Once steps 1–7 are done once, starting the app again is just:
+Once steps 1–8 are done once, starting the app again is just:
 
 **Terminal 1:**
 
@@ -426,6 +364,55 @@ npm start
 ```
 
 Then open `http://localhost:4200`.
+
+---
+
+## 11. Alternative: running via a real WSGI/ASGI server
+
+`runserver` is fine for everyday development. If you want to run this
+closer to how it'd actually be deployed — no autoreloader, a real
+production-style server — two options, both already in `requirements.txt`:
+
+**WSGI (waitress):**
+
+```powershell
+python -m waitress --host=127.0.0.1 --port=8000 config.wsgi:application
+```
+
+**ASGI (uvicorn):**
+
+```powershell
+python -m uvicorn config.asgi:application --host 127.0.0.1 --port 8000
+```
+
+Both serve the exact same app on the same port `runserver` uses, and both
+correctly start all four background jobs from section 7 automatically —
+check `logs\pwms.log` to confirm.
+
+---
+
+## 12. Building the frontend for a real deployment
+
+For local development, skip this — `npm start` is all you need.
+
+Before building for anywhere other than your own machine:
+
+1. Open `frontend/src/environments/environment.prod.ts`.
+2. Change `apiUrl` from the placeholder to your real deployed backend
+   address (or `''` if the frontend and backend share the same origin).
+3. Build:
+
+   ```powershell
+   cd frontend
+   ng build --configuration production
+   ```
+
+   This automatically swaps in `environment.prod.ts` in place of
+   `environment.ts` (configured in `angular.json`) — you don't edit
+   `environment.ts` itself for this.
+4. On the backend side, also update `.env`'s `ALLOWED_HOSTS`,
+   `CORS_ALLOWED_ORIGINS`, and `CSRF_TRUSTED_ORIGINS` to match your real
+   deployed frontend origin — see `backend/.env.example`.
 
 ---
 
@@ -482,14 +469,13 @@ troubleshooting the frontend.
 
 ### Frontend can't reach the backend
 
-The Angular services use a hard-coded `http://localhost:8000` base URL.
-That's correct when both browser and backend are on the _same_ computer.
-If you're opening the frontend from a different device, `localhost` on
-that device means itself, not your Django machine — you'd need to change
-the frontend's API base URL and Django's CORS/CSRF settings together
-(`CORS_ALLOWED_ORIGINS` / `CSRF_TRUSTED_ORIGINS` in
-`backend/config/settings.py`). This isn't needed for normal single-machine
-development.
+Check `frontend/src/environments/environment.ts`'s `apiUrl` — for local
+development this should be `http://localhost:8000`. If you're opening the
+frontend from a different device on your network, `localhost` on that
+device means itself, not your Django machine — you'd need to change
+`apiUrl` to your backend machine's real address, and update
+`CORS_ALLOWED_ORIGINS`/`CSRF_TRUSTED_ORIGINS` in `backend/.env` to match.
+This isn't needed for normal single-machine development.
 
 ### I can't log in / there's no user yet
 
@@ -560,13 +546,6 @@ You need: a supported browser, browser notification permission granted
 newly created (Critical/High tier) — not one that already existed at your
 last visit — and the Angular app open and polling (every 60 seconds).
 
-### Windows Task Scheduler runs but nothing happens
-
-Test the `.bat` file manually first (double-click it, or run it from
-PowerShell), then check `backend\news_monitor.log`. The most common cause
-is a leftover placeholder path inside the `.bat` file that doesn't match
-your computer — re-check step 9.3.1.
-
 ### Too many Gemini rate-limit errors during a news monitor run
 
 Increase the delay between calls in `backend/.env`:
@@ -575,7 +554,7 @@ Increase the delay between calls in `backend/.env`:
 NEWS_MONITOR_AI_CALL_DELAY_SECONDS=6
 ```
 
-Then re-run the monitor.
+Then restart the server (or re-run the command manually).
 
 ### I accidentally deleted `db.sqlite3`
 
@@ -604,7 +583,7 @@ not affect the running application, only that specific test file.
 ```powershell
 git clone https://github.com/avviiiral/Personal_Wealth_Monitoring.git
 cd Personal_Wealth_Monitoring
-git checkout updates
+git checkout Updates-2.0
 
 cd backend
 python -m venv venv
@@ -612,7 +591,8 @@ python -m venv venv
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 
-# create backend\.env here (see step 4.3) — optional unless you want AI Chat / News
+copy .env.example .env
+# edit backend\.env — fill in GEMINI_API_KEY if you want AI Chat / News
 
 python manage.py migrate
 python manage.py check

@@ -2,6 +2,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 
 import { Observable, tap } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 /**
  * PWMS role hierarchy (low -> high):
@@ -86,7 +87,7 @@ export interface CurrentUser {
 export class RbacService {
   private readonly http = inject(HttpClient);
 
-  private readonly baseUrl = 'http://localhost:8000/api/settings';
+  private readonly baseUrl = `${environment.apiUrl}/api/settings`;
 
   private readonly currentUserSignal = signal<CurrentUser | null>(null);
 

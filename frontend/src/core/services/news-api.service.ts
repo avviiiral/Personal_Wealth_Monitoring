@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 export interface PortfolioNewsAlertListItem {
   id: number;
@@ -81,7 +82,7 @@ export interface PortfolioNewsDigest {
 export class NewsApiService {
   private readonly http = inject(HttpClient);
 
-  private readonly baseUrl = 'http://localhost:8000/api/ai';
+  private readonly baseUrl = `${environment.apiUrl}/api/ai`;
 
   // ======================================================
   // CSRF
