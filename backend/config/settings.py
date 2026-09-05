@@ -233,3 +233,74 @@ TIME_ZONE = 'Asia/Kolkata'
 USE_I18N = True
 
 USE_TZ = True
+
+# ============================================================
+# PWMS - Logging
+# ============================================================
+#
+# Before this config existed, three different things were all
+# called "logging" and behaved completely differently:
+#   - print() statements in the schedulers - visible only in
+#     whatever terminal happened to be open at the time, gone the
+#     moment it's closed
+#   - logger.info(...) calls scattered across ~17 files - silently
+#     dropped entirely (no handler was ever configured, and INFO is
+#     below Python's built-in "no handler found" fallback threshold)
+#   - logger.warning/exception(...) - visible on stderr via that
+#     same fallback, but still never written anywhere persistent
+#
+# Every logger.* call in the project (including from print()
+# statements converted to logger calls) now goes through ONE
+# rotating file handler plus a console handler, so there's one
+# real place to look after the fact: logs/pwms.log.
+
+LOGS_DIR = BASE_DIR / 'logs'
+LOGS_DIR.mkdir(exist_ok=True)
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'standard': {
+            'format': (
+                '%(asctime)s %(levelname)s '
+                '%(name)s: %(message)s'
+            ),
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'standard',
+        },
+        'file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOGS_DIR / 'pwms.log'),
+            # 10 MB per file, 5 backups kept (pwms.log.1 ... .5) -
+            # bounded total disk usage, no manual rotation needed.
+            'maxBytes': 10 * 1024 * 1024,
+            'backupCount': 5,
+            'formatter': 'standard',
+            'encoding': 'utf-8',
+        },
+    },
+    'root': {
+        # Every app's logging.getLogger(__name__) call propagates
+        # here by default - this is what was missing before, and
+        # why logger.info(...) calls were being silently dropped.
+        'handlers': ['console', 'file'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django': {
+            # Django's own request/server logs still go through
+            # the same two handlers, but WARNING+ only - django.
+            # request already logs every 4xx/5xx at that level, and
+            # routing it through 'root' too would just double it up
+            # since propagate defaults to True.
+            'handlers': ['console', 'file'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+    },
+}

@@ -4,7 +4,6 @@ import threading
 import time
 
 from django.db import close_old_connections
-from django.utils import timezone
 
 from portfolio_news.services.pipeline import run_portfolio_news_monitor
 
@@ -72,15 +71,6 @@ class PortfolioNewsScheduler:
 
             interval_seconds = _get_interval_seconds()
 
-            print(
-                "[NEWS SCHEDULER] Started."
-            )
-
-            print(
-                "[NEWS SCHEDULER] "
-                f"Run interval: {interval_seconds // 60} minutes."
-            )
-
             logger.info(
                 "Portfolio news scheduler started. "
                 "Run interval: %s seconds.",
@@ -102,39 +92,27 @@ class PortfolioNewsScheduler:
 
                 close_old_connections()
 
-                print(
-                    "\n"
-                    "[NEWS MONITOR] "
-                    f"{timezone.localtime().strftime('%Y-%m-%d %H:%M:%S')}"
-                )
-
                 stats = run_portfolio_news_monitor()
 
-                print(
-                    "[NEWS MONITOR] Completed - "
-                    f"users={stats['users_processed']}, "
-                    f"holdings={stats['holdings_processed']}, "
-                    f"articles_matched={stats['articles_matched']}, "
-                    f"new_articles={stats['articles_stored_new']}, "
-                    f"alerts_created={stats['alerts_created']}, "
-                    f"notifications_sent={stats['notifications_sent']}"
-                )
-
                 logger.info(
-                    "Portfolio news monitor run complete: %s",
-                    stats,
+                    "Portfolio news monitor run complete: "
+                    "users=%s, holdings=%s, articles_matched=%s, "
+                    "new_articles=%s, alerts_created=%s, "
+                    "notifications_sent=%s",
+                    stats['users_processed'],
+                    stats['holdings_processed'],
+                    stats['articles_matched'],
+                    stats['articles_stored_new'],
+                    stats['alerts_created'],
+                    stats['notifications_sent'],
                 )
 
             except Exception as exc:
 
-                print(
-                    "[NEWS MONITOR] ERROR: "
-                    f"{exc}"
-                )
-
                 logger.exception(
-                    "Portfolio news scheduler run failed; will "
-                    "retry after the next interval."
+                    "Portfolio news scheduler run failed: %s. "
+                    "Will retry after the next interval.",
+                    exc,
                 )
 
             finally:

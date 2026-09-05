@@ -1,7 +1,10 @@
+import logging
 import re
 from pathlib import Path
 
 from django.conf import settings
+
+logger = logging.getLogger(__name__)
 
 
 class SecurityResolver:
@@ -318,22 +321,23 @@ class SecurityResolver:
 
             workbook.close()
 
-            print(
-                "[SECURITY MASTER] Loaded "
-                f"{len(cls._security_master_isin)} ISIN mappings "
-                f"and {len(cls._security_master_name)} name "
-                "mappings from "
-                f"{path}"
+            logger.info(
+                "Loaded %s ISIN mappings and %s name mappings "
+                "from %s",
+                len(cls._security_master_isin),
+                len(cls._security_master_name),
+                path,
             )
 
         except Exception as exc:
             # Security Master must not break the existing price
             # resolution system if the Excel file is unavailable,
             # malformed, or openpyxl is not installed.
-            print(
-                "[SECURITY MASTER] Failed to load "
-                f"{path}: {exc}. Falling back to built-in "
-                "mappings."
+            logger.warning(
+                "Failed to load %s: %s. Falling back to built-in "
+                "mappings.",
+                path,
+                exc,
             )
 
             cls._security_master_isin = {}
@@ -355,27 +359,29 @@ class SecurityResolver:
                 SecurityMasterGenerator,
             )
 
-            print(
-                "[SECURITY MASTER] security_master.xlsx not found. "
-                "Generating it from transactions.xlsx..."
+            logger.info(
+                "security_master.xlsx not found. Generating it "
+                "from transactions.xlsx..."
             )
 
             result = SecurityMasterGenerator.generate()
 
-            print(
-                "[SECURITY MASTER] Generated "
-                f"{result['total']} securities "
-                f"(resolved={result['resolved']}, "
-                f"unresolved={result['unresolved']}, "
-                f"non_yahoo={result['non_yahoo']})."
+            logger.info(
+                "Generated %s securities (resolved=%s, "
+                "unresolved=%s, non_yahoo=%s).",
+                result['total'],
+                result['resolved'],
+                result['unresolved'],
+                result['non_yahoo'],
             )
 
             return cls._security_master_path()
 
         except Exception as exc:
-            print(
-                "[SECURITY MASTER] Auto-generation failed: "
-                f"{exc}. Falling back to built-in mappings."
+            logger.warning(
+                "Auto-generation failed: %s. Falling back to "
+                "built-in mappings.",
+                exc,
             )
 
             return None

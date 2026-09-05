@@ -1,6 +1,6 @@
-import os
-
 from django.apps import AppConfig
+
+from config.scheduler_guard import should_start_background_schedulers
 
 
 class MarketDataConfig(AppConfig):
@@ -11,16 +11,13 @@ class MarketDataConfig(AppConfig):
 
     def ready(self):
 
-        # Django's development server uses an auto-reloader,
-        # which starts the application more than once.
-        #
-        # Only start the scheduler in the actual serving
-        # process.
+        # See config/scheduler_guard.py for exactly why this isn't
+        # just an "if RUN_MAIN" check - that alone would mean these
+        # schedulers never start under a production WSGI/ASGI
+        # server (waitress/uvicorn/daphne), which don't set
+        # RUN_MAIN at all since they have no autoreloader.
 
-        if os.environ.get(
-            "RUN_MAIN"
-        ) != "true":
-
+        if not should_start_background_schedulers():
             return
 
         from market_data.services.market_price_scheduler import (
