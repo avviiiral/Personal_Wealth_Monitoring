@@ -1,531 +1,279 @@
-# Personal Wealth Monitoring System (PWMS)
+<div align="center">
 
-PWMS is a full-stack personal/family wealth tracking application. It brings
-equities, ETFs, bonds, mutual funds and SIPs into one place, calculates
-portfolio value, P&L, XIRR and allocation from real transactions, keeps
-prices current automatically, and adds an AI-assisted news layer and chat
-on top — with the numbers always coming from the database, never from the
-AI.
+# 💰 PWMS — Personal Wealth Monitoring System
 
-The backend is Django + Django REST Framework (SQLite by default). The
-frontend is Angular (standalone components, no NgModules). This document
-describes the current state of the codebase, which includes a **four-tier
-role hierarchy** (System Owner / Super User / Admin / Viewer), **many-to-
-many family membership** with a per-user active-family selector, and user
-management/family management on top of the original single-user wealth
-tracker.
+**A self-hosted personal & family wealth tracker for Indian investors** — stocks, ETFs,
+bonds, SGBs, mutual funds and SIPs in one place, with real XIRR, live prices, role-based
+family sharing, and an AI-assisted news layer on top.
 
-For step-by-step install instructions on a new machine, see
-[`SETUP.md`](SETUP.md). This file is a knowledge base of what the software
-does and how it is built.
+[![Django](https://img.shields.io/badge/Django-5.2-092E20?logo=django&logoColor=white)](https://www.djangoproject.com/)
+[![Django REST Framework](https://img.shields.io/badge/DRF-3.18-A30000?logo=django&logoColor=white)](https://www.django-rest-framework.org/)
+[![Angular](https://img.shields.io/badge/Angular-21-DD0031?logo=angular&logoColor=white)](https://angular.dev/)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-Angular-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![License](https://img.shields.io/badge/License-Proprietary-red.svg)](License.md)
+
+[Setup Guide](SETUP.md) · [Feature Tour](#feature-tour) · [API Reference](#api-reference) · [Tech Stack](#tech-stack)
+
+</div>
 
 ---
 
-## Table of contents
+## What is PWMS?
 
-1. [What the application does](#what-the-application-does)
-2. [Tech stack](#tech-stack)
-3. [Roles, permissions and family membership](#roles-permissions-and-family-membership)
-4. [Feature tour](#feature-tour)
-5. [Repository structure](#repository-structure)
-6. [Backend architecture](#backend-architecture)
-7. [Data model overview](#data-model-overview)
-8. [API reference](#api-reference)
-9. [Frontend architecture](#frontend-architecture)
-10. [Automated jobs / schedulers](#automated-jobs--schedulers)
-11. [Environment variables](#environment-variables)
-12. [Management commands](#management-commands)
-13. [Testing](#testing)
-14. [Known limitations & production cautions](#known-limitations--production-cautions)
-15. [License](#license)
+PWMS is a full-stack **personal and family wealth management system** built for
+investors who hold **Indian equities, ETFs, bonds, Sovereign Gold Bonds, mutual funds
+and SIPs** and want one place that actually computes the numbers instead of estimating
+them. Every figure — holdings, invested value, current value, unrealized/realized P&L,
+**XIRR**, CAGR, and asset allocation — is calculated server-side from real transactions,
+kept current with automatic background price refreshes (Yahoo Finance for
+stocks/ETFs, AMFI for mutual fund NAVs), and never invented by the AI layer sitting on
+top of it.
 
----
+It's built for households, not just individuals: a **four-tier role hierarchy** (System
+Owner / Super User / Admin / Viewer) and **many-to-many family membership** let several
+people share visibility into the same portfolio — or several portfolios — with
+permissions enforced independently on the backend, not just hidden in the UI.
 
-## What the application does
-
-- Tracks **stocks, ETFs, bonds, SGBs, mutual funds, SIPs and cash-like
-  assets**.
-- Calculates **holdings, invested value, current value, unrealized/realized
-  P&L, XIRR, CAGR and asset allocation** from actual transactions — the
-  backend is the single source of truth for every number shown in the app.
-- Automatically refreshes prices in the background (Yahoo Finance for
-  stocks/ETFs/bonds, AMFI for mutual fund NAVs) and supports **manual price
-  overrides** with a full audit trail (who changed it, when, and from what).
-  A newly imported stock/mutual fund/bond also gets an **immediate** price
-  fetch right after import, instead of waiting for the next scheduled run.
-- Supports a **four-tier role hierarchy** — System Owner, Super User,
-  Admin, Viewer — enforced on the backend, plus **many-to-many family
-  membership** so a user can belong to any number of families at once, with
-  a personal **active-family selector** that scopes Dashboard/Portfolio/
-  Analytics/Mutual Funds data to one family at a time.
-- Manual price editing (and the Settings → Manual Prices listing) is scoped
-  by the same family-shared visibility as everything else: any Admin+
-  member of a family can edit that family's asset prices, not only the
-  specific account that originally imported the data.
-- Includes an **AI portfolio chat** (Gemini) that answers questions about
-  the user's own portfolio using data the backend supplies — the AI never
-  computes or invents financial figures.
-- Includes a **Portfolio News Intelligence agent** that finds news relevant
-  to a user's actual holdings, scores it by portfolio impact, and raises
-  browser notifications for high-impact items.
-- Supports **Excel-based transaction import**, PDF/Excel **report
-  generation**, and a **Reports** page for exporting portfolio, holdings and
-  summary views.
+For step-by-step install instructions on a new machine, see **[`SETUP.md`](SETUP.md)**.
+This file is the knowledge base of what the software does and how it's built.
 
 ---
 
-## Tech stack
+## ✨ Feature tour
 
-| Layer                 | Technology                                                                                                                                                                                              |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Backend framework     | Django 5.2 + Django REST Framework 3.18                                                                                                                                                                 |
-| Backend language      | Python 3.12 (project developed against this version)                                                                                                                                                    |
-| Database (default)    | SQLite (`backend/db.sqlite3`), WAL journal mode + busy-timeout enabled for better concurrency with the background schedulers                                                                            |
-| Auth                  | Django session authentication (cookie + CSRF), not JWT                                                                                                                                                  |
-| Frontend framework    | Angular ~21 (standalone components, no NgModules)                                                                                                                                                       |
-| Frontend language     | TypeScript                                                                                                                                                                                              |
-| Charts                | Chart.js / ng2-charts                                                                                                                                                                                   |
-| Excel import/export   | `openpyxl` (backend), `exceljs` (frontend)                                                                                                                                                              |
-| PDF export            | `jspdf` + `jspdf-autotable` (frontend)                                                                                                                                                                  |
-| Market data           | Yahoo Finance via `yfinance`, AMFI NAV feed via HTTP                                                                                                                                                    |
-| News retrieval        | Google News RSS via `feedparser` (no paid news API)                                                                                                                                                     |
-| AI                    | Google Gemini REST API (`GEMINI_API_KEY` / `GOOGLE_API_KEY`)                                                                                                                                            |
-| Background scheduling | In-process Python threads for market prices, the daily refresh job, and a post-import price refresh; Windows Task Scheduler + a management command for the news agent (no Celery/Redis in this project) |
+### 📊 Dashboard
+Net worth, asset allocation, key portfolio metrics, and an Investment Summary table
+broken down by asset class — computed server-side, scoped to the user's own data plus
+their currently active family's data (or everyone's, for a System Owner).
+
+### 📁 Portfolio
+A hierarchical tree of holdings (Family → Portfolio → Asset Class → Sub-Class → Asset)
+with quantity, invested value, current value, P&L and XIRR per node, full transaction
+history, and — for Admin and above — an inline **manual price override** available for
+any asset within the user's visible family scope.
+
+### 📈 Analytics
+Wealth allocation by asset class, sector, market cap, AMC and advisor; performance
+ranking; XIRR; historical wealth over any date range; dedicated equity and
+fixed-income breakdowns.
+
+### 🏦 Mutual Funds & SIPs
+Scheme holdings, NAV-based valuation, SIP creation, due/overdue tracking, and
+per-installment SIP execution.
+
+### 📄 Reports
+Export transactions, holdings and portfolio summaries to **Excel or PDF**, matching
+exactly what the Portfolio and Dashboard pages show.
+
+### 🔐 Settings
+Account & preferences, role-scoped **User Management**, System-Owner-only **Family
+Management**, and a **Manual Prices** screen for overriding any asset's price within
+your visible family scope — every override is audit-logged (who, when, from what).
+
+### 🤖 AI Portfolio Chat
+A Gemini-backed assistant scoped to the logged-in user's own portfolio. The backend
+builds a structured context (holdings, allocation, recent performance) and hands it to
+Gemini — Gemini interprets the numbers it's given, it never computes or invents them.
+
+### 📰 Portfolio News Intelligence
+A background agent that reads each user's *actual* holdings (no hard-coded stock
+list), searches Google News RSS, deterministically matches articles to holdings before
+spending an AI call on any of them, scores each alert by
+`impact × portfolio_weight × confidence`, and raises a browser notification for
+high-impact items — fully automatic, no scheduled task to configure.
 
 ---
 
-## Roles, permissions and family membership
+## 🔑 Roles, permissions & family membership
 
-PWMS has **four hierarchical roles**, stored on `users.UserProfile.role`
-(kept in sync with Django's own `is_superuser`/`is_staff` flags) and
-enforced on every relevant Django view via a centralized permission service
-(`users/permissions.py`) — the frontend hides controls the same way, but
-the backend is what actually blocks unauthorized requests, independently,
-on every request.
+Four hierarchical roles, enforced on every request by a centralized permission service
+— the frontend hides controls for convenience, but the backend independently blocks
+unauthorized requests regardless of what the UI shows.
 
 ```
 VIEWER  <  ADMIN  <  SUPER_USER  <  SYSTEM_OWNER
 ```
 
-Role and family membership are deliberately kept as **separate concepts**:
-role determines what a user is allowed to _do_; family membership
-determines _whose data_ they can _see_. Neither is ever inferred from the
-other.
+Role and family membership are deliberately **separate concepts**: role determines
+what a user can *do*; family membership determines *whose data* they can *see*.
 
-| Capability                                                          | Viewer | Admin | Super User | System Owner |
-| ------------------------------------------------------------------- | :----: | :---: | :--------: | :----------: |
-| Login; view Dashboard/Portfolio/Analytics/Mutual Funds/AI Chat/News |   ✅   |  ✅   |     ✅     |      ✅      |
-| Edit own profile fields / change own password                       |   ✅   |  ✅   |     ✅     |      ✅      |
-| Edit manual prices (family-shared, not just self-owned assets)      |   ❌   |  ✅   |     ✅     |      ✅      |
-| Create a Viewer                                                     |   ❌   |  ✅   |     ✅     |      ✅      |
-| Create an Admin                                                     |   ❌   |  ❌   |     ✅     |      ✅      |
-| Create a Super User                                                 |   ❌   |  ❌   |     ❌     |      ✅      |
-| Create a System Owner                                               |   ❌   |  ❌   |     ❌     |      ✅      |
-| Change another user's role                                          |   ❌   | ❌ ¹  |    ✅ ²    |      ✅      |
-| Manage (edit/activate/deactivate/delete/reset password) a Viewer    |   ❌   |  ✅   |     ✅     |      ✅      |
-| Manage an Admin                                                     |   ❌   |  ❌   |     ✅     |      ✅      |
-| Manage a Super User                                                 |   ❌   |  ❌   |     ❌     |      ✅      |
-| Manage a System Owner                                               |   ❌   |  ❌   |     ❌     |      ✅      |
-| Create / rename / delete a family                                   |   ❌   |  ❌   |     ❌     |      ✅      |
-| Add / remove a user's family membership; assign multiple families   |   ❌   |  ❌   |     ❌     |      ✅      |
-| View every family (Family Management page)                          |   ❌   |  ❌   |     ❌     |      ✅      |
+| Capability                                              | Viewer | Admin | Super User | System Owner |
+| -------------------------------------------------------- | :----: | :---: | :--------: | :----------: |
+| View Dashboard / Portfolio / Analytics / AI Chat / News    |   ✅   |  ✅   |     ✅     |      ✅      |
+| Edit manual prices (family-shared)                         |   ❌   |  ✅   |     ✅     |      ✅      |
+| Create a Viewer                                             |   ❌   |  ✅   |     ✅     |      ✅      |
+| Create an Admin                                             |   ❌   |  ❌   |     ✅     |      ✅      |
+| Create a Super User / System Owner                          |   ❌   |  ❌   |     ❌     |      ✅      |
+| Create / manage families                                    |   ❌   |  ❌   |     ❌     |      ✅      |
+| View every family's data                                    |   ❌   |  ❌   |     ❌     |      ✅      |
 
-¹ **Admin** can never change any user's role — it can only _create_ new
-Viewers.
-² **Super User**'s role changes are explicitly limited: it may only move a
-target between **Admin ↔ Viewer**; it can never touch a System Owner or
-another Super User's role, and can never grant System Owner or Super User
-to anyone.
-
-Nobody — **including a System Owner** — can change their own role through
-the user-edit endpoint (a hard-coded privilege-escalation guard). The
-system also refuses to leave itself with **zero active System Owners**
-(demoting, deactivating, or deleting the last one is blocked).
-
-User _management_ (the list in Settings → User Management, and every
-action on it) is scoped by **role only**: a Super User sees/manages every
-Admin and Viewer account system-wide, an Admin sees/manages every Viewer,
-regardless of family. Family membership never gates account
-administration — only _portfolio data visibility_ (see below) and the
-manual-price-editing scope.
-
-### Family membership
-
-A **family** (`users.FamilyGroup`) is a shared-visibility grant between
-user accounts, managed exclusively by a System Owner from **Settings →
-Family Management**:
-
-- A user can belong to **zero, one, or many** families at the same time
-  (`UserProfile.family_groups`, an explicit many-to-many relationship via
-  `FamilyMembership`, which also records who granted the membership and
-  when).
-- Only a **System Owner** can create/rename/delete a family, or add/remove
-  a user's family membership — no other role can touch family assignment
-  in any way, including for their own account.
-- Members of the same family can **view** each other's Dashboard,
-  Portfolio, Analytics and Mutual Funds/SIPs data for that family, and any
-  **Admin+** member can **edit manual prices** for assets within that
-  family — visibility and edit rights both follow family membership, not
-  strict per-user ownership of the underlying `Asset` row.
-- A user with **multiple** families is **not** shown a silently-merged
-  combined view. They select which family is currently "active"
-  (`UserProfile.active_family_group` — a personal view preference, not a
-  membership change, changeable by any role for their own families) via a
-  switcher in the header profile menu or in Settings → Account. Every data
-  screen scopes to that one active family until it's switched.
-- A **System Owner** is the one exception: regardless of family
-  membership or active-family selection, a System Owner sees **every**
-  user's data across every family ("See all portfolio data across
-  families").
-
-Every read endpoint that shows portfolio data (Dashboard summary, Portfolio
-holdings/tree/transactions, all Analytics/"Wealth" endpoints, Mutual Funds
-& SIP listings, and the Settings → Manual Prices listing) resolves the
-_set of owner IDs currently visible to the requesting user_ via
-`users.permissions.get_visible_owner_ids()` — self only if in no family,
-self + the active family's members if in one or more, or every user in the
-system for a System Owner. Manual price _editing_ uses the same function
-as its authorization scope.
-
-Note: the underlying `Asset`/`Transaction`/etc. rows are still stored
-against a single owning `User` account (`Asset.owner`) — family membership
-is the _access-control_ layer on top of that, not (yet) a change to which
-user's account a given row is physically stored under. `Transaction` also
-carries its own free-text `family_name` field (e.g. "Agarwal Family"),
-populated straight from the Excel import's "Family Name" column — this is
-a **separate, older concept** used for display/grouping within a single
-account's own data, distinct from the `FamilyGroup` RBAC model described
-above; the two are not currently unified.
+A user can belong to **zero, one, or many** families at once, with a personal
+**active-family selector** scoping every data screen to one family at a time — a
+System Owner is the one exception, always seeing every family's data regardless of
+selection. See [`users/permissions.py`](backend/users/permissions.py) for the full
+authorization logic — nothing here trusts a role or family ID the client claims; every
+check re-derives it from the database on every request.
 
 ---
 
-## Feature tour
+## 🛠 Tech stack
 
-### Dashboard
-
-Net worth, asset allocation, key portfolio metrics (invested value, current
-value, P&L, XIRR) and an Investment Summary table broken down by asset
-class, all computed server-side and scoped to the user's own data plus
-their currently active family's data (or everyone's, for a System Owner).
-
-### Portfolio
-
-A hierarchical tree of holdings (Family → Portfolio → Asset Class →
-Sub-Class → Asset), quantity/invested value/current value/P&L/XIRR per
-node, transaction history, and (for Admin+) an inline **Edit** control on
-each holding to override its price manually — available for any asset
-within the user's visible family scope, not only assets they personally
-created.
-
-### Analytics
-
-Wealth allocation (by asset class, sector, market cap, AMC, advisor),
-performance ranking, XIRR, historical wealth over a date range, equity and
-fixed-income analysis, and an Investment Summary reconciled with the
-Dashboard.
-
-### Mutual Funds & SIPs
-
-Scheme holdings, NAV-based valuation, transaction history, SIP creation and
-due/overdue tracking, and SIP installment execution (individual
-installments, not whole-SIP execution — the deprecated whole-SIP endpoint
-still exists for compatibility). _(Note: dedicated Holdings/Mutual
-Funds/SIPs pages were removed from the sidebar in a recent cleanup pass —
-the backend APIs and data model remain fully in place and are exercised
-through the Dashboard/Portfolio/Analytics pages and directly via the API.)_
-
-### Reports
-
-Export transactions, holdings and portfolio summaries to Excel or PDF from
-the Reports page, with the same figures the Portfolio/Dashboard pages show.
-
-### Settings
-
-- **Account** — profile info, role, account status, last login, password
-  change, the families the user belongs to, and (if in more than one) the
-  active-family switcher.
-- **Preferences** — currency, date format, default analytics period.
-- **User Management** (Admin+, scoped by role — see the table above) —
-  the user list with role, status, families, last login; add/edit/
-  deactivate/delete users within the caller's manageable role range; reset
-  a user's password; for a System Owner, a multi-select family checklist
-  when adding or editing a user.
-- **Family Management** (System Owner only) — create/rename/delete
-  families, add or remove members, assign one user to multiple families
-  simultaneously, see every family's full member list.
-- **Manual Prices** (Admin+) — see and override the current price of any
-  asset within the user's visible family scope; a manual override is
-  clearly distinguished from an automatic quote (source, who set it,
-  when).
-
-### AI Portfolio Chat
-
-A Gemini-backed chat scoped to the logged-in user's own portfolio. The
-backend builds a structured context object (holdings, allocation, recent
-performance, and — if relevant — recent Portfolio News alerts) and sends
-that to Gemini; Gemini only interprets the numbers it's given, it never
-computes or fabricates them. Every Gemini call (chat and the news agent) is
-logged to `GeminiUsageLog` for token-usage tracking (`gemini_usage`
-management command).
-
-### Portfolio News Intelligence
-
-A background agent (`portfolio_news` app) that:
-
-1. Reads each user's real, non-zero holdings (no hard-coded stock list).
-2. Builds a small number of bounded search queries per holding.
-3. Retrieves candidate articles from Google News RSS (no paid news API key
-   needed).
-4. Deterministically matches an article to a holding (name/alias/ticker/
-   ISIN) _before_ spending an AI call on it.
-5. Deduplicates by URL, fingerprint, and fuzzy headline similarity.
-6. Sends only genuinely matched articles to Gemini for structured analysis
-   (relevance, sentiment, impact, category, summary) — Gemini never sees
-   the user's raw transaction history for this feature.
-7. Scores each alert by `impact × portfolio_weight × confidence` so a big
-   event on a tiny position doesn't outrank a moderate event on a large
-   one.
-8. Surfaces Critical/High alerts in a notification bell that the frontend
-   polls every 60 seconds, triggering a browser notification.
-
-Run it manually with `python manage.py monitor_portfolio_news`, or schedule
-it (Windows Task Scheduler instructions are in `SETUP.md`). It is safe to
-run repeatedly — a `(user, article, holding)` uniqueness constraint
-prevents duplicate alerts.
+| Layer                  | Technology                                                                                    |
+| ------------------------ | ----------------------------------------------------------------------------------------------- |
+| Backend framework        | Django 5.2 + Django REST Framework 3.18                                                        |
+| Backend language         | Python 3.12                                                                                     |
+| Database (default)       | SQLite (WAL journal mode + busy-timeout for background-scheduler concurrency)                   |
+| Production serving       | `runserver` for dev; **waitress** (WSGI) or **uvicorn** (ASGI) for production                    |
+| Auth                     | Django session authentication (cookie + CSRF)                                                  |
+| Frontend framework       | Angular 21 (standalone components, no NgModules)                                               |
+| Frontend language        | TypeScript                                                                                      |
+| Charts                   | Chart.js / ng2-charts                                                                           |
+| Excel import/export      | `openpyxl` (backend), `exceljs` (frontend)                                                     |
+| PDF export                | `jspdf` + `jspdf-autotable` (frontend)                                                          |
+| Market data                | Yahoo Finance (`yfinance` + `curl_cffi`), AMFI NAV feed over HTTP                              |
+| News retrieval             | Google News RSS via `feedparser` — no paid news API                                            |
+| AI                          | Google Gemini REST API                                                                        |
+| Background scheduling       | In-process Python threads (market prices, daily refresh, post-import refresh, portfolio news) — no Celery/Redis |
+| Logging                     | Centralized rotating file handler (`backend/logs/pwms.log`)                                    |
 
 ---
 
-## Repository structure
+## 📂 Repository structure
 
 ```text
 Personal_Wealth_Monitoring/
 ├── backend/
 │   ├── manage.py
 │   ├── requirements.txt
-│   ├── config/               Django settings (incl. SQLite WAL/busy-timeout
-│   │                         PRAGMAs), root urls.py, WSGI/ASGI
-│   ├── api/                  health check, login/logout, profile settings
-│   ├── users/                RBAC: 4-tier roles, UserProfile, FamilyGroup,
-│   │   │                     FamilyMembership (M2M through-model),
-│   │   │                     UserAuditLog, user management + family
-│   │   │                     management APIs, centralized permissions.py
-│   │   └── migrations/       0005-0008: family M2M + audit log schema,
-│   │                         data migrations preserving existing family
-│   │                         assignments and promoting legacy top-role
-│   │                         accounts to System Owner
-│   ├── investments/          Asset, Transaction, Holding, SecurityMaster;
-│   │   │                     Excel transaction import
-│   │   └── services/
-│   │       ├── transaction_import.py   Summary sheet is optional
-│   │       └── auto_price_refresh.py   background price refresh for
-│   │                                   assets touched by an import
-│   ├── market_data/          MarketPrice, price providers, background
-│   │                         price scheduler, manual price override API
-│   │                         (family-shared visibility scoped)
-│   ├── portfolio/            portfolio tree/summary/holdings/transactions
-│   │                         APIs, settings-scoped price listing
-│   ├── mutual_funds/         schemes, NAVs, MF transactions, SIPs,
-│   │   │                     MF holdings
-│   │   └── services/amfi.py  AMFI NAV import commits in bounded batches
-│   ├── analytics/            wealth/allocation/performance/XIRR/historical
-│   │                         analytics services + APIs
-│   ├── ai/                   Gemini portfolio chat, Gemini usage tracking,
-│   │                         mounts the portfolio_news API
-│   ├── portfolio_news/       news discovery, matching, dedup, Gemini
-│   │                         analysis, alert scoring, notifications
-│   ├── data/
-│   │   └── security_master.xlsx   reference security data
-│   ├── run_news_monitor.bat  Windows scheduled-task runner (edit the path)
-│   └── COMMANDS_NEWS.TXT     Task Scheduler command examples
+│   ├── .env.example           Template for every deployment-sensitive setting
+│   ├── config/                 Settings (env-driven SECRET_KEY/DEBUG/ALLOWED_HOSTS/
+│   │                           CORS/logging), scheduler_guard.py, root urls.py, WSGI/ASGI
+│   ├── api/                    Health check, login/logout, profile settings
+│   ├── users/                  RBAC: 4-tier roles, FamilyGroup, FamilyMembership,
+│   │                           UserAuditLog, centralized permissions.py
+│   ├── investments/            Asset, Transaction, Holding, SecurityMaster,
+│   │                           Excel transaction import, AMC-name/quant enrichment
+│   ├── market_data/             MarketPrice, price providers, background scheduler
+│   ├── portfolio/               Portfolio tree/summary/holdings/transactions APIs
+│   ├── mutual_funds/             Schemes, NAVs, MF transactions, SIPs, MF holdings
+│   ├── analytics/                Wealth/allocation/performance/XIRR analytics
+│   ├── ai/                       Gemini portfolio chat, Gemini usage tracking
+│   ├── portfolio_news/           News discovery, matching, dedup, alert scoring
+│   └── data/
+│       ├── security_master.xlsx           Reference security data
+│       └── security_master_lookups.json   Researched sector/AMC/ratio data
 │
 ├── frontend/
 │   ├── package.json / angular.json
 │   └── src/
-│       ├── app/               shell, layout (sidebar/header incl. the
-│       │                      family switcher), routing
+│       ├── environments/       environment.ts (dev) / environment.prod.ts (build-time
+│       │                       swap via angular.json's fileReplacements) — the ONE
+│       │                       place the backend API URL is set
+│       ├── app/                 Shell, layout (sidebar/header incl. family switcher), routing
 │       ├── core/
-│       │   ├── services/      one API client per backend area + RBAC
-│       │   │                  service (4-role permission surface) +
-│       │   │                  toast/browser-notification
-│       │   └── guards/        auth.guard (also loads the RBAC role)
+│       │   ├── services/        One API client per backend area + RBAC service
+│       │   └── guards/          auth.guard (also loads the RBAC role)
 │       ├── features/
 │       │   ├── dashboard/  portfolio/  analytics/  reports/
-│       │   ├── mutual-funds-related sub-pages (composition,
-│       │   │   equity-analysis, fixed-income-analysis, scheme-analytics)
 │       │   ├── ai-chat/  portfolio-news/  login/
 │       │   └── settings/
-│       │       ├── user-management/     users, multi-family checklist
-│       │       ├── family-management/   System Owner-only family CRUD
+│       │       ├── user-management/
+│       │       ├── family-management/
 │       │       └── manual-prices/
 │       └── shared/
 │
-├── docs/                      supplementary design notes
-├── README.md                  this file
-├── SETUP.md                   step-by-step install guide
+├── README.md                   This file
+├── SETUP.md                    Step-by-step install guide
 └── License.md
 ```
 
 ---
 
-## Backend architecture
+## 🏗 Backend architecture
 
-Each Django app owns one area of the domain and exposes its own
-`views.py`/`urls.py`, mounted under a fixed prefix in
+Each Django app owns one area of the domain, mounted under a fixed prefix in
 `backend/config/urls.py`:
 
-| App              | Prefix                                                  | Responsibility                                                                                      |
-| ---------------- | ------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| `api`            | `/api/`                                                 | Health check, login/logout/current-user, basic profile settings                                     |
-| `users`          | `/api/settings/`                                        | RBAC (roles, permissions), user management, family management, settings-scoped manual price listing |
-| `portfolio`      | `/api/portfolio/`                                       | Assets, transactions, portfolio tree/summary/holdings, manual price edit                            |
-| `analytics`      | `/api/analytics/`                                       | All "wealth" and legacy analytics endpoints (allocation, performance, XIRR, historical)             |
-| `mutual_funds`   | `/api/mutual-funds/`                                    | Schemes, MF transactions, MF holdings, SIPs                                                         |
-| `market_data`    | `/api/market-data/stocks/search/` (+ internal services) | Price providers, stock search, background price refresh                                             |
-| `ai`             | `/api/ai/`                                              | Portfolio chat; also mounts `portfolio_news`'s URLs                                                 |
-| `portfolio_news` | (under `/api/ai/`)                                      | News alerts + notification bell                                                                     |
-| `investments`    | `/api/investments/`                                     | Excel transaction import, Security Master, post-import price refresh                                |
+| App              | Prefix                     | Responsibility                                                        |
+| ----------------- | ---------------------------- | ----------------------------------------------------------------------- |
+| `api`             | `/api/`                     | Health check, login/logout/current-user, profile settings              |
+| `users`           | `/api/settings/`             | RBAC, user management, family management                               |
+| `portfolio`       | `/api/portfolio/`            | Assets, transactions, portfolio tree/summary/holdings, manual price edit |
+| `analytics`       | `/api/analytics/`            | Wealth allocation, performance, XIRR, historical analytics              |
+| `mutual_funds`    | `/api/mutual-funds/`         | Schemes, MF transactions, MF holdings, SIPs                             |
+| `market_data`     | (internal + stock search)     | Price providers, background price refresh                             |
+| `ai`              | `/api/ai/`                   | Portfolio chat; also mounts `portfolio_news`'s URLs                     |
+| `investments`     | `/api/investments/`          | Excel transaction import, Security Master                              |
 
-Authorization is layered:
-
-- `IsAuthenticated` (Django session) is required everywhere except
-  health/login.
-- `users.permissions` is the **centralized authorization service** — role-
-  rank helpers (`is_role_at_least`, `role_rank`), explicit role-change
-  rules (`assignable_roles_for_create`, `can_change_role`,
-  `can_manage_target_role`), family-scope helpers
-  (`get_family_group_ids`, `get_active_family_group_id`,
-  `get_visible_owner_ids`, `get_manageable_users_queryset`), and reusable
-  DRF permission classes (`IsViewer`, `IsAdmin`, `IsSuperUser`,
-  `IsSystemOwner`, `IsAdminOrSuperUser`) — used consistently instead of
-  ad-hoc role checks scattered through views. Nothing here trusts a
-  role/family ID the client claims; every check re-derives it from the
-  database on every request.
-- `get_visible_owner_ids(user)` is the single function every read (and the
-  manual-price write) endpoint calls to resolve "whose data can this user
-  see": self only if in no family, self + the currently active family's
-  members if in one or more (never an automatic merge of all of a
-  multi-family user's families), or every user in the system for a System
-  Owner.
-- `get_manageable_users_queryset(user)` is the single function the User
-  Management screens use to resolve "which accounts can this user list/
-  edit/deactivate/delete" — role-scoped only (System Owner: everyone;
-  Super User: every Admin + Viewer; Admin: every Viewer; anyone else:
-  themselves), deliberately never family-scoped, so a role's documented
-  capability doesn't silently depend on family setup.
+`users.permissions` is the single centralized authorization service — role-rank
+helpers, family-scope helpers (`get_visible_owner_ids`, `get_manageable_users_queryset`),
+and reusable DRF permission classes. Nothing trusts a role or family ID the client
+claims; every check re-derives it from the database on every request.
 
 ---
 
-## Data model overview
+## 🗃 Data model overview
 
-Key models, grouped by app (see each app's `models.py` for full field
-lists):
+**`users`** — `UserProfile` (role, family memberships, active family), `FamilyGroup`,
+`FamilyMembership`, `UserAuditLog` (append-only audit trail).
 
-**`users`**
+**`investments`** — `Asset`, `Transaction` (source of truth for quantity/invested
+value), `Holding` (derived, rebuildable), `SecurityMaster` (sector, cap-type, AMC name,
+P/E, P/B, ROE, credit rating).
 
-- `UserPreference` — currency, date format, default analytics period.
-- `UserProfile` — the RBAC role (`VIEWER`/`ADMIN`/`SUPERUSER`/
-  `SYSTEM_OWNER`; the stored value for Super User is still `SUPERUSER` —
-  reused from the previous 3-role model to avoid a value-rewrite
-  migration), `family_groups` (many-to-many via `FamilyMembership`),
-  `active_family_group` (the user's personal "currently viewing" family
-  selector), and `created_by` (audit: who created this account). Auto-
-  created for every `User` via a signal, which also keeps `role ==
-SYSTEM_OWNER` in sync with Django's own `is_superuser` flag.
-- `FamilyGroup` — a named shared-visibility family.
-- `FamilyMembership` — the explicit through-model for `UserProfile` ↔
-  `FamilyGroup`, recording `added_by` and `created_at` for each
-  membership grant.
-- `UserAuditLog` — append-only trail for user creation, role changes,
-  family membership changes, and activate/deactivate/delete, each with
-  actor, target, old/new value, and timestamp.
+**`market_data`** — `MarketPrice` (tagged by source: Yahoo Finance, AMFI, or Manual).
 
-**`investments`**
+**`mutual_funds`** — `MutualFundScheme`, `MutualFundNAV`, `MutualFundTransaction`,
+`MutualFundHolding`, `SIP`, `SIPInstallment`.
 
-- `Asset` — one row per security/instrument _per owner_ (`Asset.owner`
-  is still a single `User` FK; family-shared _access_ to an asset is
-  layered on top via `users.permissions.get_visible_owner_ids`, not a
-  change to this field — see
-  [Roles, permissions and family membership](#roles-permissions-and-family-membership)).
-- `Transaction` — buy/sell/SIP/dividend etc., the source of truth for
-  quantity/invested value everywhere; also carries a free-text
-  `family_name` field from the Excel import, a separate, older concept
-  from `FamilyGroup`.
-- `Holding` — the current calculated position per asset (derived,
-  rebuildable from transactions).
-- `PortfolioPosition`, `SecurityMaster` — supporting/reference data.
+**`portfolio_news`** — `NewsArticle`, `NewsArticleSource`, `PortfolioNewsAlert`
+(unique per user/article/holding).
 
-**`market_data`**
-
-- `MarketPrice` — daily prices, tagged by `source` (Yahoo Finance, AMFI,
-  or `MANUAL`); manual rows record `updated_by` for audit.
-- `ManualAssetPrice` — an older, currently-unused parallel model kept for
-  compatibility; the live manual-override path is `MarketPrice(source=MANUAL)`.
-
-**`mutual_funds`**
-
-- `MutualFundScheme`, `MutualFundNAV`, `MutualFundTransaction`,
-  `MutualFundHolding`, `SIP`, `SIPInstallment`.
-
-**`portfolio_news`**
-
-- `NewsArticle` — one global copy of a discovered article (metadata only,
-  no full body stored).
-- `NewsArticleSource` — source-quality tracking.
-- `PortfolioNewsAlert` — the user/holding-specific interpretation of an
-  article, unique on `(user, article, holding_type, holding_id)`.
-
-**`ai`**
-
-- `GeminiUsageLog` — token usage per Gemini call, from both the chat and
-  the news agent.
+**`ai`** — `GeminiUsageLog` (token usage per Gemini call, chat and news agent alike).
 
 ---
 
-## API reference
+## 🔌 API reference
 
 All endpoints require an authenticated Django session unless noted.
-Full detail on request/response shapes lives in the view/serializer code;
-this is the map of what exists.
 
-### Auth & profile — `/api/`
+<details>
+<summary><strong>Auth & profile — <code>/api/</code></strong></summary>
 
 ```
 GET  /api/health/
-POST /api/auth/login/                     returns role + permissions + families
+POST /api/auth/login/
 POST /api/auth/logout/
-GET  /api/auth/me/                        returns role + permissions + families + active family
+GET  /api/auth/me/
 GET  /api/settings/
 POST /api/settings/update/
 POST /api/settings/change-password/
 ```
+</details>
 
-### RBAC / Users / Families / Settings-scoped prices — `/api/settings/`
+<details>
+<summary><strong>RBAC / Users / Families — <code>/api/settings/</code></strong></summary>
 
 ```
-GET   /api/settings/me/                              current user + role + permission flags + families + active family
-POST  /api/settings/me/active-family/                 select which of the caller's own families is "active" (any role)
-GET   /api/settings/users/                            list manageable users (role-scoped — Admin+)
-POST  /api/settings/users/                             create a user (role limited to what the caller may assign)
-GET   /api/settings/users/<id>/                        view a user             (self, or manageable by caller)
-PUT   /api/settings/users/<id>/
-PATCH /api/settings/users/<id>/                        edit a user             (self limited; Admin+ within role scope;
-                                                        family_ids field is System Owner only)
-DELETE /api/settings/users/<id>/                        delete a user           (Admin+, within manageable role scope)
+GET   /api/settings/me/
+POST  /api/settings/me/active-family/
+GET   /api/settings/users/
+POST  /api/settings/users/
+GET/PUT/PATCH/DELETE /api/settings/users/<id>/
 POST  /api/settings/users/<id>/activate/
 POST  /api/settings/users/<id>/deactivate/
-POST  /api/settings/users/<id>/reset-password/          admin-initiated reset
-GET   /api/settings/groups/                            list every family + members   (System Owner only)
-POST  /api/settings/groups/                             create a family                (System Owner only)
-PATCH /api/settings/groups/<id>/                        rename a family                 (System Owner only)
-DELETE /api/settings/groups/<id>/                        delete a family                 (System Owner only)
-POST  /api/settings/groups/<id>/members/                add a member ({"user_id": ...}) — additive, does not remove
-                                                        other family memberships (System Owner only)
-DELETE /api/settings/groups/<id>/members/<user_id>/      remove a member — only this one membership   (System Owner only)
-GET   /api/settings/prices/                             assets visible to this user (own + active family) + price/source/audit info
-PUT/PATCH/DELETE /api/settings/prices/<asset_id>/        edit/clear a manual override (Admin+, family-shared scope)
+POST  /api/settings/users/<id>/reset-password/
+GET/POST /api/settings/groups/
+PATCH/DELETE /api/settings/groups/<id>/
+POST/DELETE  /api/settings/groups/<id>/members/[<user_id>/]
+GET   /api/settings/prices/
+PUT/PATCH/DELETE /api/settings/prices/<asset_id>/
 ```
+</details>
 
-### Portfolio — `/api/portfolio/`
+<details>
+<summary><strong>Portfolio — <code>/api/portfolio/</code></strong></summary>
 
 ```
 GET/POST   /api/portfolio/assets/
@@ -535,34 +283,29 @@ GET/PUT/PATCH/DELETE /api/portfolio/transactions/<id>/
 GET        /api/portfolio/summary/
 GET        /api/portfolio/holdings/
 GET        /api/portfolio/tree/
-PUT/PATCH/DELETE /api/portfolio/assets/<id>/manual-price/   (Admin+, family-shared visibility scope)
+PUT/PATCH/DELETE /api/portfolio/assets/<id>/manual-price/
 ```
+</details>
 
-### Analytics — `/api/analytics/`
+<details>
+<summary><strong>Analytics — <code>/api/analytics/</code></strong></summary>
 
 ```
-GET /api/analytics/summary/
-GET /api/analytics/allocation/
-GET /api/analytics/performance/
-GET /api/analytics/historical/
 GET /api/analytics/wealth/summary/
 GET /api/analytics/wealth/allocation/
 GET /api/analytics/wealth/performance/
 GET /api/analytics/wealth/xirr/
 GET /api/analytics/wealth/investment-summary/
-GET /api/analytics/wealth/performance-by-subclass/
-GET /api/analytics/wealth/allocation-by-advisor/
-GET /api/analytics/wealth/composition-by-amc/
-GET /api/analytics/wealth/equity-analysis/
-GET /api/analytics/wealth/fixed-income-analysis/
 GET /api/analytics/wealth/sector-allocation/
 GET /api/analytics/wealth/market-cap-allocation/
-GET /api/analytics/wealth/non-stock-holding-types/
-GET /api/analytics/wealth/performance-by-advisor/
+GET /api/analytics/wealth/equity-analysis/
+GET /api/analytics/wealth/fixed-income-analysis/
 GET /api/analytics/wealth/historical/
 ```
+</details>
 
-### Mutual Funds & SIPs — `/api/mutual-funds/`
+<details>
+<summary><strong>Mutual Funds & SIPs — <code>/api/mutual-funds/</code></strong></summary>
 
 ```
 GET  /api/mutual-funds/summary/
@@ -572,239 +315,139 @@ POST /api/mutual-funds/transactions/create/
 GET  /api/mutual-funds/schemes/
 GET  /api/mutual-funds/sips/
 GET  /api/mutual-funds/sips/due/
-GET  /api/mutual-funds/sips/summary/
 POST /api/mutual-funds/sips/create/
-POST /api/mutual-funds/sips/<id>/execute/            (deprecated whole-SIP execution)
 POST /api/mutual-funds/sip-installments/<id>/execute/
-GET  /api/mutual-funds/csrf/
 ```
+</details>
 
-### Investments (import & reference data) — `/api/investments/`
+<details>
+<summary><strong>Investments & AI — <code>/api/investments/</code>, <code>/api/ai/</code></strong></summary>
 
 ```
-POST /api/investments/import/                Excel/CSV transaction import; a "Summary" sheet is
-                                              optional (a Transactions-only workbook is valid); every
-                                              touched asset gets an immediate background price refresh
+POST /api/investments/import/
 GET  /api/investments/security-master/
 GET/PATCH /api/investments/security-master/<id>/
-```
 
-### Market data
-
-```
-GET /api/market-data/stocks/search/
-```
-
-### AI Chat & Portfolio News — `/api/ai/`
-
-```
 POST /api/ai/chat/
 GET  /api/ai/news/
-GET  /api/ai/news/<alert_id>/
 GET  /api/ai/notifications/
 POST /api/ai/notifications/<alert_id>/read/
-POST /api/ai/notifications/read-all/
 ```
+</details>
 
 ---
 
-## Frontend architecture
+## 🖥 Frontend architecture
 
 - **Standalone Angular components** throughout — no `NgModule`s.
-- `core/guards/auth.guard.ts` checks the Django session (`/api/auth/me/`)
-  and, on success, also loads the user's role via `RbacService` before
-  letting the route activate.
-- `core/services/rbac.service.ts` is the single source of role/permission/
-  family state in the frontend — role checks (`isViewer()`, `isAdmin()`,
-  `isSuperUser()`, `isSystemOwner()`), permission checks
-  (`canManageUsers()`, `canEditPrices()`, `canCreateAdmin()`,
-  `canCreateViewer()`, `canCreateSuperUser()`, `canCreateSystemOwner()`,
-  `canChangeRoles()`, `canManageFamilies()`, `canViewAllFamilies()`,
-  `canAssignMultipleFamilies()`, `assignableRoles()`), and family state
-  (`families()`, `activeFamily()`, `hasMultipleFamilies()`,
-  `setActiveFamily()`) — used to hide controls, but every action is still
-  independently authorized by the backend.
-- One dedicated API client service per backend area under
-  `core/services/` (`portfolio-api`, `wealth-api`, `mutual-funds-api`,
-  `sip-api`, `market-data-api`, `investments-api`, `user-management-api`,
-  `settings-api`, `settings-price-api`, `manual-price`, `ai-chat-api`,
-  `news-api`).
-- `core/services/toast.service.ts` — app-wide success/error toasts.
-- `core/services/browser-notification.service.ts` — requests permission
-  once and shows native browser notifications for new Critical/High news
-  alerts (polled every 60s from `header.component.ts`).
-- The header's profile menu shows the user's role label and, for a user in
-  more than one family, a family switcher — selecting a different family
-  reloads the app so every screen re-fetches data scoped to the newly
-  selected family.
-- Routes (`app/app.routes.ts`): `/login` is public; everything else sits
-  under a `ShellComponent` behind `authGuard` — `/dashboard`, `/portfolio`,
-  `/reports`, `/analytics`, `/settings`, `/ai-chat`, `/portfolio-news`,
-  `/portfolio-news/:id`.
-- Settings (`features/settings/`) is a single component with tabs (Account
-  / Preferences / Security / User Management / Family Management / Manual
-  Prices); User Management and Manual Prices tabs render for Admin+, and
-  Family Management renders for System Owner only. Sub-navigation is
-  client-side tab state, not distinct routes — every tab's content is
-  still gated by the same `RbacService` checks, and the underlying APIs
-  independently reject unauthorized requests regardless of which tab is
-  "active" in the DOM.
+- `core/services/rbac.service.ts` is the single source of role/permission/family state
+  — used to hide controls, but every action is still independently authorized by the
+  backend.
+- One dedicated API client service per backend area under `core/services/`, each
+  reading its base URL from `environment.apiUrl` (see `src/environments/`) — nothing
+  hardcodes a host.
+- `core/services/browser-notification.service.ts` shows native browser notifications
+  for new Critical/High news alerts, polled every 60 seconds.
+- Routes sit under a `ShellComponent` behind `authGuard`: `/dashboard`, `/portfolio`,
+  `/reports`, `/analytics`, `/settings`, `/ai-chat`, `/portfolio-news`.
 
 ---
 
-## Automated jobs / schedulers
+## ⏱ Automated jobs / schedulers
 
-Three independent in-process mechanisms — deliberately not using
-Celery/Redis:
+Four independent in-process mechanisms, all started automatically from each app's
+`AppConfig.ready()` — deliberately not using Celery/Redis, and correctly detecting
+whether they're running under `runserver`, **waitress**, or **uvicorn** so they start
+exactly once regardless of how the server is launched (see
+[`config/scheduler_guard.py`](backend/config/scheduler_guard.py)):
 
-1. **Market price refresh** — `market_data/services/market_price_scheduler.py`
-   starts an in-process background thread automatically when the Django
-   dev/production server starts (see `market_data/apps.py`), and refreshes
-   Stock/ETF prices (Yahoo Finance) and mutual fund NAVs (AMFI) every
-   **15 minutes**.
-
-2. **Daily refresh** — `market_data/services/daily_refresh_scheduler.py`
-   runs `run_scheduled_refresh` once per calendar day of uptime (AMFI NAV,
-   security master ratios, SIP sync/execute, portfolio news). The AMFI NAV
-   import commits in bounded batches (`AMFIService.NAV_IMPORT_BATCH_SIZE`,
-   default 500) rather than one transaction spanning the whole ~14,000-
-   scheme file, so it no longer holds SQLite's write lock long enough to
-   block unrelated concurrent requests.
-
-3. **Post-import price refresh** — `investments/services/auto_price_refresh.py`
-   fires a short-lived background thread right after a transaction import
-   commits, fetching a fresh price for every asset the import touched, so
-   a newly added stock/mutual fund/bond shows a live price immediately
-   instead of waiting for (1) or (2) above.
-
-4. **Portfolio News monitoring** — _not_ automatic. Run
-   `python manage.py monitor_portfolio_news` manually, or schedule it with
-   the OS's own scheduler (Windows Task Scheduler instructions and a ready
-   `run_news_monitor.bat` are provided — see `SETUP.md`).
+1. **Market price refresh** — every 15 minutes, Stock/ETF prices (Yahoo Finance) and
+   mutual fund NAVs (AMFI).
+2. **Daily refresh** — once per calendar day of uptime: AMFI NAV, security master
+   ratios, SIP sync/execute.
+3. **Post-import price refresh** — fires right after a transaction import commits, so
+   a newly added asset shows a live price immediately.
+4. **Portfolio News monitoring** — fully automatic, same interval-controlled pattern
+   as the others (`NEWS_MONITOR_INTERVAL`, default 30 minutes). No external scheduler,
+   no scheduled task, no `.bat` file to configure — it runs for as long as the server
+   process is up.
 
 ---
 
-## Environment variables
+## 🔧 Environment variables
 
-Loaded from `backend/.env` (via `python-dotenv`) — never commit this file.
+Loaded from `backend/.env` (see [`.env.example`](backend/.env.example) for the full
+template) — every value has a dev-safe default, so local development works with no
+`.env` file at all.
 
-| Variable                                | Required for                     | Default             | Notes                                            |
-| --------------------------------------- | -------------------------------- | ------------------- | ------------------------------------------------ |
-| `GEMINI_API_KEY`                        | AI Chat, Portfolio News analysis | —                   | Either this or `GOOGLE_API_KEY`                  |
-| `GOOGLE_API_KEY`                        | AI Chat, Portfolio News analysis | —                   | Alternate name accepted for the same key         |
-| `GEMINI_MODEL`                          | AI Chat, Portfolio News analysis | `gemini-3.6-flash`  | Override the Gemini model used                   |
-| `NEWS_MONITOR_LOOKBACK_DAYS`            | Portfolio News                   | `3`                 | How many days back the news search window covers |
-| `NEWS_MONITOR_AI_CALL_DELAY_SECONDS`    | Portfolio News                   | `4`                 | Delay between Gemini calls in the monitor run    |
-| `NEWS_MONITOR_MAX_ARTICLES_PER_HOLDING` | Portfolio News                   | (see `pipeline.py`) | Caps articles analyzed per holding per run       |
-| `NEWS_MONITOR_MIN_RELEVANCE_SCORE`      | Portfolio News                   | (see `pipeline.py`) | Minimum relevance to keep an alert               |
-| `NEWS_MONITOR_MIN_ALERT_SCORE`          | Portfolio News                   | `2.0`               | Minimum priority score to keep an alert          |
-
-None of the RBAC/family/manual-price features require any environment
-variables — they work out of the box once migrations are run.
+| Variable                  | Purpose                                        | Dev default              |
+| --------------------------- | ------------------------------------------------- | -------------------------- |
+| `SECRET_KEY`                 | Django's cryptographic signing key                | insecure placeholder      |
+| `DEBUG`                      | Debug mode                                        | `True`                    |
+| `ALLOWED_HOSTS`               | Comma-separated allowed hosts                     | *(empty)*                 |
+| `CORS_ALLOWED_ORIGINS`        | Comma-separated allowed frontend origins           | `http://localhost:4200`   |
+| `CSRF_TRUSTED_ORIGINS`        | Comma-separated trusted origins for CSRF           | `http://localhost:4200`   |
+| `SESSION_COOKIE_SECURE`       | Require HTTPS for the session cookie               | `False`                   |
+| `CSRF_COOKIE_SECURE`          | Require HTTPS for the CSRF cookie                  | `False`                   |
+| `SECURE_SSL_REDIRECT`         | Force-redirect HTTP → HTTPS                        | `False`                   |
+| `GEMINI_API_KEY`              | AI Chat, Portfolio News analysis (or `GOOGLE_API_KEY`) | —                     |
+| `NEWS_MONITOR_INTERVAL`       | Seconds between automatic news monitor runs        | `1800` (30 min)           |
 
 ---
 
-## Management commands
+## 📜 Management commands
 
 Run any of these from `backend/` with the virtual environment active:
 `python manage.py <command>`.
 
-| Command                       | App              | What it does                                                                                       |
-| ----------------------------- | ---------------- | -------------------------------------------------------------------------------------------------- |
-| `monitor_portfolio_news`      | `portfolio_news` | Runs one full news-monitoring pass for every user                                                  |
-| `gemini_usage`                | `ai`             | Prints a summary of Gemini token usage (chat + news)                                               |
-| `import_transactions`         | `investments`    | Import transactions from an Excel workbook (a "Summary" sheet is optional)                         |
-| `backfill_price_history`      | `investments`    | Backfill historical Stock/ETF/NAV prices from each asset's earliest transaction                    |
-| `link_security_master`        | `investments`    | Link Assets to their matching SecurityMaster row by ISIN (dry-run by default; `--apply` to write)  |
-| `load_security_master_data`   | `investments`    | Load researched sector/cap-type/PE/PB/ROE data into SecurityMaster (dry-run by default; `--apply`) |
-| `refresh_security_master`     | `investments`    | Refresh SecurityMaster fundamentals from Yahoo Finance (dry-run by default; `--apply`)             |
-| `repair_asset_identity`       | `investments`    | Repair Excel-imported Asset identity from the synced transaction workbook                          |
-| `fetch_market_data`           | `market_data`    | Fetch historical market data for one Yahoo Finance symbol                                          |
-| `refresh_market_data`         | `market_data`    | Refresh market data + holdings for all active Stock/ETF assets                                     |
-| `update_market_prices`        | `market_data`    | One-shot price refresh for all Stock/ETF assets (what the background scheduler does periodically)  |
-| `execute_sips`                | `mutual_funds`   | Execute all due SIP installments for a user                                                        |
-| `fetch_amfi_nav`              | `mutual_funds`   | Download/import the current AMFI NAV file (batched commits, see Automated jobs)                    |
-| `import_mf_nav`               | `mutual_funds`   | Import historical mutual fund NAV data                                                             |
-| `rebuild_mf_holdings`         | `mutual_funds`   | Rebuild mutual-fund holdings from transactions                                                     |
-| `recalculate_mf_transactions` | `mutual_funds`   | Recalculate MF transaction NAV/units from historical NAV                                           |
-| `sync_sip_installments`       | `mutual_funds`   | Generate/synchronize/reconcile SIP installments                                                    |
-| `rebuild_holdings`            | `portfolio`      | Rebuild portfolio holdings from transactions for a user                                            |
+| Command                        | App              | What it does                                                          |
+| --------------------------------| -----------------| -------------------------------------------------------------------------|
+| `monitor_portfolio_news`        | `portfolio_news` | One full news-monitoring pass for every user (also runs automatically)   |
+| `gemini_usage`                   | `ai`             | Prints a summary of Gemini token usage                                  |
+| `link_security_master`           | `investments`    | Link Assets to their SecurityMaster row by ISIN (dry-run by default)     |
+| `load_security_master_data`      | `investments`    | Load researched sector/cap-type/P-E/P-B/ROE data into SecurityMaster     |
+| `import_amfi_cap_classification` | `investments`    | Classify stocks Large/Mid/Small Cap by AMFI rank (dry-run by default)    |
+| `fetch_amfi_nav`                 | `mutual_funds`   | Download/import the current AMFI NAV file (batched commits)              |
+| `execute_sips`                   | `mutual_funds`   | Execute all due SIP installments for a user                             |
+| `rebuild_holdings`               | `portfolio`      | Rebuild portfolio holdings from transactions for a user                  |
+
+See [`SETUP.md`](SETUP.md) for the commands you'll actually run during first-time setup.
 
 ---
 
-## Testing
+## ✅ Testing
 
 Backend: `cd backend && python manage.py test` (or target one app, e.g.
-`python manage.py test users portfolio -v 2`). `users/tests.py` is the
-main RBAC/family test suite (100+ tests covering every role × capability
-combination, the explicit "Limited" role-change rules, last-active-
-System-Owner safeguards, multi-family scoping and active-family switching,
-family-shared manual price editing, audit logging, and the direct-API
-privilege-escalation attempts called out in the RBAC design — a Viewer
-attempting a manual price update, an Admin attempting Super User creation,
-a Super User attempting family reassignment, and so on). `portfolio/tests.py`
-includes regression tests that specifically assert combined multi-owner
-XIRR figures are correct (not just non-crashing). `investments/tests.py`
-covers the transaction importer (including the optional-Summary-sheet
-behavior) and the post-import auto price refresh. `mutual_funds/tests.py`
-covers the AMFI NAV batched-import behavior.
+`python manage.py test users portfolio -v 2`). `users/tests.py` covers every
+role × capability combination and privilege-escalation attempt; `mutual_funds/tests.py`
+covers batched AMFI NAV import; `investments/tests.py` covers the transaction importer
+and AMC-name/quant auto-enrichment.
 
-A couple of things worth knowing before trusting a red/green result blindly:
-
-- The `mutual_funds` SIP-scheduling tests (`SIPEngineTests`) anchor their
-  fixture dates to `date.today()` at test-run time (via `dateutil
-.relativedelta`), specifically so they keep passing indefinitely rather
-  than drifting out of date the way an earlier version (hardcoded around
-  a fixed calendar date) eventually did.
-- `portfolio_news` tests need `feedparser` (and its own transitive
-  dependencies) correctly installed; install `requirements.txt` as-is
-  (not with `--no-deps`) or its test module will fail to import.
-
-Frontend: `cd frontend && npm test` (unit tests), `npm run build` (verifies
-the whole app compiles).
+Frontend: `cd frontend && npm test` (unit tests), `npm run build` (verifies the whole
+app compiles).
 
 ---
 
-## Known limitations & production cautions
+## ⚠️ Known limitations
 
-This branch is configured for **local development**, not public deployment:
-
-- `DEBUG = True`, `ALLOWED_HOSTS = []`, Django `SECRET_KEY` is hard-coded
-  in `config/settings.py`.
-- CORS/CSRF are only configured for `http://localhost:4200` — accessing
-  the frontend via a different host/port (e.g. `127.0.0.1:4200` instead
-  of `localhost:4200`) will fail CORS/CSRF checks even though it's the
-  same machine, since browsers treat them as different origins.
-- Angular API clients use a hard-coded `http://localhost:8000` base URL.
-- DRF's global default permission is `AllowAny`; individual sensitive
-  endpoints explicitly require authentication/role — there is no
-  project-wide default-deny.
-- SQLite is the default database; WAL mode + a busy-timeout are enabled to
-  reduce (not eliminate) "database is locked" errors under concurrent
-  load, but there is still no automated backup strategy, and WAL mode
-  creates extra `-wal`/`-shm` sidecar files next to `db.sqlite3` that must
-  stay out of version control (make sure `.gitignore` covers
-  `db.sqlite3-wal` and `db.sqlite3-shm`, not just `db.sqlite3` itself) and
-  can hold an OS-level file lock while the server is running.
-- `Asset`/`Transaction`/etc. are still stored against a single owning
-  `User` account; family-shared access (viewing, and now manual price
-  editing) is layered on top via the visibility/authorization functions in
+- **SQLite** is the default database — WAL mode + busy-timeout reduce (not eliminate)
+  write contention under concurrent load, and there's no automated backup strategy yet.
+  Fine for a household; a real production deployment with many concurrent writers
+  should move to Postgres.
+- The four background schedulers assume **exactly one running server process** — if
+  ever deployed behind multiple worker processes (not threads), each process would
+  start its own independent copy of every scheduler.
+- `Asset`/`Transaction` are still stored against a single owning `User` account;
+  family-shared access is layered on top via the authorization functions in
   `users/permissions.py`, not a change to the underlying ownership field.
-  A user with no assets of their own but a shared family can see and edit
-  family members' data through this layer, but the data itself is still
-  physically attributed to whichever account originally created it.
-- Portfolio News notifications are **browser polling**, not real push —
-  they only fire while the Angular app is open and polling (every 60s).
+- Portfolio News notifications are **browser polling** (every 60s), not real push —
+  they only fire while the Angular app is open.
 
-Before any production deployment, at minimum: move the secret key to an
-environment variable, disable `DEBUG`, set real `ALLOWED_HOSTS`, configure
-production CORS/CSRF origins, replace hard-coded `localhost` URLs, move to
-a production-grade database with backups, run behind a real WSGI/ASGI
-server and reverse proxy, and review cookie/session security (HTTPS,
-`Secure`/`HttpOnly` flags).
+See [`SETUP.md`](SETUP.md) for what to configure before any real deployment
+(`.env`, `environment.prod.ts`, and the WSGI/ASGI serving options).
 
 ---
 
-## License
+## 📄 License
 
 See [`License.md`](License.md).

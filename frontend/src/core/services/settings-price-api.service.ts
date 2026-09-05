@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 
 import { Observable } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 export interface SettingsPriceRow {
   asset_id: number;
@@ -22,7 +23,7 @@ export interface SettingsPriceRow {
 export class SettingsPriceApiService {
   private readonly http = inject(HttpClient);
 
-  private readonly baseUrl = 'http://localhost:8000/api/settings';
+  private readonly baseUrl = `${environment.apiUrl}/api/settings`;
 
   listPrices(): Observable<{ results: SettingsPriceRow[] }> {
     return this.http.get<{ results: SettingsPriceRow[] }>(`${this.baseUrl}/prices/`, {

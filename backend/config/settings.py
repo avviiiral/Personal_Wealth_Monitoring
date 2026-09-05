@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -20,16 +21,63 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 
+def _env_bool(name, default):
+    """
+    Env vars are always strings ("True"/"False"/"1"/"0") - this
+    turns that into a real bool, defaulting to `default` (a real
+    bool, not a string) when the var isn't set at all.
+    """
+
+    value = os.environ.get(name)
+
+    if value is None:
+        return default
+
+    return value.strip().lower() in ("true", "1", "yes")
+
+
+def _env_list(name, default):
+    """
+    Env vars for ALLOWED_HOSTS/CORS_ALLOWED_ORIGINS/etc. are a
+    single comma-separated string - this splits it into the list
+    Django actually wants, defaulting to `default` (a real list)
+    when the var isn't set at all.
+    """
+
+    value = os.environ.get(name)
+
+    if value is None:
+        return default
+
+    return [
+        item.strip()
+        for item in value.split(",")
+        if item.strip()
+    ]
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
+#
+# Every deployment-sensitive value below reads from an environment
+# variable first, falling back to the exact value this project has
+# always used for local dev if that variable isn't set - so nothing
+# changes for local dev with no .env file present, and a real
+# deployment sets these for real via .env (see .env.example) or the
+# host's own environment variables. This is the ONE place these
+# values are read - never hardcode a deployment-specific value
+# anywhere else.
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-duf0^3c*i0zzokar066d50xhzp%0i3j5h40dech-t%%l*=us8k'
+SECRET_KEY = os.environ.get(
+    "SECRET_KEY",
+    'django-insecure-duf0^3c*i0zzokar066d50xhzp%0i3j5h40dech-t%%l*=us8k',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = _env_bool("DEBUG", True)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = _env_list("ALLOWED_HOSTS", [])
 
 
 # Application definition
@@ -184,6 +232,13 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 
+# Not set before - fine while DEBUG=True (Django serves static
+# files itself in that mode), but collectstatic needs somewhere to
+# put files, and Django stops serving static files itself the
+# moment DEBUG=False - without this, admin/DRF's own CSS breaks in
+# production with no error, just an unstyled page.
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
@@ -212,15 +267,25 @@ REST_FRAMEWORK = {
 
 CORS_ALLOW_ALL_ORIGINS = False
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:4200",
-]
+CORS_ALLOWED_ORIGINS = _env_list(
+    "CORS_ALLOWED_ORIGINS",
+    ["http://localhost:4200"],
+)
 
 CORS_ALLOW_CREDENTIALS = True
 
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:4200",
-]
+CSRF_TRUSTED_ORIGINS = _env_list(
+    "CSRF_TRUSTED_ORIGINS",
+    ["http://localhost:4200"],
+)
+
+# Not set at all before - fine while everything is plain
+# http://localhost, but once this is served over HTTPS these need
+# to be on, or cookies get sent over an insecure connection even
+# when a secure one is available.
+SESSION_COOKIE_SECURE = _env_bool("SESSION_COOKIE_SECURE", False)
+CSRF_COOKIE_SECURE = _env_bool("CSRF_COOKIE_SECURE", False)
+SECURE_SSL_REDIRECT = _env_bool("SECURE_SSL_REDIRECT", False)
 
 # ============================================================
 # PWMS - Time Zone

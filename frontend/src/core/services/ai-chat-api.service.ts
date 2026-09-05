@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 export interface AiChatResponse {
   answer?: string;
@@ -14,7 +15,7 @@ export interface AiChatResponse {
 export class AiChatApiService {
   private readonly http = inject(HttpClient);
 
-  private readonly baseUrl = 'http://localhost:8000/api/ai';
+  private readonly baseUrl = `${environment.apiUrl}/api/ai`;
 
   // ======================================================
   // CSRF

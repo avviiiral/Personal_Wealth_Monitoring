@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable, switchMap } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 /* ==========================================================
    TRANSACTION IMPORT
@@ -28,9 +29,9 @@ export interface ImportTransactionsResponse {
 export class InvestmentsApiService {
   private readonly http = inject(HttpClient);
 
-  private readonly baseUrl = 'http://localhost:8000/api/investments';
+  private readonly baseUrl = `${environment.apiUrl}/api/investments`;
 
-  private readonly csrfUrl = 'http://localhost:8000/api/health/';
+  private readonly csrfUrl = `${environment.apiUrl}/api/health/`;
 
   // ==========================================================
   // CSRF TOKEN
